@@ -1,0 +1,8 @@
+faster-whisper>=1.1
+sounddevice
+numpy
+pystray
+pillow
+keyboard; sys_platform == "win32"
+pynput; sys_platform == "darwin"
+pyobjc-framework-Cocoa; sys_platform == "darwin"

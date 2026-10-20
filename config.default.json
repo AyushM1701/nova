@@ -1,0 +1,50 @@
+{
+  "hotkey": "",
+  "start_mode": "assistant",
+  "wake_word": true,
+  "voice": {
+    "stt_model": "small",
+    "stt_accurate_model": "large-v3-turbo",
+    "language": "auto",
+    "tts_voice": "",
+    "silence_ms": 1200,
+    "max_record_s": 20
+  },
+  "dictation": {
+    "editing": "light",
+    "silence_ms": 2500,
+    "max_record_s": 120,
+    "llm_min_words": 30,
+    "claude_model": "haiku",
+    "codex_model": "",
+    "dictionary": [
+      "Nova",
+      "Claude Code",
+      "Codex"
+    ],
+    "replacements": {}
+  },
+  "brain": {
+    "engine": "claude",
+    "claude_model": "",
+    "codex_model": "",
+    "codex_sandbox": "workspace-write",
+    "max_turns": 25,
+    "followup_window_min": 5
+  },
+  "projects": {
+    "aliases": {},
+    "exclude": [
+      "AppData",
+      "Library/Application Support",
+      "/private/var/folders/",
+      "/tmp/"
+    ]
+  },
+  "safety": {
+    "confirm_timeout_s": 30
+  },
+  "overlay": {
+    "hide_after_s": 6
+  }
+}

@@ -1,0 +1,8 @@
+# created by setup / at runtime, specific to each computer
+.venv/
+__pycache__/
+*.pyc
+config.json
+data/
+logs/
+workspace/

@@ -1,0 +1,3 @@
+# NVIDIA GPU speech recognition on Windows (setup installs these only when it finds an NVIDIA GPU)
+nvidia-cublas-cu12
+nvidia-cudnn-cu12>=9,<10
