@@ -124,3 +124,7 @@ helpers/              clipboard copy helpers the AI can call
 setup.* / uninstall.* installers
 tests.py              self-checks (python tests.py)
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
