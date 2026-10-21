@@ -15,16 +15,26 @@ $ModelBytes = 2.1GB  # shortcut: approximate size of the two speech models, only
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 [Windows.Forms.Application]::EnableVisualStyles()
-Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public static class NovaDpi { [DllImport("user32.dll")] public static extern bool SetProcessDPIAware(); }'
+Add-Type -TypeDefinition @'
+using System; using System.Runtime.InteropServices;
+public static class NovaDpi {
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int v, int size);
+    [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)] static extern int SetWindowTheme(IntPtr h, string app, string id);
+    // a dark title bar (DWMWA_USE_IMMERSIVE_DARK_MODE) and dark scrollbars to match the dark window; older Windows ignores both
+    public static void Dark(IntPtr form, IntPtr scroller) { int on = 1; DwmSetWindowAttribute(form, 20, ref on, 4); SetWindowTheme(scroller, "DarkMode_Explorer", null); }
+}
+'@
 [void][NovaDpi]::SetProcessDPIAware()
 $g = [Drawing.Graphics]::FromHwnd([IntPtr]::Zero); $Scale = $g.DpiX / 96; $g.Dispose()
 function Px([double]$v) { [int]($v * $Scale) }
 function Rgb($r, $gr, $b) { [Drawing.Color]::FromArgb($r, $gr, $b) }
 $Bg, $Fg, $Dim, $Accent, $TrackColor, $Bad = (Rgb 22 22 26), (Rgb 242 242 244), (Rgb 163 163 173), (Rgb 124 92 255), (Rgb 42 42 49), (Rgb 255 122 122)
+$AccentFill = Rgb 115 87 255  # the app's dark-mode accent: white text on it passes 4.5:1, on #7c5cff it doesn't
 
 # ---------- the window ----------
 $form = New-Object Windows.Forms.Form
-$form.Text = "Nova setup"; $form.ClientSize = New-Object Drawing.Size((Px 560), (Px 236))
+$form.Text = "Nova setup"; $form.ClientSize = New-Object Drawing.Size((Px 560), (Px 256))
 $form.FormBorderStyle = "FixedSingle"; $form.MaximizeBox = $false; $form.StartPosition = "CenterScreen"
 $form.BackColor = $Bg; $form.ForeColor = $Fg; $form.Font = New-Object Drawing.Font("Segoe UI", 10)
 $icoPath = Join-Path $Root "data\nova.ico"
@@ -35,27 +45,29 @@ $dot.BackColor = $Accent
 $path = New-Object Drawing.Drawing2D.GraphicsPath; $path.AddEllipse(0, 0, (Px 12), (Px 12)); $dot.Region = New-Object Drawing.Region($path)
 $title = Add (New-Object Windows.Forms.Label) 48 22 480 32
 $title.Font = New-Object Drawing.Font("Segoe UI Semibold", 15); $title.Text = "Installing Nova"
-$status = Add (New-Object Windows.Forms.Label) 28 66 504 24
+$status = Add (New-Object Windows.Forms.Label) 28 66 504 44  # two lines: errors and the closing message run long
 $status.ForeColor = $Dim; $status.Text = "Getting ready"
-$track = Add (New-Object Windows.Forms.Panel) 28 100 504 6
+$track = Add (New-Object Windows.Forms.Panel) 28 120 504 6
 $track.BackColor = $TrackColor
 $fill = New-Object Windows.Forms.Panel; $fill.BackColor = $Accent; $fill.Size = New-Object Drawing.Size(0, (Px 6)); $track.Controls.Add($fill)
-$detail = Add (New-Object Windows.Forms.Label) 28 114 504 22
+$detail = Add (New-Object Windows.Forms.Label) 28 134 504 22
 $detail.ForeColor = $Dim; $detail.Font = New-Object Drawing.Font("Segoe UI", 9)
-$log = Add (New-Object Windows.Forms.TextBox) 28 144 504 0
+$log = Add (New-Object Windows.Forms.TextBox) 28 164 504 0
 $log.Multiline = $true; $log.ReadOnly = $true; $log.ScrollBars = "Vertical"; $log.BorderStyle = "None"
 $log.BackColor = (Rgb 15 15 18); $log.ForeColor = $Dim; $log.Font = New-Object Drawing.Font("Consolas", 8.5); $log.Visible = $false
-$toggle = Add (New-Object Windows.Forms.LinkLabel) 28 192 140 24
+$toggle = Add (New-Object Windows.Forms.LinkLabel) 28 212 140 24
 $toggle.Text = "Show details"; $toggle.LinkColor = $Dim; $toggle.ActiveLinkColor = $Fg; $toggle.LinkBehavior = "HoverUnderline"
-$button = Add (New-Object Windows.Forms.Button) 412 184 120 34
+$button = Add (New-Object Windows.Forms.Button) 412 204 120 34
 $button.Text = "Cancel"; $button.FlatStyle = "Flat"; $button.BackColor = $TrackColor; $button.ForeColor = $Fg
 $button.FlatAppearance.BorderSize = 0; $button.Cursor = "Hand"
+$form.CancelButton = $button  # Esc cancels, then closes
+[NovaDpi]::Dark($form.Handle, $log.Handle)
 
 function Layout {
     $extra = if ($log.Visible) { 150 } else { 0 }
     $log.Height = Px ($extra - 14)
-    $toggle.Top = Px (192 + $extra); $button.Top = Px (184 + $extra)
-    $form.ClientSize = New-Object Drawing.Size((Px 560), (Px (236 + $extra)))
+    $toggle.Top = Px (212 + $extra); $button.Top = Px (204 + $extra)
+    $form.ClientSize = New-Object Drawing.Size((Px 560), (Px (256 + $extra)))
     $toggle.Text = if ($log.Visible) { "Hide details" } else { "Show details" }
 }
 $toggle.add_LinkClicked({ $log.Visible = -not $log.Visible; Layout })
@@ -169,20 +181,20 @@ try {
         if ((Run $Base @("-m", "venv", $Venv)) -ne 0) { throw "Couldn't create Nova's Python environment (see details)." }
     }
 
-    Step "Installing libraries"
-    $detail.Text = "This takes a minute or two the first time."
-    [void](Run $Py @("-m", "pip", "install", "--quiet", "--disable-pip-version-check", "--upgrade", "pip"))
-    if ((Run $Py @("-m", "pip", "install", "--quiet", "--disable-pip-version-check", "-r", (Join-Path $Root "requirements.txt"))) -ne 0) {
-        throw "Installing libraries failed. Check your internet connection; the details say more."
-    }
-
     Step "Checking for an NVIDIA graphics card"
+    $pipArgs = @("-m", "pip", "install", "--quiet", "--disable-pip-version-check", "--prefer-binary", "-r", (Join-Path $Root "requirements.txt"))
     $gpu = $false
     if (Has "nvidia-smi") { & nvidia-smi -L *> $null; $gpu = ($LASTEXITCODE -eq 0) }
     if ($gpu) {
         $detail.Text = "Found one: adding fast GPU speech recognition (about 1 GB)."
-        [void](Run $Py @("-m", "pip", "install", "--quiet", "--disable-pip-version-check", "-r", (Join-Path $Root "requirements-gpu.txt")))
+        $pipArgs += @("-r", (Join-Path $Root "requirements-gpu.txt"))  # one pip run resolves and installs both lists
     } else { $detail.Text = "None found: speech recognition will use the processor." }
+
+    Step "Installing libraries"
+    $detail.Text = "This takes a minute or two the first time."
+    if ((Run $Py $pipArgs) -ne 0) {
+        throw "Installing libraries failed. Check your internet connection; the details say more."
+    }
 
     Step "Downloading the speech models (about 2 GB, once)"
     $hub = Join-Path $env:USERPROFILE ".cache\huggingface\hub"
@@ -209,6 +221,27 @@ try {
     Step "Adding Nova to the Start menu"
     Push-Location $Root; & $Py -m core.icon $icoPath; Pop-Location
     $shell = New-Object -ComObject WScript.Shell
+    # the Nova window says it is "Nova.Assistant"; a shortcut with the same app ID makes Windows put the window
+    # under that shortcut's taskbar pin instead of a second button (WScript.Shell can't set it)
+    Add-Type -TypeDefinition @'
+using System; using System.Runtime.InteropServices;
+public static class NovaAppId {
+    [StructLayout(LayoutKind.Sequential, Pack = 4)] struct PropertyKey { public Guid fmtid; public uint pid; }
+    [StructLayout(LayoutKind.Explicit, Size = 16)] struct PropVariant { [FieldOffset(0)] public ushort vt; [FieldOffset(8)] public IntPtr p; }
+    [ComImport, Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IPropertyStore { void GetCount(out uint c); void GetAt(uint i, out PropertyKey k); void GetValue(ref PropertyKey k, IntPtr v); void SetValue(ref PropertyKey k, ref PropVariant v); void Commit(); }
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+    static extern void SHGetPropertyStoreFromParsingName(string path, IntPtr pbc, int flags, ref Guid iid, [MarshalAs(UnmanagedType.Interface)] out IPropertyStore store);
+    public static void Set(string lnk, string id) {
+        Guid iid = typeof(IPropertyStore).GUID; IPropertyStore store;
+        SHGetPropertyStoreFromParsingName(lnk, IntPtr.Zero, 2, ref iid, out store);  // GPS_READWRITE
+        var key = new PropertyKey { fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), pid = 5 };  // System.AppUserModel.ID
+        var value = new PropVariant { vt = 31, p = Marshal.StringToCoTaskMemUni(id) };  // VT_LPWSTR
+        try { store.SetValue(ref key, ref value); store.Commit(); }
+        finally { Marshal.FreeCoTaskMem(value.p); Marshal.ReleaseComObject(store); }
+    }
+}
+'@
     function Make-Shortcut($path) {
         $s = $shell.CreateShortcut($path)
         $s.TargetPath = $PyW
@@ -217,6 +250,7 @@ try {
         $s.IconLocation = $icoPath
         $s.Description = "Nova voice assistant"
         $s.Save()
+        try { [NovaAppId]::Set($path, "Nova.Assistant") } catch { Note "Taskbar grouping not set: $($_.Exception.Message)" }
     }
     Make-Shortcut (Join-Path ([Environment]::GetFolderPath("Programs")) "Nova.lnk")
     $startup = Join-Path ([Environment]::GetFolderPath("Startup")) "Nova.lnk"
@@ -234,14 +268,14 @@ try {
     $title.Text = "Nova is installed"
     $status.Text = "Opening Nova. It will walk you through the microphone, your AI and your shortcut."
     $detail.Text = "Nova lives in the hidden icons area next to the clock (the ^ arrow)."
-    $button.Text = "Close"; $button.BackColor = $Accent
+    $button.Text = "Close"; $button.BackColor = $AccentFill
     Start-Process -FilePath $PyW -ArgumentList "`"$(Join-Path $Root 'nova.py')`"" -WorkingDirectory $Root
     $until = (Get-Date).AddSeconds(6)
     while ($form.Visible -and (Get-Date) -lt $until) { Pump }
     if ($form.Visible) { $form.Close() }
 } catch {
     $script:finished = $true
-    $dot.BackColor = $Bad
+    $dot.BackColor = $Bad; $fill.BackColor = $Bad
     $title.Text = if ($script:cancelled) { "Setup cancelled" } else { "Setup stopped" }
     $status.ForeColor = $Bad; $status.Text = "$($_.Exception.Message)"
     $detail.Text = "Nothing outside the Nova folder was changed. Run setup again any time."

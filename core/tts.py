@@ -147,13 +147,14 @@ def download():
             f.write(block)
             done += len(block)
             print(f"{done >> 20} of {total >> 20} MB", flush=True)
+    print("Unpacking…", flush=True)
     with tarfile.open(part, "r:bz2") as tar:
-        names = tar.getnames()
-        if any(n.startswith(("/", "\\")) or ".." in Path(n).parts for n in names):
-            raise ValueError("unexpected paths in the voice download")
         try:
-            tar.extractall(KOKORO.parent, filter="data")  # also refuses links that point out of the folder
-        except TypeError:  # Python 3.11 before 3.11.4 has no filter argument; the names were checked above
+            # one pass over the archive: listing names first would decompress all 330 MB of bz2 twice
+            tar.extractall(KOKORO.parent, filter="data")  # refuses absolute paths, "..", and links out of the folder
+        except TypeError:  # Python 3.11 before 3.11.4 has no filter argument: check the names ourselves
+            if any(n.startswith(("/", "\\")) or ".." in Path(n).parts for n in tar.getnames()):
+                raise ValueError("unexpected paths in the voice download")
             tar.extractall(KOKORO.parent)
     part.unlink()
     print("Natural voice ready.")

@@ -11,7 +11,9 @@ has() { command -v "$1" >/dev/null 2>&1; }
 
 find_python() {
   # Python 3.11-3.13 with Tk (the speech libraries don't ship wheels for newer versions yet)
-  for p in python3.13 python3.12 python3.11 python3 /opt/homebrew/bin/python3.12 /usr/local/bin/python3.12; do
+  for p in python3.13 python3.12 python3.11 /opt/homebrew/bin/python3.12 /usr/local/bin/python3.12 python3; do
+    # /usr/bin/python3 without the developer tools is a stub that pops an "install tools?" dialog (and is 3.9 anyway)
+    [ "$(command -v "$p")" = /usr/bin/python3 ] && ! xcode-select -p >/dev/null 2>&1 && continue
     if has "$p" && "$p" -c 'import sys, tkinter; assert (3, 11) <= sys.version_info[:2] <= (3, 13)' 2>/dev/null; then
       command -v "$p"; return
     fi

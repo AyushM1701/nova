@@ -17,6 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 VENV, PY = ROOT / ".venv", ROOT / ".venv" / "bin" / "python"
 APP = Path.home() / "Applications" / "Nova.app"
+MODEL_BYTES = int(2.1 * 2**30)  # approximate size of the two speech models, only used for the progress label
 
 BG, FG, DIM, ACCENT, TRACK, BAD = "#16161a", "#f2f2f4", "#a3a3ad", "#7c5cff", "#2a2a31", "#ff7a7a"
 INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
@@ -39,38 +40,42 @@ class Window:
         self.root = tk.Tk()
         self.root.title("Nova setup")
         self.root.configure(bg=BG)
-        self.root.geometry("560x250")
+        self.root.geometry("560x262")
         self.root.resizable(False, False)
         self.lines, self.cancelled, self.proc = queue.Queue(), False, None
-        tk.Label(self.root, text="Installing Nova", bg=BG, fg=FG, font=("Helvetica", 20, "bold")).place(x=28, y=22)
-        self.status = tk.Label(self.root, text="Getting ready", bg=BG, fg=DIM, font=("Helvetica", 13))
-        self.status.place(x=28, y=64)
+        self.title = tk.Label(self.root, text="Installing Nova", bg=BG, fg=FG, font=("Helvetica", 20, "bold"))
+        self.title.place(x=28, y=22)
+        # wraps to a second line: errors and the closing message are longer than the window is wide
+        self.status = tk.Label(self.root, text="Getting ready", bg=BG, fg=DIM, font=("Helvetica", 13),
+                               wraplength=504, justify="left", anchor="nw")
+        self.status.place(x=28, y=64, width=504, height=42)
         self.track = tk.Canvas(self.root, width=504, height=6, bg=TRACK, highlightthickness=0)
-        self.track.place(x=28, y=100)
+        self.track.place(x=28, y=112)
         self.fill = self.track.create_rectangle(0, 0, 0, 6, fill=ACCENT, width=0)
         self.detail = tk.Label(self.root, text="", bg=BG, fg=DIM, font=("Helvetica", 11), anchor="w", width=70)
-        self.detail.place(x=28, y=116)
+        self.detail.place(x=28, y=128)
         self.log = tk.Text(self.root, height=6, bg="#0f0f12", fg=DIM, font=("Menlo", 10), relief="flat")
         self.button = tk.Button(self.root, text="Cancel", command=self.on_button, highlightbackground=BG)
-        self.button.place(x=440, y=200)
+        self.button.place(x=440, y=212)
         self.toggle = tk.Label(self.root, text="Show details", bg=BG, fg=DIM, cursor="hand2")
-        self.toggle.place(x=28, y=205)
+        self.toggle.place(x=28, y=217)
         self.toggle.bind("<Button-1>", lambda _: self.show_log(not self.log.winfo_ismapped()))
         self.root.protocol("WM_DELETE_WINDOW", self.on_button)
+        self.root.bind("<Escape>", lambda _: self.on_button())
         self.done = False
 
     def show_log(self, on):
         if on:
-            self.root.geometry("560x400")
-            self.log.place(x=28, y=144, width=504, height=150)
-            self.button.place(y=350)
-            self.toggle.place(y=355)
+            self.root.geometry("560x412")
+            self.log.place(x=28, y=156, width=504, height=150)
+            self.button.place(y=362)
+            self.toggle.place(y=367)
             self.toggle.config(text="Hide details")
         else:
             self.log.place_forget()
-            self.root.geometry("560x250")
-            self.button.place(y=200)
-            self.toggle.place(y=205)
+            self.root.geometry("560x262")
+            self.button.place(y=212)
+            self.toggle.place(y=217)
             self.toggle.config(text="Show details")
 
     def on_button(self):
@@ -110,6 +115,19 @@ class Window:
         return code
 
 
+def show_download(win, stop):
+    """Counts what has arrived in the Hugging Face cache once a second (the download itself prints nothing)."""
+    hub = Path.home() / ".cache" / "huggingface" / "hub"  # shortcut: ignores a custom HF_HOME, only feeds this label
+    dirs = [hub / "models--Systran--faster-whisper-small", hub / "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo"]
+    while not stop.wait(1):
+        try:
+            size = sum(f.stat().st_size for d in dirs if d.exists() for f in d.rglob("*")
+                       if f.is_file() and not f.is_symlink())  # snapshots/ links to blobs/: count each file once
+        except OSError:  # a partial file was renamed mid-count: try again next second
+            continue
+        win.ui(lambda s=size: win.detail.config(text=f"{s >> 20:,} MB of about {MODEL_BYTES >> 20:,} MB"))
+
+
 def steps(win):
     total = 6
 
@@ -122,12 +140,18 @@ def steps(win):
     if not PY.exists() and win.run(sys.executable, "-m", "venv", VENV) != 0:
         raise RuntimeError("Couldn't create Nova's Python environment (see details).")
     step(2, "Installing libraries", "This takes a minute or two the first time.")
-    win.run(PY, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", "--upgrade", "pip")
-    if win.run(PY, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", "-r", ROOT / "requirements.txt") != 0:
+    if win.run(PY, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", "--prefer-binary",
+               "-r", ROOT / "requirements.txt") != 0:
         raise RuntimeError("Installing libraries failed. Check your internet connection; the details say more.")
     os.chmod(ROOT / "helpers" / "clipboard.sh", 0o755)
     step(3, "Downloading the speech models (about 2 GB, once)")
-    if win.run(PY, "-c", "from faster_whisper.utils import download_model as d; d('small'); d('large-v3-turbo')") != 0:
+    stop = threading.Event()
+    threading.Thread(target=show_download, args=(win, stop), daemon=True).start()
+    try:
+        failed = win.run(PY, "-c", "from faster_whisper.utils import download_model as d; d('small'); d('large-v3-turbo')") != 0
+    finally:
+        stop.set()
+    if failed:
         raise RuntimeError("Downloading the speech models failed. Check your internet connection and try again.")
     (ROOT / "data").mkdir(exist_ok=True)
     (ROOT / "data" / "models-ready").touch()
@@ -156,14 +180,15 @@ def main():
     def work():
         try:
             steps(win)
-            win.ui(lambda: (win.track.coords(win.fill, 0, 0, 504, 6), win.status.config(
+            win.ui(lambda: (win.track.coords(win.fill, 0, 0, 504, 6), win.title.config(text="Nova is installed"), win.status.config(
                 text="Nova is opening. It will walk you through the microphone, your AI, the shortcut and permissions."),
                 win.detail.config(text="Nova lives in the menu bar."), win.button.config(text="Close"),
                 win.root.after(6000, win.root.destroy)))
         except Exception as e:
             message = str(e)
             win.note(f"ERROR: {message}")
-            win.ui(lambda: (win.status.config(text=message, fg=BAD), win.button.config(text="Close"), win.show_log(True),
+            win.ui(lambda: (win.title.config(text="Setup cancelled" if win.cancelled else "Setup stopped"),
+                            win.track.itemconfig(win.fill, fill=BAD), win.status.config(text=message, fg=BAD), win.button.config(text="Close"), win.show_log(True),
                             (ROOT / "data" / "setup.log").write_text(win.log.get("1.0", "end"), encoding="utf-8")))
             (ROOT / "data").mkdir(exist_ok=True)
         finally:
