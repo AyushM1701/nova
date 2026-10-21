@@ -195,6 +195,7 @@ class Nova:
             self.open_app("welcome")
         self.root.after(30, self.pump)
         self.root.after(1000, self.watch_config)
+        self.root.after(2000, self.stay_awake)
         self.root.mainloop()
 
     def load_stt(self):
@@ -302,6 +303,16 @@ class Nova:
             self.cfg_mtime = mtime
             self.reload()
         self.root.after(1000, self.watch_config)
+
+    def stay_awake(self):
+        """While phone access is on and the computer is plugged in, it doesn't fall asleep (a sleeping computer
+        can't answer the phone). On battery it sleeps as usual. Runs on the Tk thread, which lives as long as Nova."""
+        p = self.cfg["phone"]
+        try:
+            system.keep_awake(p["enabled"] and p.get("keep_awake", True) and system.on_ac_power())
+        except Exception as e:
+            log("error", error=f"keep awake: {e!r}")
+        self.root.after(60_000, self.stay_awake)
 
     def reload(self):
         old = self.cfg
@@ -485,6 +496,7 @@ class Nova:
 
     def quit(self):
         self.abort()
+        system.keep_awake(False)
         if self.app_proc and self.app_proc.poll() is None:
             self.app_proc.terminate()
         self.icon.stop()
@@ -928,8 +940,11 @@ class Nova:
         if not self.brain and not fallback.key():
             return self.note("No AI connected", "I can't find Claude Code or Codex. Open Nova's settings to connect one.")
         self.heard = text
-        named = re.search(rf"\b(?:in|on|with|using) ({web.NAMES_RE})\b", re.sub(r"[^\w\s]", "", text), re.I)
-        self.web_target = web.SPOKEN[named.group(1).lower()] if named else self.cfg["browser"]["default"]
+        # "in Brave", "open Brave and…", "switch to Brave", "the Brave browser": that browser, for this request
+        named = re.search(rf"\b(?:in|on|with|using|open|launch|start|switch to|go to) (?:the )?({web.NAMES_RE})\b"
+                          rf"|\b({web.NAMES_RE}) browser\b", re.sub(r"[^\w\s]", "", text), re.I)
+        spoken = named and (named.group(1) or named.group(2)).lower()
+        self.web_target = web.SPOKEN[spoken] if spoken else self.cfg["browser"]["default"]
         if self.brain:  # None when only the backup brain is set up
             self.brain.browser_name = web.BROWSERS.get(self.web_target, ("their browser",))[0]
         if self.voice:  # show what Nova heard right away, so a mishearing is obvious before the AI acts

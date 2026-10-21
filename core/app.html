@@ -543,8 +543,11 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
           <div class="how"><button class="switch" role="switch" data-bind="phone.enabled" id="phoneSwitch" aria-label="Use Nova from your phone"></button></div></div>
         <div class="row" style="display:block" id="phonePair" hidden><div class="what"><h2>Pair your phone</h2>
           <p>1. Connect the phone to the same Wi-Fi as this computer. 2. Point its Camera at the code and open the link. 3. In Safari, tap Share → Add to Home Screen, so Nova opens like an app. For “Hey Siri, Ask Nova”, tap Siri at the top of the phone page and follow its 5 steps. If nothing loads, allow Python through Windows Firewall on private networks (a Windows prompt asks the first time).</p></div>
+          <p class="muted small" id="phoneTip" style="margin-top:10px" hidden>Pair with the Tailscale code if you can (Tailscale on, on the phone): its address never changes, it works at home and away, and it's encrypted. The Home Wi-Fi address can change when your router restarts, and then you'd have to scan again.</p>
           <div id="phoneCodes" style="display:flex;flex-wrap:wrap;gap:24px;margin-top:16px"></div>
           <p class="muted small" id="phoneStatus" style="margin-top:12px"></p></div>
+        <div class="row" id="phoneAwake" hidden><div class="what"><h2>Keep this computer awake</h2><p>A sleeping computer can't answer your phone. While this is on and the computer is plugged in, it doesn't fall asleep on its own (the screen still turns off). On battery it sleeps as usual. Closing a laptop's lid still puts it to sleep unless you change that in your power settings.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="phone.keep_awake" aria-label="Keep this computer awake"></button></div></div>
         <div class="row" id="phoneAway" hidden><div class="what"><h2>Away from home</h2><p>Install the free Tailscale app on this computer and your phone and sign in to both with the same account. A second code, “Anywhere, with Tailscale”, appears here; pair with it to reach Nova from anywhere, privately, without opening anything to the internet.</p></div></div>
         <div class="row" id="phoneReset" hidden><div class="what"><h2>Forget paired phones</h2><p>Makes a new code. Every phone that's paired now is disconnected and has to scan again. Do this if you lose a phone or shared the link by mistake.</p></div>
           <div class="how"><button class="btn danger sm" id="phoneForget"><span>Forget phones</span></button></div></div>
@@ -1299,9 +1302,10 @@ function renderPermissions() {
 /* ---------- phone ---------- */
 function drawPhone(codes) {
   const on = !!get("phone.enabled");
-  $("#phonePair").hidden = $("#phoneAway").hidden = $("#phoneReset").hidden = !on;
+  $("#phonePair").hidden = $("#phoneAway").hidden = $("#phoneReset").hidden = $("#phoneAwake").hidden = !on;
   if (!on) return;
-  $("#phoneAway").hidden = codes.some(c => c.where !== "Home Wi-Fi");
+  $("#phoneAway").hidden = codes.some(c => c.tailscale);
+  $("#phoneTip").hidden = !codes.some(c => c.tailscale);
   $("#phoneCodes").replaceChildren(...(codes.length ? codes.map(c => {
     const cp = h("button", { class: "btn sm" }, "Copy link"); cp.addEventListener("click", () => copyText(c.link));
     return h("div", { style: "display:flex;flex-direction:column;gap:8px;align-items:flex-start" }, h("b", { class: "small" }, c.where),

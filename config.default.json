@@ -59,7 +59,8 @@
     "enabled": []
   },
   "phone": {
-    "enabled": false
+    "enabled": false,
+    "keep_awake": true
   },
   "safety": {
     "mode": "auto",

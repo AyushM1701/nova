@@ -8,8 +8,11 @@ browsers never send to a server, and then only in the first message of the conne
 import asyncio
 import io
 import json
+import os
 import secrets
+import shutil
 import socket
+import subprocess
 import threading
 import urllib.parse
 from pathlib import Path
@@ -45,14 +48,31 @@ def addresses():
             found.append(s.getsockname()[0])
     except OSError:
         pass
-    try:
-        for *_, (ip, *_) in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            a, b = map(int, ip.split(".")[:2])
-            if a == 100 and 64 <= b <= 127 and ip not in found:
-                found.append(ip)
-    except OSError:
-        pass
+    for ip in _tailscale_ips():
+        a, b = map(int, ip.split(".")[:2])
+        if a == 100 and 64 <= b <= 127 and ip not in found:
+            found.append(ip)
     return found
+
+
+def _tailscale_ips():
+    """This computer's Tailscale address, from the Tailscale app itself (Windows doesn't list it under the computer's
+    name); else whatever the computer's name resolves to."""
+    exe = shutil.which("tailscale") or next((p for p in (r"C:\Program Files\Tailscale\tailscale.exe",
+                                                         "/Applications/Tailscale.app/Contents/MacOS/Tailscale")
+                                             if Path(p).exists()), None)
+    if exe:
+        try:
+            out = subprocess.run([exe, "ip", "-4"], capture_output=True, text=True, timeout=5,
+                                 creationflags=0x08000000 if os.name == "nt" else 0).stdout.split()
+            if out:
+                return out
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    try:
+        return [info[4][0] for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)]
+    except OSError:
+        return []
 
 
 def links():
@@ -143,7 +163,9 @@ class Phone:
             self._handle({"op": "connected"}, reply)
             async for raw in ws:
                 msg = json.loads(raw)
-                if isinstance(msg, dict):
+                if isinstance(msg, dict) and msg.get("op") == "ping":  # the page's heartbeat: it reconnects without one
+                    await ws.send('{"type": "pong"}')
+                elif isinstance(msg, dict):
                     self._handle(msg, reply)
         except Exception:  # a dropped connection or a bad message: the phone reconnects on its own
             pass

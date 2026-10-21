@@ -104,6 +104,8 @@ Use Nova from your iPhone (or any phone) while it runs on your computer. Nothing
 2. Make sure the phone is on the same Wi-Fi, open its **Camera**, point it at the QR code and tap the link.
 3. In Safari, tap **Share → Add to Home Screen**. Nova now opens like an app.
 
+You pair once. The page reconnects by itself after the phone locks, leaves and rejoins the Wi-Fi, or Nova restarts. While phone access is on and the computer is plugged in, Nova keeps it from sleeping (Settings → Phone → Keep this computer awake), because a sleeping computer can't answer. If you have Tailscale, pair with its code: that address never changes, while a home Wi-Fi address can change when the router restarts (then scan again, or give the computer a fixed address in your router).
+
 Type a request, or tap the **mic on the phone's keyboard** to dictate it. Replies, the steps Nova takes and approval requests appear live; tap **Allow** or **Deny**. The speaker button reads replies aloud. The computer has to be on with Nova running.
 
 **Siri, the Action Button, Apple Watch and CarPlay:** tap **Siri** at the top of the phone page. It gives you a link to copy and five steps to build an "Ask Nova" shortcut in the Shortcuts app (Dictate Text → URL Encode → Get Contents of URL → Speak Text). Then say "Hey Siri, Ask Nova" and your request; Siri reads Nova's answer. A task that takes longer than about 50 seconds keeps going, and its answer appears in the phone page. Siri's dictation is Apple's, not Nova's on-device speech recognition.

@@ -178,8 +178,10 @@ class Api:
             except ImportError:  # set up before the phone page existed: the link still works, typed or copied
                 pass
             tailscale = link.split("//")[1].startswith("100.")
-            out.append({"link": link, "qr": qr, "where": "Anywhere, with Tailscale" if tailscale else "Home Wi-Fi"})
-        return out
+            out.append({"link": link, "qr": qr, "tailscale": tailscale,
+                        "where": "Tailscale (recommended)" if tailscale else "Home Wi-Fi"})
+        # Tailscale first: its address never changes, it works on any network, and it's encrypted
+        return sorted(out, key=lambda c: not c["tailscale"])
 
     def phone_forget(self):
         """A new pairing key: every phone has to scan the new QR code."""

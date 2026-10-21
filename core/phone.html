@@ -31,11 +31,11 @@
   }
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; height: 100%; overflow: hidden; }
-/* pinned to the screen and sized to what's visible (see fit()): iPhone home-screen apps otherwise keep a blank
-   strip where the keyboard was */
+html { height: 100%; overflow: hidden; }
+body { margin: 0; overflow: hidden; }
+/* pinned to all four edges of the screen; fit() lifts the bottom edge only while the keyboard is open */
 body {
-  position: fixed; inset: 0 0 auto 0; height: 100%; background: var(--bg); color: var(--text);
+  position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: var(--bg); color: var(--text);
   display: flex; flex-direction: column;
   font: 16px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%;
@@ -73,6 +73,7 @@ main {
 .md pre { margin: 0 0 8px; background: var(--raised); border-radius: 10px; padding: 10px 12px; overflow-x: auto; }
 .md pre code { background: none; padding: 0; }
 .md strong { font-weight: 650; }
+.md a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .note { align-self: center; color: var(--faint); font-size: 13px; text-align: center; padding: 2px 12px; }
 .step { color: var(--faint); font-size: 13px; font-family: ui-monospace, "SF Mono", Menlo, monospace; border-left: 2px solid var(--line); padding-left: 10px; margin-left: 4px; overflow-wrap: anywhere; }
 .typing { align-self: flex-start; display: flex; gap: 5px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 20px 20px 20px 6px; }
@@ -163,12 +164,18 @@ const STATES = { idle: ["Ready", "ok"], listening: ["Listening on the computer",
                  speaking: ["Answering", "busy"], approval: ["Needs your OK", "ask"], paused: ["Paused", ""] };
 let ws = null, wait = 1000, retry = 0, busy = false, asks = [], speak = store.get("nova-speak") === "1", unpaired = false;
 
-/* ---------- layout: the page always fills exactly what's visible, keyboard or not ---------- */
+/* ---------- layout: the full screen, minus the keyboard while it's open ---------- */
+// The page is pinned to the screen's edges; only an open keyboard (the visible area much shorter than the page)
+// moves its top and bottom, to exactly the part you can see. Sizing it from the visible area all the time left a
+// blank strip in iPhone home-screen apps, where that area doesn't include the status bar.
 const vv = window.visualViewport;
 function fit() {
-  document.body.style.height = (vv ? vv.height : innerHeight) + "px";
-  document.body.classList.toggle("typing-now", !!vv && vv.height < innerHeight - 100);
-  if (window.scrollY) window.scrollTo(0, 0);
+  const keyboard = vv ? innerHeight - vv.height - vv.offsetTop : 0;
+  const open = !!vv && keyboard > 80;
+  document.body.style.top = open ? vv.offsetTop + "px" : "";
+  document.body.style.bottom = open ? keyboard + "px" : "";
+  document.body.classList.toggle("typing-now", open);
+  if (!open && (window.scrollY || document.documentElement.scrollTop)) window.scrollTo(0, 0);
 }
 if (vv) { vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit); }
 addEventListener("resize", fit); addEventListener("orientationchange", () => setTimeout(fit, 300)); fit();
@@ -178,6 +185,7 @@ function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 function inline(s) {
   return esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')  // links, web only
     .replace(/(^|[^*\w])\*([^*\s][^*]*)\*(?!\w)/g, "$1<em>$2</em>");
 }
 function md(text) {  // the replies' markdown, escaped first: bold, code, lists and paragraphs
@@ -215,24 +223,49 @@ function setBusy(on, pending) {
 }
 
 /* ---------- the connection ---------- */
+// The connection is kept alive with a heartbeat and rebuilt by itself: after the phone locks, changes Wi-Fi, comes back
+// in range, or the computer restarts. A link that answers nothing for 35 s is treated as dead (phones often keep a
+// socket "open" after the network under it is gone).
+let lastSeen = 0;
 function connect() {
   clearTimeout(retry);
-  if (ws) return;
+  if (ws || unpaired) return;
   if (!key) { status("Not paired", "bad"); screen("Pair this phone", "On your computer, open Nova → Settings → Phone and scan the QR code with this phone's camera."); return; }
-  ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
-  ws.onopen = () => { wait = 1000; ws.send(JSON.stringify({ type: "hello", token: key })); ws.send(JSON.stringify({ op: "history" })); ws.send(JSON.stringify({ op: "state" })); };
-  ws.onmessage = e => { try { onMessage(JSON.parse(e.data)); } catch (err) { console.error(err); } };
-  ws.onclose = e => {
+  const sock = ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+  sock.onopen = () => {
+    wait = 1000; lastSeen = Date.now();
+    sock.send(JSON.stringify({ type: "hello", token: key })); sock.send(JSON.stringify({ op: "history" })); sock.send(JSON.stringify({ op: "state" }));
+  };
+  sock.onmessage = e => { lastSeen = Date.now(); try { const m = JSON.parse(e.data); if (m.type !== "pong") onMessage(m); } catch (err) { console.error(err); } };
+  sock.onclose = e => {
+    if (ws !== sock) return;  // an old connection we already gave up on
     ws = null; working(false);
     if (e.code === 4001) {  // the key was replaced in Settings, or never matched
       unpaired = true; store.set("nova-key", null); key = "";
       status("Not paired", "bad"); screen("This phone isn't paired anymore", "On your computer, open Nova → Settings → Phone and scan the QR code again.");
       return;
     }
-    status("Can't reach Nova, retrying…", "bad");
-    retry = setTimeout(connect, wait); wait = Math.min(wait * 2, 15000);
+    status(navigator.onLine === false ? "No network, waiting…" : "Reconnecting to Nova…", "bad");
+    retry = setTimeout(connect, wait); wait = Math.min(wait * 2, 5000);
   };
 }
+function reconnectNow() {  // drop a connection that may be dead and start a fresh one
+  if (unpaired) return;
+  const old = ws; ws = null;
+  if (old) { old.onclose = null; try { old.close(); } catch {} }
+  wait = 1000; connect();
+}
+setInterval(() => {
+  if (document.hidden || !ws) return;
+  if (ws.readyState === 1) {
+    if (Date.now() - lastSeen > 35000) return reconnectNow();
+    ws.send(JSON.stringify({ op: "ping" }));
+  } else if (ws.readyState === 0 && Date.now() - lastSeen > 15000) reconnectNow();  // stuck opening
+}, 15000);
+const wake = () => { if (document.hidden) return; fit(); if (!ws || ws.readyState !== 1 || Date.now() - lastSeen > 20000) reconnectNow(); };
+addEventListener("online", wake);
+addEventListener("pageshow", wake);
+addEventListener("focus", wake);
 
 function onMessage(msg) {
   if (msg.type === "history") {
@@ -313,7 +346,7 @@ $("speak").addEventListener("click", () => {
   speak = !speak; store.set("nova-speak", speak ? "1" : "0"); $("speak").setAttribute("aria-pressed", speak);
   if (speak && window.speechSynthesis) speechSynthesis.speak(new SpeechSynthesisUtterance("Okay, I'll read replies."));  // iOS needs a tap to allow speech
 });
-document.addEventListener("visibilitychange", () => { if (!document.hidden) { fit(); if (!ws && !unpaired) { wait = 1000; connect(); } } });  // back from the lock screen
+document.addEventListener("visibilitychange", wake);  // back from the lock screen or another app
 connect();
 </script>
 </body>

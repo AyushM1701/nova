@@ -298,6 +298,36 @@ def set_autostart(on, pythonw, script, icon):
                    creationflags=NO_WINDOW, check=True)
 
 
+def on_ac_power():
+    """Plugged in (a desktop PC counts as plugged in)."""
+    if IS_MAC:
+        return "AC Power" in subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True).stdout
+
+    class Power(ctypes.Structure):
+        _fields_ = [("ACLineStatus", ctypes.c_ubyte), ("BatteryFlag", ctypes.c_ubyte),
+                    ("BatteryLifePercent", ctypes.c_ubyte), ("SystemStatusFlag", ctypes.c_ubyte),
+                    ("BatteryLifeTime", ctypes.c_ulong), ("BatteryFullLifeTime", ctypes.c_ulong)]
+    power = Power()
+    return not ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(power)) or power.ACLineStatus != 0
+
+
+_caffeinate = None
+
+
+def keep_awake(on):
+    """Stop idle sleep (the screen may still turn off), so a paired phone can reach Nova; or allow it again.
+    Windows: call it from a thread that lives as long as Nova (the setting belongs to the calling thread)."""
+    global _caffeinate
+    if IS_MAC:
+        if on and not _caffeinate:
+            _caffeinate = subprocess.Popen(["caffeinate", "-s"])  # -s: stays awake only while on AC power
+        elif not on and _caffeinate:
+            _caffeinate.terminate()
+            _caffeinate = None
+    else:
+        ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | (0x00000001 if on else 0))  # ES_CONTINUOUS|SYSTEM
+
+
 def work_area():
     """(left, top, right, bottom) of the screen minus taskbar/Dock, in Tk coordinates."""
     if IS_MAC:
