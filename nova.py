@@ -30,7 +30,7 @@ if (DATA / "models-ready").exists():  # the speech models are downloaded: never 
 
 import pystray  # noqa: E402
 
-from core import audio, cleanup, clipboard, fallback, icon, intents, loopback, region, system, tts, wake  # noqa: E402
+from core import audio, cleanup, clipboard, fallback, icon, intents, loopback, region, system, tts, update, wake  # noqa: E402
 from core import browser as web  # noqa: E402
 from core.bar import Bar  # noqa: E402
 from core.brain import discover_projects, find_cli, make_brain, project_folders  # noqa: E402
@@ -95,6 +95,7 @@ class Nova:
         self.clips, self.followup, self.in_followup = clipboard.History(), False, False  # recent copies (memory only); ask-back pending
         self.asked = False  # the last answer ended with a question, so a bare "okay" means yes, not goodbye
         self.sysaudio = None  # the computer's own audio, transcribed on request (Windows)
+        self.update = ""  # a newer version on GitHub, once the daily check finds one
         # helpers/watch.py and the Claude Code Stop hook prove they're local helpers with this key
         self.events_key = secrets.token_hex(16)
         DATA.mkdir(parents=True, exist_ok=True)
@@ -169,7 +170,7 @@ class Nova:
 
     def run(self):
         for target in (self.serve_approvals, self.serve_app, self.send_events, self.load_stt, self.watch_clipboard,
-                       self.serve_browser_tools, self.repair_browsers):
+                       self.serve_browser_tools, self.repair_browsers, self.check_updates):
             threading.Thread(target=target, daemon=True).start()
         wanted = self.hotkey
         if not self.bind_hotkeys(wanted) and wanted != system.DEFAULT_HOTKEY:
@@ -216,6 +217,18 @@ class Nova:
                 tts.load_kokoro()  # now, so the first reply doesn't wait for it
             except Exception as e:
                 log("error", error=f"natural voice failed to load, using the system voice: {e!r}")
+
+    def check_updates(self):
+        """A minute after starting, then daily: is there a newer Nova on GitHub? Say so once per version."""
+        time.sleep(60)
+        while True:
+            found = update.newer() if self.cfg.get("update_check", True) else ""
+            if found and found != self.update:
+                self.update = found
+                self.ui(self.push_state)
+                self.ui(lambda: self.card.show("Update available", f"Nova {found} is out. Open Nova and click "
+                                               "Update to get it.", hide_after=10))
+            time.sleep(24 * 3600)
 
     def start_tray(self):
         engine = lambda name: pystray.MenuItem(
@@ -323,7 +336,7 @@ class Nova:
                 "pending": bool(self.pending), "brain": self.brain.name if self.brain else None,
                 "engine": self.cfg["brain"]["engine"], "stt": self.stt.device if self.stt else None,
                 "browsers": list(self.web.conns),
-                "hotkey": self.pretty(), "wake_word": self.cfg["wake_word"]}
+                "hotkey": self.pretty(), "wake_word": self.cfg["wake_word"], "update": self.update}
 
     def push_state(self):
         self.outbox.put(self.state())

@@ -66,7 +66,11 @@ Nova then shows its own first-run screens:
 
 **Try it:** press the shortcut (or say "Hey Nova") and say "what time is it?". Then try "open YouTube", and, with an AI connected, "what's the weather in Goa?".
 
-To update, download the new ZIP into the same folder (or `git pull`) and run setup again; it restarts Nova on the new code. On a Mac installed with the Terminal line, run the same line again: it replaces the files in `~/nova-main` and keeps your settings, history and downloaded models. To see the first-run screens again, use Settings → Advanced → Run setup. Uninstall with `uninstall.cmd` (Windows) or `./uninstall.sh` (Mac).
+### Updating
+
+Nova checks GitHub once a day. When a new version is out, it says so, and the Nova window's Home page shows an **Update** button: one click downloads the new version, reruns setup (which runs the self-checks) and restarts Nova. Your settings, history, notes, memory and speech models are kept. You can also click **Check now** in Settings → Advanced, or turn the daily check off there.
+
+To update by hand instead: download the new ZIP into the same folder and run setup again, or `git pull` and run setup. On a Mac installed with the Terminal line, run the same line again. To see the first-run screens again, use Settings → Advanced → Run setup. Uninstall with `uninstall.cmd` (Windows) or `./uninstall.sh` (Mac).
 
 ## Using it
 
@@ -95,7 +99,7 @@ Hover over it to see the shortcut. Settings → General → **Where the bar sits
 
 - **Speech recognition** (Whisper, via faster-whisper) and the **"Hey Nova" wake word** run entirely on your machine. Audio is never uploaded, and nothing you say is kept unless it starts with "Hey Nova" or you pressed the shortcut.
 - **Spoken replies** use a natural neural voice (Kokoro, run by sherpa-onnx) on your own computer, or your operating system's built-in voices (Windows SAPI, macOS `say`) if you prefer them or the voice isn't downloaded.
-- **Settings, logs, notes and history** live in the Nova folder (`config.json`, `logs/`, `workspace/notes/`). History is kept for 30 days and can be cleared on the History page. There is no Nova server, account or analytics.
+- **Settings, logs, notes and history** live in the Nova folder (`config.json`, `logs/`, `workspace/notes/`). History is kept for 30 days and can be cleared on the History page. There is no Nova server, account or analytics. The daily update check only downloads Nova's version number from GitHub (Settings → Advanced turns it off).
 - **Text only goes out to your chosen AI:** your request and, for long or tricky dictations, the dictated text go to Claude Code or Codex, because that's where the AI runs. With "Share what you're looking at" on (Settings → Privacy & safety), a spoken request also says which app or window you're in, and a request about your screen comes with a screenshot (saved as `workspace/screen.png`). Nova turns off Claude Code's telemetry and error reporting, and turns off the speech-model downloader's telemetry and online checks after setup.
 
 ## Safety
@@ -138,6 +142,7 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 | `browser.default` / `browser.enabled` | `opera-gx` / none | Which browsers Nova is set up in; say "in Brave" for one request, "add Vivaldi" / "stop using Brave" to change |
 | `routines` | `{}` | Spoken routines, e.g. `{"deep code mode": "pause music, open VS Code in portfolio"}` |
 | `brain.fallback_model` | `gemini-flash-latest` | The backup brain's Gemini model (the key itself lives in `data/fallback.key`) |
+| `update_check` | `true` | Check GitHub once a day for a newer Nova |
 | `brain.screen_context` | `true` | Tell the AI which app you're in, and send a screenshot when you ask about your screen |
 
 ## Speed
@@ -172,6 +177,7 @@ core/clipboard.py     keeps your clipboard intact around dictation
 core/tts.py           spoken replies: the natural Kokoro voice, or system voices
 guard/guard.py        safety hook for Claude Code and Codex
 core/browser.py       the browser bridge, its safety rules and the extension installer
+core/update.py        update check and installer (bump VERSION to publish an update)
 browser/extension/    the Nova extension (Chromium, unpacked; never published to a store)
 helpers/              clipboard helpers, the browser MCP server, the command watcher and Claude Code hook
 setup.* / uninstall.* installers (setup.command: double-click setup for Finder)

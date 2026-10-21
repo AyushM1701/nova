@@ -1,6 +1,7 @@
 {
   "hotkey": "",
   "start_mode": "assistant",
+  "update_check": true,
   "wake_word": true,
   "voice": {
     "stt_model": "small",

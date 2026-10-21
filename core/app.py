@@ -19,7 +19,7 @@ from pathlib import Path
 import webview
 
 from core import browser as web
-from core import clipboard, fallback, system, tts
+from core import clipboard, fallback, system, tts, update
 from core.brain import find_cli, too_broad
 from core.config import (CONFIG, DATA, LOGS, NOTES, ROOT, defaults, load_config, log, read_history, save_config,
                          write_private)
@@ -60,7 +60,7 @@ class Api:
         return {"config": cfg, "defaults": defaults(), "error": error, "connected": self._conn is not None,
                 "platform": "mac" if system.IS_MAC else "win", "page": os.environ.get("NOVA_PAGE", ""),
                 "autostart": system.autostart_enabled(), "default_hotkey": system.DEFAULT_HOTKEY,
-                "claude_hook": self._hook_installed(),
+                "claude_hook": self._hook_installed(), "version": update.current(),
                 "languages": LANGUAGES, "paths": {"config": str(CONFIG), "logs": str(LOGS), "notes": str(NOTES), "root": str(ROOT)}}
 
     def _receive(self):
@@ -160,6 +160,15 @@ class Api:
             CLAUDE_SETTINGS.with_suffix(".json.nova-backup").write_bytes(CLAUDE_SETTINGS.read_bytes())
         CLAUDE_SETTINGS.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         return self._hook_installed()
+
+    # ---------- updates (core/update.py) ----------
+    def check_update(self):
+        return update.newer()
+
+    def update(self):
+        """Fetch the new version and start setup, which restarts Nova (and closes this window)."""
+        update.install()
+        return True
 
     # ---------- folders Nova may edit without asking (core/brain.py) ----------
     def pick_folder(self):

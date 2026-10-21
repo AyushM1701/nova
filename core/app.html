@@ -355,6 +355,7 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
     <!-- HOME -->
     <section class="page" id="page-home" hidden>
       <div class="banner" id="gone" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17v.01"/></svg><span>Nova isn't running, so voice, chat and live status are off. Start Nova from the Start menu or Applications.</span></div>
+      <div class="banner" id="updateBanner" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span class="grow" style="flex:1"></span><button class="btn sm primary" id="updateBtn">Update</button></div>
       <div class="banner" id="cfgError" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17v.01"/></svg><span></span></div>
       <h1 id="greet">Hello</h1>
       <p class="lede" id="homeLede"></p>
@@ -564,6 +565,8 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
           <div class="how"><button class="btn sm" data-open="logs">Open folder</button></div></div>
         <div class="row"><div class="what"><h2>Notes</h2><p>Where Nova saves notes you dictate to it.</p></div>
           <div class="how"><button class="btn sm" data-open="notes">Open folder</button></div></div>
+        <div class="row"><div class="what"><h2>Check for updates</h2><p id="versionNote">Once a day Nova asks GitHub whether a newer version is out. Only the version number is fetched; nothing about you is sent.</p></div>
+          <div class="how"><button class="btn sm" id="checkUpdate">Check now</button><button class="switch" role="switch" data-bind="update_check" aria-label="Check for updates"></button></div></div>
         <div class="row"><div class="what"><h2>Setup</h2><p>Go through the first-run steps again: microphone, AI, shortcut.</p></div>
           <div class="how"><button class="btn sm" id="rerunSetup">Run setup</button></div></div>
         <div class="row"><div class="what"><h2>Reset settings</h2><p>Back to the defaults. Your dictionary, history and AI choice are kept.</p></div>
@@ -761,6 +764,9 @@ function renderLive() {
   $("#pauseBtn").innerHTML = (S.state.paused ? I.play : I.pause) + `<span>${S.state.paused ? "Resume Nova" : "Pause Nova"}</span>`;
   $("#chatWith").textContent = S.state.brain ? `with ${S.state.brain}` : "No AI connected";
   $("#gone").hidden = !S.gone;
+  const upd = S.state.update || S.updateFound;
+  $("#updateBanner").hidden = !upd || S.updating;
+  if (upd) $("#updateBanner span").textContent = `Nova ${upd} is available. You have ${S.version}. Updating keeps your settings, history and notes.`;
   $("#chatBadge").hidden = !(S.state.pending && S.page !== "chat");
   const st = S.state;
   $("#stBrain").textContent = st.brain || "Not connected"; $("#stBrainDot").className = "dot " + (st.brain ? "ok" : "warn");
@@ -1137,6 +1143,17 @@ $("#getNatural").addEventListener("click", async e => {
 });
 $$("[data-open]").forEach(b => b.addEventListener("click", () => api().open(b.dataset.open).catch(fail)));
 $("#rerunSetup").addEventListener("click", () => openOnboarding());
+$("#updateBtn").addEventListener("click", async e => {
+  const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Downloading…";
+  try { await api().update(); S.updating = true; btn.textContent = "Installing…"; $("#updateBanner span").textContent = "Installing the update. The setup window shows the progress, and Nova restarts when it's done."; toast("Updating Nova"); }
+  catch (err) { fail(err); btn.disabled = false; btn.textContent = "Update"; }
+});
+$("#checkUpdate").addEventListener("click", async e => {
+  const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Checking…";
+  try { S.updateFound = await api().check_update(); renderLive(); toast(S.updateFound ? `Nova ${S.updateFound} is available: see Home` : `You have the latest version (${S.version})`); if (S.updateFound) go("home"); }
+  catch (err) { fail(err); }
+  btn.disabled = false; btn.textContent = "Check now";
+});
 armed($("#resetBtn"), "Click again to reset", async () => {
   try { const dict = get("dictation.dictionary"), repl = get("dictation.replacements"); S.cfg = await api().reset_settings();
     dirty.clear(); set("dictation.dictionary", dict); set("dictation.replacements", repl); save(true); bindSettings(); renderLive(); toast("Settings reset"); } catch (e) { fail(e); }
@@ -1411,7 +1428,8 @@ window.nova = { recv(ev) { ev.t ??= Date.now() / 1000; try { (handlers[ev.event]
 
 async function boot() {
   const b = await api().hello();
-  Object.assign(S, { cfg: b.config, defaults: b.defaults, platform: b.platform, autostart: b.autostart, claudeHook: b.claude_hook, defaultHotkey: b.default_hotkey, languages: b.languages, paths: b.paths, gone: !b.connected });
+  Object.assign(S, { cfg: b.config, defaults: b.defaults, platform: b.platform, autostart: b.autostart, claudeHook: b.claude_hook, defaultHotkey: b.default_hotkey, languages: b.languages, paths: b.paths, gone: !b.connected, version: b.version });
+  $("#versionNote").textContent = `You have Nova ${b.version}. ` + $("#versionNote").textContent;
   if (b.error) { $("#cfgError").hidden = false; $("#cfgError span").textContent = b.error; }
   pill($("#livePill"), liveSource);
   requestAnimationFrame(drawPills);

@@ -13,7 +13,10 @@ from core.intents import parse as parse_intent  # noqa: E402
 from core.fallback import LIMIT_RE, run as fallback_run  # noqa: E402
 from core.clipboard import History  # noqa: E402
 from core.brain import pick_model, project_folders, too_broad  # noqa: E402
+import io  # noqa: E402
 import tempfile  # noqa: E402
+import zipfile  # noqa: E402
+from core.update import parse as parse_version, unpack  # noqa: E402
 from pathlib import Path  # noqa: E402
 from core.browser import classify as browser_classify, extension_id, with_flag  # noqa: E402
 from guard.guard import classify, classify_command  # noqa: E402
@@ -165,6 +168,28 @@ assert project_folders({}, [str(code), str(Path.home()), str(Path.home() / "Docu
     == [str(code.resolve())]  # chosen in Settings: the user folder, Documents and Nova itself are refused
 assert too_broad(code) == "" and too_broad(Path(code.anchor)) and too_broad(Path.home() / "Documents")
 assert approval("Hello? Hello?") is True and approval("Allow, allow.") is True and approval("No no no") is False
+
+# updates: versions compare as numbers; the download never replaces this computer's own files
+assert parse_version("1.10.0") > parse_version("1.9.2") > parse_version("1.9") and parse_version("1.1.0\n") == (1, 1, 0)
+with tempfile.TemporaryDirectory() as tmp:
+    root, buf = Path(tmp), io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("nova-main/", "")
+        z.writestr("nova-main/nova.py", "new")
+        z.writestr("nova-main/core/app.py", "new")
+        z.writestr("nova-main/config.json", "theirs")
+        z.writestr("nova-main/data/fallback.key", "theirs")
+    (root / "config.json").write_text("mine")
+    assert unpack(buf.getvalue(), root) == 2 and (root / "core" / "app.py").read_text() == "new"
+    assert (root / "config.json").read_text() == "mine" and not (root / "data").exists()
+    bad = io.BytesIO()
+    with zipfile.ZipFile(bad, "w") as z:
+        z.writestr("nova-main/../evil.py", "x")
+    try:
+        unpack(bad.getvalue(), root)
+        raise AssertionError("an update path outside Nova's folder was written")
+    except ValueError:
+        pass
 
 # browser safety: decided from what the page says the element really is
 BROWSER = [
