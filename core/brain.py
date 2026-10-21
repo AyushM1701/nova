@@ -129,6 +129,20 @@ def discover_projects(exclude, nova_root):
     return found
 
 
+PERSONAL = {"documents", "desktop", "downloads", "pictures", "music", "videos", "onedrive"}
+
+
+def project_folders(projects):
+    """Folders that hold a project (e.g. D:\\projects), so a new project made there counts as known. Never the
+    home folder or anything above it, a drive root, or a personal folder like Documents."""
+    home, out = Path.home().resolve(), set()
+    for p in projects.values():
+        parent = Path(p).resolve().parent
+        if parent.parent != parent and not home.is_relative_to(parent) and parent.name.lower() not in PERSONAL:
+            out.add(str(parent))
+    return sorted(out)
+
+
 def split_say(text):
     lines = text.strip().splitlines()
     is_say = lambda l: l.strip().upper().startswith("SAY:")
@@ -289,7 +303,8 @@ class Codex(Brain):
                 "timeout": self.cfg["safety"]["confirm_timeout_s"] + 30}
         hooks = "[{hooks=[{" + ", ".join(f"{k}={json.dumps(v)}" for k, v in hook.items()) + "}]}]"
         # Nova's own folder too, so "change my shortcut" can edit config.json; the guard asks before every write there
-        roots = json.dumps(list(projects.values()) + [str(Path(self.workspace) / "notes"), str(ROOT)])
+        roots = json.dumps(list(projects.values()) + project_folders(projects)
+                           + [str(Path(self.workspace) / "notes"), str(ROOT)])
         pairs = ["features.hooks=true", f"hooks.PreToolUse={hooks}", f'sandbox_mode="{b["codex_sandbox"]}"',
                  f"sandbox_workspace_write.writable_roots={roots}", "sandbox_workspace_write.network_access=true",
                  'approval_policy="never"']

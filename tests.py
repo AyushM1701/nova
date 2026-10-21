@@ -12,7 +12,9 @@ from core.wake import approval, is_done, is_echo  # noqa: E402
 from core.intents import parse as parse_intent  # noqa: E402
 from core.fallback import LIMIT_RE, run as fallback_run  # noqa: E402
 from core.clipboard import History  # noqa: E402
-from core.brain import pick_model  # noqa: E402
+from core.brain import pick_model, project_folders  # noqa: E402
+import tempfile  # noqa: E402
+from pathlib import Path  # noqa: E402
 from core.browser import classify as browser_classify, extension_id, with_flag  # noqa: E402
 from guard.guard import classify, classify_command  # noqa: E402
 from core.wake import match  # noqa: E402
@@ -154,6 +156,12 @@ for request, want in ROUTES:
     assert pick_model(request, AUTO) == want, f"model {request!r}: got {pick_model(request, AUTO)!r}, want {want!r}"
 assert pick_model("Open Spotify", {"claude_model": "sonnet", "auto_model": True}) == "sonnet"
 assert pick_model("Open Spotify", {"claude_model": "", "auto_model": False}) == ""
+
+# a new project beside a known one ("D:\projects\my first website") is editable; home and Documents never are
+code = Path(tempfile.gettempdir()) / "nova-test-code"
+assert project_folders({"site": str(code / "portfolio"), "doc": str(Path.home() / "Documents" / "essay"),
+                        "top": str(Path.home() / "notes")}) == [str(code.resolve())]
+assert approval("Hello? Hello?") is True and approval("Allow, allow.") is True and approval("No no no") is False
 
 # browser safety: decided from what the page says the element really is
 BROWSER = [

@@ -33,7 +33,7 @@ import pystray  # noqa: E402
 from core import audio, cleanup, clipboard, fallback, icon, intents, loopback, region, system, tts, wake  # noqa: E402
 from core import browser as web  # noqa: E402
 from core.bar import Bar  # noqa: E402
-from core.brain import discover_projects, find_cli, make_brain  # noqa: E402
+from core.brain import discover_projects, find_cli, make_brain, project_folders  # noqa: E402
 from core.overlay import Card  # noqa: E402
 
 CLAUDE_GUARDED = "Bash|PowerShell|Write|Edit|MultiEdit|NotebookEdit|Read|Grep|Glob"
@@ -894,7 +894,8 @@ class Nova:
         if self.voice:  # show what Nova heard right away, so a mishearing is obvious before the AI acts
             self.ui(lambda: self.card.show("Thinking", quote=text, kind="thinking"))
         projects = discover_projects(self.cfg["projects"]["exclude"], ROOT)
-        self.env["NOVA_ROOTS"] = os.pathsep.join(projects.values())
+        # edits are allowed in known projects and in new ones made beside them (D:\projects\my first website)
+        self.env["NOVA_ROOTS"] = os.pathsep.join([*projects.values(), *project_folders(projects)])
         prompt = note + self.context(text) + text
         main = self.brain.name if self.brain else "no AI"
         if self.brain:

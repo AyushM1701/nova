@@ -54,6 +54,7 @@ DENY_RE = re.compile(r"(?:(?:no|nope|nah|nahi|na|stop|wait|cancel)\s+)*(?:deny(?
 def approval(text):
     """True for a clear spoken "allow", False for a clear "deny", None for anything else (keep waiting)."""
     said = re.sub(r"[^\w\s]", "", (text or "").lower()).strip()
+    said = re.sub(r"\b(\w+)(?:\s+\1\b)+", r"\1", said)  # "allow, allow" / "hello? hello?" said twice
     if DENY_RE.fullmatch(said):
         return False
     if ALLOW_RE.fullmatch(said):
