@@ -1,0 +1,1408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nova</title>
+<style>
+:root {
+  --bg: #f6f6f8; --side: #eeeef2; --surface: #ffffff; --raised: #f1f1f5; --sunk: #e8e8ee;
+  --line: rgba(20, 20, 32, .09); --line-strong: rgba(20, 20, 32, .16);
+  --text: #16161a; --muted: #5b5b66; --faint: #8a8a95;
+  --accent: #6a4cf5; --accent-hover: #5b3ce8; --accent-ink: #ffffff; --accent-soft: rgba(106, 76, 245, .10);
+  --accent-text: #5a3ce0;
+  --amber: #a86400; --amber-soft: rgba(255, 186, 60, .16); --amber-line: rgba(204, 132, 0, .45);
+  --ok: #148a5b; --danger: #c93a3a; --danger-soft: rgba(201, 58, 58, .09);
+  --pill: #16161a; --pill-ink: #ffffff;
+  --shadow: 0 1px 2px rgba(20, 20, 32, .06), 0 8px 24px rgba(20, 20, 32, .06);
+  --focus: 0 0 0 3px rgba(106, 76, 245, .35);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111114; --side: #0c0c0f; --surface: #18181d; --raised: #1f1f25; --sunk: #0f0f12;
+    --line: rgba(255, 255, 255, .07); --line-strong: rgba(255, 255, 255, .13);
+    --text: #f2f2f4; --muted: #a3a3ad; --faint: #80808b;
+    --accent: #7357ff; --accent-hover: #6346f0; --accent-ink: #ffffff; --accent-soft: rgba(124, 92, 255, .16);
+    --accent-text: #a995ff;
+    --amber: #ffba3c; --amber-soft: rgba(255, 186, 60, .10); --amber-line: rgba(255, 186, 60, .42);
+    --ok: #3ecf8e; --danger: #ff7a7a; --danger-soft: rgba(255, 122, 122, .10);
+    --pill: #1c1c22; --pill-ink: #ffffff;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px rgba(0, 0, 0, .35);
+    --focus: 0 0 0 3px rgba(124, 92, 255, .45);
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 14px/1.5 "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased; overflow: hidden;
+}
+::selection { background: var(--accent-soft); color: var(--text); }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: none; box-shadow: var(--focus); border-radius: 8px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-track { background: transparent; }
+svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+kbd {
+  display: inline-flex; align-items: center; min-width: 1.9em; justify-content: center; padding: 1px 7px;
+  border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 6px; background: var(--surface);
+  font: 600 12px/1.6 inherit; font-family: inherit; color: var(--text); white-space: nowrap;
+}
+.keys { display: inline-flex; gap: 4px; align-items: center; vertical-align: baseline; }
+.mono { font-family: "Cascadia Code", "SF Mono", Consolas, ui-monospace, monospace; font-size: 12.5px; }
+.num { font-variant-numeric: tabular-nums; }
+[hidden] { display: none !important; }
+
+/* ---------- shell ---------- */
+.app { display: grid; grid-template-columns: 232px 1fr; height: 100vh; }
+.side { background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 18px 12px 14px; gap: 18px; min-height: 0; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 8px; font-weight: 650; font-size: 16px; letter-spacing: -.01em; }
+.brand svg { width: 22px; height: 22px; }
+.live { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+.live canvas { width: 76px; height: 30px; flex: none; }
+.live b { display: block; font-weight: 600; font-size: 13px; line-height: 1.3; }
+.live span { display: block; color: var(--muted); font-size: 12px; line-height: 1.3; }
+nav { display: flex; flex-direction: column; gap: 2px; }
+nav button {
+  display: flex; align-items: center; gap: 11px; padding: 8px 10px; border: 0; border-radius: 9px; background: none;
+  color: var(--muted); text-align: left; font-weight: 500; transition: background .15s, color .15s;
+}
+nav button:hover { background: var(--raised); color: var(--text); }
+nav button[aria-current="page"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+nav button[aria-current="page"] svg { color: var(--accent); }
+nav .badge { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
+.side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+.side-foot .label { padding: 0 6px; color: var(--faint); font-size: 12px; }
+main { overflow-y: auto; min-width: 0; position: relative; }
+.page { max-width: 780px; margin: 0 auto; padding: 40px 40px 64px; }
+.page.wide { max-width: 860px; }
+h1 { font-size: 26px; line-height: 1.2; font-weight: 650; letter-spacing: -.02em; margin: 0; text-wrap: balance; }
+h2 { font-size: 15px; font-weight: 650; letter-spacing: -.005em; margin: 40px 0 12px; }
+h3, .what h2 { font-size: 14px; font-weight: 600; margin: 0; letter-spacing: 0; }
+p { margin: 0; }
+.lede { color: var(--muted); font-size: 15px; margin-top: 8px; max-width: 62ch; }
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
+.small { font-size: 12.5px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head .grow { flex: 1; }
+
+/* ---------- controls ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 34px; padding: 0 14px;
+  border-radius: 9px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font-weight: 550;
+  white-space: nowrap; transition: background .15s, border-color .15s, transform .1s;
+}
+.btn:hover { background: var(--raised); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .5; cursor: default; transform: none; }
+.btn.primary { background: var(--accent); border-color: transparent; color: var(--accent-ink); }
+.btn.primary:hover { background: var(--accent-hover); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover { background: var(--raised); color: var(--text); }
+.btn.danger { color: var(--danger); }
+.btn.danger.armed { background: var(--danger); color: #fff; border-color: transparent; }
+.btn.sm { height: 28px; padding: 0 10px; font-size: 13px; border-radius: 8px; }
+.btn.lg { height: 42px; padding: 0 20px; font-size: 15px; border-radius: 11px; }
+.icon-btn { width: 32px; height: 32px; padding: 0; border-radius: 8px; border: 0; background: none; color: var(--muted); display: inline-grid; place-items: center; }
+.icon-btn:hover { background: var(--raised); color: var(--text); }
+.input, select.input, textarea.input {
+  height: 34px; padding: 0 11px; border-radius: 9px; border: 1px solid var(--line-strong); background: var(--surface);
+  color: var(--text); min-width: 0; transition: border-color .15s, box-shadow .15s;
+}
+.input::placeholder { color: var(--faint); }
+.input:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
+select.input { padding-right: 30px; appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+.input.short { width: 92px; }
+.seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--sunk); border: 1px solid var(--line); gap: 2px; }
+.seg button { border: 0; background: none; padding: 5px 12px; border-radius: 7px; color: var(--muted); font-weight: 550; font-size: 13px; }
+.seg button[aria-checked="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.seg.full { display: flex; } .seg.full button { flex: 1; }
+.switch { position: relative; width: 38px; height: 22px; border-radius: 22px; border: 0; background: var(--line-strong); flex: none; transition: background .18s; padding: 0; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .18s cubic-bezier(.2,.8,.2,1); }
+.switch[aria-checked="true"] { background: var(--accent); }
+.switch[aria-checked="true"]::after { transform: translateX(16px); }
+input[type=range] { accent-color: var(--accent); width: 180px; }
+
+/* settings rows */
+.rows { border-top: 1px solid var(--line); }
+.row { display: flex; align-items: center; gap: 24px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.row .what { flex: 1; min-width: 0; }
+.row .what p { color: var(--muted); font-size: 13px; margin-top: 2px; max-width: 58ch; }
+.row .how { display: flex; align-items: center; gap: 10px; flex: none; }
+.row .value { min-width: 52px; text-align: right; color: var(--muted); font-size: 13px; }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 28px 0 8px; overflow-x: auto; overflow-y: hidden; }
+.tabs button { border: 0; background: none; padding: 10px 12px; color: var(--muted); font-weight: 550; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.tabs button:hover { color: var(--text); }
+.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+
+/* ---------- home ---------- */
+.status { display: flex; flex-wrap: wrap; margin-top: 28px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); overflow: hidden; }
+.status > button { flex: 1 1 180px; display: flex; flex-direction: column; gap: 2px; align-items: flex-start; padding: 14px 18px; border: 0; background: none; text-align: left; border-right: 1px solid var(--line); }
+.status > button:last-child { border-right: 0; }
+.status > button:hover { background: var(--raised); }
+.status .k { color: var(--faint); font-size: 12px; }
+.status .v { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+.dot.ok { background: var(--ok); } .dot.warn { background: var(--amber); } .dot.bad { background: var(--danger); }
+.try { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.try ul { list-style: none; margin: 0; padding: 0; }
+.try li { border-bottom: 1px solid var(--line); }
+.try li:first-child { border-top: 1px solid var(--line); }
+.try .phrase { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 2px; border: 0; background: none; text-align: left; color: var(--text); }
+.try .phrase span { flex: 1; }
+.try .phrase svg { color: var(--faint); opacity: 0; transition: opacity .15s, transform .15s; }
+.try .phrase:hover svg { opacity: 1; transform: translateX(2px); color: var(--accent); }
+.try .phrase.static { cursor: default; }
+.try h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--muted); font-weight: 550; font-size: 13px; }
+.week { color: var(--muted); }
+.week b { color: var(--text); font-weight: 650; }
+
+/* activity list (home + history) */
+.feed { list-style: none; margin: 0; padding: 0; }
+.feed li { display: grid; grid-template-columns: 56px 22px 1fr auto; gap: 10px; align-items: start; padding: 12px 4px; border-bottom: 1px solid var(--line); }
+.feed li:first-child { border-top: 1px solid var(--line); }
+.feed time { color: var(--faint); font-size: 12.5px; padding-top: 1px; }
+.feed .kind { color: var(--faint); padding-top: 1px; }
+.feed .kind.dict { color: var(--accent-text); }
+.feed .kind.warn { color: var(--amber); }
+.feed .body { min-width: 0; }
+.feed .body .t { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+.feed .body.open .t { -webkit-line-clamp: unset; display: block; }
+.feed .body .sub { color: var(--faint); font-size: 12.5px; margin-top: 2px; overflow-wrap: anywhere; }
+.feed .body .code { margin-top: 5px; color: var(--faint); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.feed .body.open .code { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; color: var(--muted); }
+.feed .acts { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
+.feed li:hover .acts, .feed li:focus-within .acts { opacity: 1; }
+.day { color: var(--muted); font-size: 12.5px; font-weight: 600; margin: 28px 0 6px; }
+.empty { padding: 48px 24px; text-align: center; color: var(--muted); border: 1px dashed var(--line-strong); border-radius: 14px; }
+.empty h3 { color: var(--text); font-size: 15px; margin-bottom: 4px; }
+.toolbar { display: flex; gap: 10px; align-items: center; margin-top: 24px; flex-wrap: wrap; }
+.search { position: relative; flex: 1; min-width: 200px; }
+.search svg { position: absolute; left: 10px; top: 8px; color: var(--faint); }
+.search .input { width: 100%; padding-left: 36px; }
+
+/* ---------- chat ---------- */
+.chat { display: flex; flex-direction: column; height: 100vh; }
+.chat-head { display: flex; align-items: center; gap: 12px; padding: 18px 28px; border-bottom: 1px solid var(--line); }
+.chat-head h1 { font-size: 18px; }
+.chat-head .grow { flex: 1; }
+.thread { flex: 1; overflow-y: auto; padding: 28px 28px 12px; }
+.thread-inner { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+.msg { max-width: 100%; overflow-wrap: anywhere; }
+.msg.user { align-self: flex-end; max-width: 78%; background: var(--accent-soft); color: var(--text); padding: 9px 14px; border-radius: 16px 16px 4px 16px; white-space: pre-wrap; }
+.msg.user .spoken { display: flex; align-items: center; gap: 5px; color: var(--accent-text); font-size: 12px; margin-bottom: 2px; }
+.msg.user .spoken svg { width: 13px; height: 13px; }
+.msg.nova { display: grid; grid-template-columns: 26px 1fr; gap: 12px; align-items: start; }
+.msg.nova .who { width: 22px; height: 22px; margin-top: 1px; }
+.msg.nova .content { min-width: 0; }
+.md p { margin: 0 0 10px; } .md p:last-child { margin-bottom: 0; }
+.md ul, .md ol { margin: 0 0 10px; padding-left: 20px; }
+.md li { margin: 3px 0; }
+.md code { font-family: "Cascadia Code", "SF Mono", Consolas, monospace; font-size: 12.5px; background: var(--raised); padding: 1px 5px; border-radius: 5px; }
+.md pre { background: var(--sunk); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow-x: auto; margin: 0 0 10px; }
+.md pre code { background: none; padding: 0; }
+.md strong { font-weight: 650; }
+.msg-acts { display: flex; gap: 2px; margin-top: 6px; opacity: 0; transition: opacity .15s; }
+.msg.nova:hover .msg-acts, .msg.nova:focus-within .msg-acts { opacity: 1; }
+.note { align-self: center; color: var(--faint); font-size: 12.5px; }
+.divider { display: flex; align-items: center; gap: 12px; color: var(--faint); font-size: 12px; }
+.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.work { display: grid; grid-template-columns: 26px 1fr; gap: 12px; }
+.work .steps { border-left: 1px solid var(--line-strong); padding-left: 14px; margin-left: -1px; display: flex; flex-direction: column; gap: 4px; }
+.work .head-line { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; font-weight: 550; }
+.work .step { color: var(--faint); font-size: 12.5px; overflow-wrap: anywhere; }
+.work.done .head-line { color: var(--faint); font-weight: 500; }
+.dots { display: inline-flex; gap: 4px; }
+.dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: pulse 1.1s infinite ease-in-out; }
+.dots i:nth-child(2) { animation-delay: .15s; } .dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes pulse { 0%, 100% { opacity: .3; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
+.ask { border: 1px solid var(--amber-line); background: var(--amber-soft); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.ask .t { display: flex; align-items: center; gap: 8px; font-weight: 650; color: var(--amber); }
+.ask pre { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow-y: auto; }
+.ask .bar { height: 3px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.ask .bar i { display: block; height: 100%; background: var(--amber); transform-origin: left; }
+.ask .btns { display: flex; gap: 8px; align-items: center; }
+.ask.resolved { background: transparent; border-color: var(--line); }
+.ask.resolved .t { color: var(--muted); }
+.composer-wrap { padding: 12px 28px 18px; }
+.composer { max-width: 720px; margin: 0 auto; display: flex; align-items: flex-end; gap: 6px; padding: 6px 6px 6px 18px; border-radius: 24px; border: 1px solid var(--line-strong); background: var(--surface); box-shadow: var(--shadow); transition: border-color .15s, box-shadow .15s; }
+.composer:focus-within { border-color: color-mix(in srgb, var(--accent) 70%, transparent); box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow); }
+.composer textarea:focus-visible { box-shadow: none; }
+.composer textarea { flex: 1; border: 0; background: none; resize: none; outline: none; padding: 8px 0; max-height: 180px; line-height: 1.45; }
+.composer textarea::placeholder { color: var(--faint); }
+.round { width: 36px; height: 36px; border-radius: 50%; border: 0; display: grid; place-items: center; flex: none; background: var(--raised); color: var(--muted); transition: background .15s, color .15s; }
+.round:hover { color: var(--text); background: var(--sunk); }
+.round.go { background: var(--accent); color: var(--accent-ink); }
+.round.go:hover { background: var(--accent-hover); color: var(--accent-ink); }
+.round.go:disabled { background: var(--raised); color: var(--faint); cursor: default; }
+.round.live-mic { background: var(--pill); color: var(--pill-ink); }
+.composer-hint { max-width: 720px; margin: 8px auto 0; color: var(--faint); font-size: 12px; text-align: center; }
+.suggest { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 18px; }
+.chip { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 999px; padding: 6px 13px; color: var(--text); font-size: 13px; }
+.chip:hover { border-color: var(--accent); color: var(--accent-text); }
+.chat-empty { margin: 9vh auto 0; text-align: center; max-width: 480px; }
+.chat-empty canvas { width: 152px; height: 52px; margin-bottom: 18px; }
+.chat-empty h2 { margin: 0 0 6px; font-size: 20px; letter-spacing: -.01em; }
+
+/* ---------- dictionary ---------- */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.word { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line-strong); }
+.word button { width: 22px; height: 22px; border-radius: 50%; border: 0; background: none; color: var(--faint); display: grid; place-items: center; padding: 0; }
+.word button:hover { background: var(--raised); color: var(--danger); }
+.word button svg { width: 14px; height: 14px; }
+.add { display: flex; gap: 8px; margin-top: 16px; max-width: 460px; }
+.add .input { flex: 1; }
+.pairs { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.pair { display: grid; grid-template-columns: 1fr 24px 1fr 32px; gap: 8px; align-items: center; }
+.pair .arrow { color: var(--faint); display: grid; place-items: center; }
+.pair-head { display: grid; grid-template-columns: 1fr 24px 1fr 32px; gap: 8px; color: var(--faint); font-size: 12px; margin-top: 16px; }
+
+/* engines (onboarding + settings) */
+.engines { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
+.engine { display: grid; grid-template-columns: 22px 1fr auto; gap: 14px; align-items: center; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line-strong); background: var(--surface); text-align: left; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.engine:hover { border-color: var(--faint); }
+.engine[aria-checked="true"] { border-color: var(--accent); box-shadow: var(--focus); }
+.radio { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--line-strong); display: grid; place-items: center; }
+.engine[aria-checked="true"] .radio { border-color: var(--accent); }
+.engine[aria-checked="true"] .radio::after { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+.engine .name { font-weight: 600; }
+.engine .by { color: var(--muted); font-size: 13px; }
+.engine .state { display: flex; align-items: center; gap: 10px; }
+.tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.tag.ok { color: var(--ok); }
+.tag svg { width: 15px; height: 15px; }
+.log { margin-top: 10px; max-height: 140px; overflow-y: auto; padding: 10px 12px; border-radius: 10px; background: var(--sunk); border: 1px solid var(--line); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.skel { display: inline-block; height: 10px; width: 90px; border-radius: 6px; background: linear-gradient(90deg, var(--raised), var(--sunk), var(--raised)); background-size: 200% 100%; animation: shimmer 1.2s infinite linear; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+/* ---------- onboarding ---------- */
+.onb { position: fixed; inset: 0; background: var(--bg); display: grid; grid-template-rows: auto 1fr auto; z-index: 20; }
+.onb-top { display: flex; align-items: center; justify-content: space-between; padding: 20px 28px; }
+.progress { display: flex; gap: 6px; }
+.progress i { width: 26px; height: 4px; border-radius: 4px; background: var(--line-strong); transition: background .25s; }
+.progress i.on { background: var(--accent); }
+.onb-body { overflow-y: auto; display: grid; place-items: center; padding: 12px 28px; }
+.onb-step { width: 100%; max-width: 560px; animation: rise .32s cubic-bezier(.2,.8,.2,1); }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+.onb-step h1 { font-size: 30px; }
+.onb-step .lede { font-size: 15.5px; }
+.stage { display: grid; place-items: center; margin: 8px 0 28px; height: 120px; }
+.stage canvas { width: 260px; height: 88px; }
+.onb-foot { display: flex; align-items: center; gap: 12px; padding: 18px 28px 24px; max-width: 616px; width: 100%; margin: 0 auto; }
+.onb-foot .grow { flex: 1; }
+.big-keys { display: flex; gap: 8px; margin: 28px 0 8px; align-items: center; flex-wrap: wrap; }
+.big-keys kbd { font-size: 20px; padding: 8px 16px; border-radius: 10px; border-bottom-width: 3px; min-width: 56px; }
+.big-keys .plus { color: var(--faint); font-size: 18px; }
+.recording kbd { border-color: var(--accent); color: var(--accent-text); }
+.callout { margin-top: 20px; padding: 14px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); display: flex; gap: 12px; align-items: flex-start; }
+.callout svg { color: var(--accent); margin-top: 2px; }
+.callout.good svg { color: var(--ok); }
+.list-rows { margin-top: 24px; }
+
+.toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 16px); opacity: 0; pointer-events: none; background: var(--pill); color: var(--pill-ink); padding: 8px 16px; border-radius: 999px; font-size: 13px; font-weight: 550; box-shadow: var(--shadow); transition: opacity .2s, transform .2s cubic-bezier(.2,.8,.2,1); z-index: 40; display: flex; gap: 8px; align-items: center; }
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+.toast.bad { background: var(--danger); }
+.banner { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--amber-line); background: var(--amber-soft); margin-bottom: 20px; font-size: 13.5px; }
+.banner svg { color: var(--amber); }
+
+@media (max-width: 960px) {
+  .app { grid-template-columns: 72px 1fr; }
+  .brand span, nav button span, .live > div, .side-foot { display: none; }
+  .live { justify-content: center; padding: 8px 4px; }
+  .live canvas { width: 52px; }
+  nav button { justify-content: center; }
+  .page { padding: 32px 28px 56px; }
+  .try { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="side">
+    <div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="#7c5cff"/><circle cx="12" cy="12" r="3" fill="#fff"/></svg><span>Nova</span></div>
+    <div class="live" id="live" title="What Nova is doing">
+      <canvas id="livePill" width="152" height="60" aria-hidden="true"></canvas>
+      <div><b id="liveTitle">Connecting…</b><span id="liveSub">&nbsp;</span></div>
+    </div>
+    <nav aria-label="Sections">
+      <button data-page="home"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9v11h14V9"/></svg><span>Home</span></button>
+      <button data-page="chat"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg><span>Chat</span><i class="badge" id="chatBadge" hidden></i></button>
+      <button data-page="history"><svg class="i" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5v4.5H8"/><path d="M12 7.5V12l3 2"/></svg><span>History</span></button>
+      <button data-page="dictionary"><svg class="i" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 2-2h12v15H7a2 2 0 0 0-2 2z"/><path d="M5 20a2 2 0 0 0 2 1h12"/><path d="M9 7.5h6"/></svg><span>Dictionary</span></button>
+      <button data-page="memory"><svg class="i" viewBox="0 0 24 24"><path d="M12 3a7 7 0 0 0-7 7c0 2.4 1.2 4.2 3 5.4V20h8v-4.6c1.8-1.2 3-3 3-5.4a7 7 0 0 0-7-7z"/><path d="M10 20v1.5h4V20"/><circle cx="12" cy="10" r="1.6"/></svg><span>Memory</span></button>
+      <button data-page="settings"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg><span>Settings</span></button>
+    </nav>
+    <div class="side-foot">
+      <span class="label">Mode</span>
+      <div class="seg full" role="radiogroup" aria-label="Mode" id="modeSeg">
+        <button role="radio" data-mode="assistant">Assistant</button>
+        <button role="radio" data-mode="dictation">Dictation</button>
+      </div>
+      <button class="btn ghost sm" id="pauseBtn"><svg class="i" viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></svg><span>Pause Nova</span></button>
+    </div>
+  </aside>
+
+  <main id="main">
+    <!-- HOME -->
+    <section class="page" id="page-home" hidden>
+      <div class="banner" id="gone" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17v.01"/></svg><span>Nova isn't running, so voice, chat and live status are off. Start Nova from the Start menu or Applications.</span></div>
+      <div class="banner" id="cfgError" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17v.01"/></svg><span></span></div>
+      <h1 id="greet">Hello</h1>
+      <p class="lede" id="homeLede"></p>
+      <div class="status" id="status">
+        <button data-go="settings:ai"><span class="k">Brain</span><span class="v"><i class="dot" id="stBrainDot"></i><span id="stBrain">…</span></span></button>
+        <button data-go="settings:voice"><span class="k">Speech recognition</span><span class="v"><i class="dot" id="stSttDot"></i><span id="stStt">…</span></span></button>
+        <button data-go="settings:general"><span class="k">“Hey Nova”</span><span class="v"><i class="dot" id="stWakeDot"></i><span id="stWake">…</span></span></button>
+      </div>
+      <h2>Try saying</h2>
+      <div class="try">
+        <div>
+          <h3><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>Assistant</h3>
+          <ul id="tryAssistant"></ul>
+        </div>
+        <div>
+          <h3><svg class="i" viewBox="0 0 24 24"><path d="M4 7V5h16v2M12 5v14M9 19h6"/></svg>Dictation</h3>
+          <ul id="tryDictation"></ul>
+        </div>
+      </div>
+      <h2>This week</h2>
+      <p class="week" id="week"></p>
+      <h2 style="display:flex;align-items:center">Recent <span class="grow" style="flex:1"></span><button class="btn ghost sm" data-go="history">See all</button></h2>
+      <ul class="feed" id="recent"></ul>
+    </section>
+
+    <!-- CHAT -->
+    <section class="chat" id="page-chat" hidden>
+      <div class="chat-head">
+        <h1>Chat</h1>
+        <span class="muted small" id="chatWith"></span>
+        <span class="grow"></span>
+        <button class="btn ghost sm" id="newChat"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New conversation</button>
+      </div>
+      <div class="thread" id="thread"><div class="thread-inner" id="threadInner"></div></div>
+      <div class="composer-wrap">
+        <form class="composer" id="composer">
+          <textarea id="prompt" rows="1" placeholder="Ask Nova to do something, or to change how it works…" aria-label="Message"></textarea>
+          <button type="button" class="round" id="micBtn" aria-label="Speak instead"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
+          <button type="submit" class="round go" id="sendBtn" aria-label="Send" disabled><svg class="i" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></svg></button>
+        </form>
+        <p class="composer-hint">Enter to send, Shift+Enter for a new line. Everything runs on this computer through Nova's safety guard.</p>
+      </div>
+    </section>
+
+    <!-- HISTORY -->
+    <section class="page" id="page-history" hidden>
+      <div class="head"><div class="grow"><h1>History</h1><p class="lede">What you dictated and asked in the last 30 days. It stays on this computer.</p></div></div>
+      <div class="toolbar">
+        <div class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input class="input" id="histSearch" type="search" placeholder="Search history" aria-label="Search history"></div>
+        <div class="seg" role="radiogroup" aria-label="Show" id="histFilter">
+          <button role="radio" data-f="all" aria-checked="true">All</button>
+          <button role="radio" data-f="dictation">Dictation</button>
+          <button role="radio" data-f="requests">Requests</button>
+        </div>
+        <button class="btn danger sm" id="clearHist"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg><span>Clear</span></button>
+      </div>
+      <div id="histList"></div>
+    </section>
+
+    <!-- DICTIONARY -->
+    <section class="page" id="page-dictionary" hidden>
+      <h1>Dictionary</h1>
+      <p class="lede">Names, jargon and brands Nova should always spell right. You can also say “add Kubernetes to my dictionary”.</p>
+      <form class="add" id="wordForm"><input class="input" id="wordInput" placeholder="Add a word or name" aria-label="New word" maxlength="60"><button class="btn primary">Add</button></form>
+      <div class="chips" id="words"></div>
+      <h2>Replacements</h2>
+      <p class="muted">When speech recognition keeps writing something wrong, Nova swaps it for what you meant.</p>
+      <div class="pair-head"><span>When it hears</span><span></span><span>Nova types</span><span></span></div>
+      <div class="pairs" id="repls"></div>
+      <button class="btn sm" id="addRepl" style="margin-top:12px"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add replacement</button>
+    </section>
+
+    <!-- MEMORY -->
+    <section class="page" id="page-memory" hidden>
+      <h1>Memory</h1>
+      <p class="lede">What Nova remembers about you and your projects. It learns these when you tell it something lasting, like “remember I use pnpm”, and uses them in every request. It's stored on this computer in your notes folder.</p>
+      <form class="add" id="memForm"><input class="input" id="memInput" placeholder="Add something Nova should remember" aria-label="New memory" maxlength="300"><button class="btn primary">Add</button></form>
+      <ul class="feed" id="memList" style="margin-top:20px"></ul>
+      <button class="btn danger sm" id="memClear" style="margin-top:16px"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg><span>Forget everything</span></button>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="page wide" id="page-settings" hidden>
+      <h1>Settings</h1>
+      <p class="lede">Changes save as you make them and apply right away. You can also ask Nova in Chat, for example “use Ctrl+Shift+N as my shortcut”.</p>
+      <div class="tabs" role="tablist" id="setTabs">
+        <button role="tab" data-tab="general">General</button>
+        <button role="tab" data-tab="voice">Voice</button>
+        <button role="tab" data-tab="dictation">Dictation</button>
+        <button role="tab" data-tab="ai">AI</button>
+        <button role="tab" data-tab="routines">Routines</button>
+        <button role="tab" data-tab="browsers">Browsers</button>
+        <button role="tab" data-tab="privacy">Privacy &amp; safety</button>
+        <button role="tab" data-tab="advanced">Advanced</button>
+      </div>
+
+      <div data-panel="general" class="rows">
+        <div class="row"><div class="what"><h2>Shortcut</h2><p>Press it to talk, again to stop early, or while Nova works to cancel. When Nova asks for your OK, it means “allow”.</p></div>
+          <div class="how"><span class="keys" id="setKeys"></span><button class="btn sm" id="setKeyBtn">Change</button></div></div>
+        <div class="row"><div class="what"><h2>Listen for “Hey Nova”</h2><p>Runs on this computer. Nothing is kept unless it hears “Hey Nova”.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="wake_word" aria-label="Listen for Hey Nova"></button></div></div>
+        <div class="row"><div class="what"><h2>Start in</h2><p>The mode Nova opens in. Switch any time with the sidebar or by saying “switch to dictation”.</p></div>
+          <div class="how"><div class="seg" role="radiogroup" data-bind="start_mode" data-options="assistant:Assistant,dictation:Dictation"></div></div></div>
+        <div class="row"><div class="what"><h2>Open Nova when you sign in</h2><p>Nova waits quietly in the tray (the ^ by the clock) or the menu bar.</p></div>
+          <div class="how"><button class="switch" role="switch" id="autostart" aria-label="Open Nova when you sign in"></button></div></div>
+        <div class="row"><div class="what"><h2>Where the bar sits</h2><p>Bottom: above the taskbar or Dock. Top: along the top of the screen; on a MacBook with a notch, Nova hangs from the notch and grows out of it while it listens and talks.</p></div>
+          <div class="how"><div class="seg" role="radiogroup" data-bind="overlay.position" data-options="bottom:Bottom,top:Top"></div></div></div>
+        <div class="row"><div class="what"><h2>Hide replies after</h2><p>How long the reply card stays on screen after Nova finishes talking.</p></div>
+          <div class="how"><input class="input short num" type="number" min="2" max="60" data-bind="overlay.hide_after_s" aria-label="Seconds"><span class="muted">seconds</span></div></div>
+      </div>
+
+      <div data-panel="voice" class="rows" hidden>
+        <div class="row"><div class="what"><h2>Language you speak</h2><p>“Detect automatically” handles English, Hindi and Hinglish; Hindi is written in Roman letters.</p></div>
+          <div class="how"><select class="input" id="langSel" data-bind="voice.language" aria-label="Language"></select></div></div>
+        <div class="row"><div class="what"><h2>Nova's voice</h2><p>Natural is a lifelike neural voice that runs on this computer. System uses your computer's built-in voices.</p></div>
+          <div class="how"><div class="seg" role="radiogroup" data-bind="voice.tts_engine" data-options="kokoro:Natural,system:System"></div></div></div>
+        <div class="row" data-engine="kokoro"><div class="what"><h2>Natural voice</h2><p id="naturalNote">Heart is the most natural. For a butler-style voice, try one of the British men.</p><div class="log mono" id="voiceLog" hidden></div></div>
+          <div class="how"><select class="input" id="naturalSel" data-bind="voice.kokoro_voice" aria-label="Natural voice"></select><button class="btn sm" id="testNatural">Play</button><button class="btn sm primary" id="getNatural" hidden>Download (330 MB)</button></div></div>
+        <div class="row" data-engine="system"><div class="what"><h2>System voice</h2><p>Windows and macOS let you add more voices in their speech settings.</p></div>
+          <div class="how"><select class="input" id="voiceSel" data-bind="voice.tts_voice" aria-label="System voice"><option value="">System default</option></select><button class="btn sm" id="testVoice">Play</button></div></div>
+        <div class="row" data-engine="kokoro"><div class="what"><h2>Speaking speed</h2><p>How fast the natural voice talks.</p></div>
+          <div class="how"><input type="range" min="0.75" max="1.4" step="0.05" data-bind="voice.tts_speed" aria-label="Speaking speed"><span class="value num" data-show="voice.tts_speed" data-unit="x"></span></div></div>
+        <div class="row"><div class="what"><h2>Keep listening after an answer</h2><p>After Nova answers, the mic opens again so you can keep talking without “Hey Nova”. Say “that's it”, “ok thanks” or “bye”, stay quiet for a few seconds, or press Esc to end the conversation.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="voice.conversation" aria-label="Keep listening after an answer"></button></div></div>
+        <div class="row"><div class="what"><h2>Interrupt by talking</h2><p>Start speaking while Nova answers and it stops to listen. Nova ignores its own voice coming back through your speakers; headphones make it even more reliable.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="voice.barge_in" aria-label="Interrupt by talking"></button></div></div>
+        <div class="row"><div class="what"><h2>Stop listening after a pause of</h2><p>For requests. Shorter feels snappier; longer lets you think mid-sentence.</p></div>
+          <div class="how"><input type="range" min="600" max="4000" step="100" data-bind="voice.silence_ms" aria-label="Pause length"><span class="value num" data-show="voice.silence_ms" data-unit="s"></span></div></div>
+        <div class="row"><div class="what"><h2>Microphone</h2><p id="micName">Check that Nova hears you.</p></div>
+          <div class="how"><canvas id="setMic" width="152" height="60" style="width:76px;height:30px"></canvas><button class="btn sm" id="setMicBtn">Test</button></div></div>
+      </div>
+
+      <div data-panel="dictation" class="rows" hidden>
+        <div class="row"><div class="what"><h2>Editing</h2><p id="editDesc"></p></div>
+          <div class="how"><div class="seg" role="radiogroup" data-bind="dictation.editing" data-options="verbatim:Verbatim,light:Light,medium:Polished"></div></div></div>
+        <div class="row"><div class="what"><h2>Finish after a pause of</h2><p>Dictation waits longer than requests, so you can pause to think.</p></div>
+          <div class="how"><input type="range" min="1000" max="6000" step="250" data-bind="dictation.silence_ms" aria-label="Pause length"><span class="value num" data-show="dictation.silence_ms" data-unit="s"></span></div></div>
+        <div class="row"><div class="what"><h2>Longest dictation</h2><p>Nova stops recording after this long.</p></div>
+          <div class="how"><input class="input short num" type="number" min="10" max="600" data-bind="dictation.max_record_s" aria-label="Seconds"><span class="muted">seconds</span></div></div>
+        <div class="row"><div class="what"><h2>Ask the AI to tidy dictations of at least</h2><p>Shorter ones are cleaned on this computer. Hindi and tricky self-corrections always go to the AI.</p></div>
+          <div class="how"><input class="input short num" type="number" min="5" max="500" data-bind="dictation.llm_min_words" aria-label="Words"><span class="muted">words</span></div></div>
+        <div class="row"><div class="what"><h2>Rewrite selected text</h2><p>Select text in any app, press the shortcut and say “make this more formal”, “translate it to Hindi” or “fix the grammar”. Needs Claude Code or Codex.</p></div>
+          <div class="how"><span class="tag ok"><svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg>On</span></div></div>
+      </div>
+
+      <div data-panel="ai" class="rows" hidden>
+        <div class="row" style="display:block"><div class="what"><h2>Brain</h2><p>Nova sends your requests to the AI you choose and signs in with your own account.</p></div>
+          <div class="engines" id="setEngines"></div><div class="log mono" id="setLog" hidden></div></div>
+        <div class="row" style="display:block"><div class="what"><h2>Backup brain</h2><p>When Claude Code or Codex hits its usage limit, Nova can keep going with Google Gemini on a free API key, until your limit resets. Its commands pass the same safety guard. On Google's free tier, your requests may be used to improve Google's products, so leave this off if that matters to you.</p></div>
+          <div class="add" id="fbForm" style="max-width:none">
+            <input class="input" id="fbKey" type="password" autocomplete="off" placeholder="Paste a free Google AI key" aria-label="Google AI key">
+            <button class="btn primary" id="fbSave">Check and save</button>
+            <button class="btn" id="fbGet">Get a free key</button>
+          </div>
+          <p class="muted small" id="fbStatus" style="margin-top:10px"></p></div>
+        <div class="row"><div class="what"><h2>Claude model</h2><p>Leave empty for Claude Code's default. For example “sonnet” or “opus”.</p></div>
+          <div class="how"><input class="input" data-bind="brain.claude_model" placeholder="Default" aria-label="Claude model"></div></div>
+        <div class="row"><div class="what"><h2>Codex model</h2><p>Leave empty for Codex's default.</p></div>
+          <div class="how"><input class="input" data-bind="brain.codex_model" placeholder="Default" aria-label="Codex model"></div></div>
+        <div class="row"><div class="what"><h2>Codex sandbox</h2><p>Use “Full access” only if Codex can't open apps. Nova's safety guard still checks every command.</p></div>
+          <div class="how"><select class="input" data-bind="brain.codex_sandbox" aria-label="Codex sandbox"><option value="workspace-write">Projects only</option><option value="danger-full-access">Full access</option><option value="read-only">Read only</option></select></div></div>
+        <div class="row"><div class="what"><h2>Remember follow-ups for</h2><p>Within this time, “and make it blue” continues the last request.</p></div>
+          <div class="how"><input class="input short num" type="number" min="0" max="120" data-bind="brain.followup_window_min" aria-label="Minutes"><span class="muted">minutes</span></div></div>
+        <div class="row"><div class="what"><h2>Pick the model for each request</h2><p>Quick actions like “open Spotify” use the fast Haiku model; everything else uses the model above. Say “use opus to…” or “with sonnet” to choose for one request.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="brain.auto_model" aria-label="Pick the model for each request"></button></div></div>
+        <div class="row"><div class="what"><h2>Tell me when Claude Code finishes</h2><p>For tasks you start yourself in a terminal: Nova says when Claude is done, so you can work elsewhere meanwhile. This adds a small hook to your Claude Code settings; turning it off removes it.</p></div>
+          <div class="how"><button class="switch" role="switch" id="claudeHook" aria-label="Tell me when Claude Code finishes"></button></div></div>
+        <div class="row" style="display:block"><div class="what"><h2>Project nicknames</h2><p>Say “my site” and Nova knows you mean the folder “portfolio”. Nova already knows every project you've opened in Claude Code or Codex.</p></div>
+          <div class="pair-head"><span>When you say</span><span></span><span>Project folder</span><span></span></div>
+          <div class="pairs" id="aliases"></div>
+          <button class="btn sm" id="addAlias" style="margin-top:12px"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add nickname</button></div>
+      </div>
+
+      <div data-panel="browsers" class="rows" hidden>
+        <div class="row" style="display:block"><div class="what"><h2>Your browsers</h2><p>Nova can read pages, open tabs, click and type in the browsers you turn on here, inside your own profile with your logins. It asks before anything that submits, buys, posts or sends, and never types passwords, card numbers or one-time codes. Say “in Brave” to use another browser for one request.</p></div>
+          <div class="engines" id="setBrowsers"></div><div class="log mono" id="browserLog" hidden></div></div>
+      </div>
+
+      <div data-panel="routines" class="rows" hidden>
+        <div class="row" style="display:block"><div class="what"><h2>Routines</h2><p>One phrase, several steps. Say the phrase (or “switch to … mode”) and Nova does every step, asking first for anything risky. “Start my day” is built in: a short spoken rundown of your projects' branches, open tasks in your notes and follow-ups from memory.</p></div>
+          <div class="pair-head"><span>When you say</span><span></span><span>Nova does</span><span></span></div>
+          <div class="pairs" id="routines"></div>
+          <button class="btn sm" id="addRoutine" style="margin-top:12px"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add routine</button></div>
+        <div class="row" style="display:block"><div class="what"><h2>Watch a long command</h2><p>Run it through Nova and keep working; Nova tells you when it finishes, and if it fails, why, and offers to fix it.</p></div>
+          <p class="mono" style="margin-top:10px" id="watchCmd"></p></div>
+      </div>
+
+      <div data-panel="privacy" class="rows" hidden>
+        <div class="row"><div class="what"><h2>Share what you're looking at</h2><p>Tells the AI which app you're in, and when you ask about your screen (“what's this error?”) lets it see a screenshot. Off means the AI only gets your words.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="brain.screen_context" aria-label="Share what you're looking at"></button></div></div>
+        <div class="row"><div class="what"><h2>Remember what you copy</h2><p>The last 20 things you copied, kept in memory only and gone when Nova quits, so you can say “paste the link I copied earlier”. Anything that looks like a password or key is skipped. The AI only sees them when you mention copying or the clipboard.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="brain.clipboard_history" aria-label="Remember what you copy"></button></div></div>
+        <div class="row"><div class="what"><h2>Answer permission requests by voice</h2><p>When Nova asks for your OK during a spoken request, say “allow” or “deny” (or “yes”, “go ahead”, “no”, “cancel”). Only a short, clear answer counts. Turn this off if other people talk near your computer and you'd rather always click or press a key.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="voice.approve_by_voice" aria-label="Answer permission requests by voice"></button></div></div>
+        <div class="row"><div class="what"><h2>Time to answer a permission request</h2><p>When the AI wants to delete files, install software or push code, Nova asks first. No answer means no.</p></div>
+          <div class="how"><input class="input short num" type="number" min="10" max="300" data-bind="safety.confirm_timeout_s" aria-label="Seconds"><span class="muted">seconds</span></div></div>
+        <div class="row"><div class="what"><h2>What stays on this computer</h2><p>Speech recognition, the wake word, spoken replies, settings and history. Only your request text (plus a screenshot when you ask about your screen) goes to your AI.</p></div></div>
+      </div>
+
+      <div data-panel="advanced" class="rows" hidden>
+        <div class="row"><div class="what"><h2>Settings file</h2><p class="mono" id="cfgPath"></p></div>
+          <div class="how"><button class="btn sm" data-open="config">Open</button></div></div>
+        <div class="row"><div class="what"><h2>Logs</h2><p>Every request, reply and safety decision, one file per day.</p></div>
+          <div class="how"><button class="btn sm" data-open="logs">Open folder</button></div></div>
+        <div class="row"><div class="what"><h2>Notes</h2><p>Where Nova saves notes you dictate to it.</p></div>
+          <div class="how"><button class="btn sm" data-open="notes">Open folder</button></div></div>
+        <div class="row"><div class="what"><h2>Setup</h2><p>Go through the first-run steps again: microphone, AI, shortcut.</p></div>
+          <div class="how"><button class="btn sm" id="rerunSetup">Run setup</button></div></div>
+        <div class="row"><div class="what"><h2>Reset settings</h2><p>Back to the defaults. Your dictionary, history and AI choice are kept.</p></div>
+          <div class="how"><button class="btn danger sm" id="resetBtn">Reset</button></div></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ONBOARDING -->
+<div class="onb" id="onb" hidden>
+  <div class="onb-top">
+    <div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="#7c5cff"/><circle cx="12" cy="12" r="3" fill="#fff"/></svg><span>Nova</span></div>
+    <div class="progress" id="onbProgress" aria-hidden="true"></div>
+  </div>
+  <div class="onb-body" id="onbBody"></div>
+  <div class="onb-foot">
+    <button class="btn ghost" id="onbBack">Back</button>
+    <span class="grow"></span>
+    <button class="btn primary lg" id="onbNext">Continue</button>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+// macOS 12's WebKit (Safari 15) has no canvas roundRect; without it every pill stops drawing
+if (!CanvasRenderingContext2D.prototype.roundRect) CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
+  this.moveTo(x + r, y); this.arcTo(x + w, y, x + w, y + h, r); this.arcTo(x + w, y + h, x, y + h, r);
+  this.arcTo(x, y + h, x, y, r); this.arcTo(x, y, x + w, y, r); this.closePath();
+};
+const S_BROWSERS_STEP = /Windows/.test(navigator.userAgent);  // browser control is Windows-only for now
+const I = {
+  arrow: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  copy: '<svg class="i" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg>',
+  check: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
+  x: '<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  mic: '<svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>',
+  send: '<svg class="i" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></svg>',
+  stop: '<svg class="i" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
+  chat: '<svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+  type: '<svg class="i" viewBox="0 0 24 24"><path d="M4 7V5h16v2M12 5v14M9 19h6"/></svg>',
+  pen: '<svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+  shield: '<svg class="i" viewBox="0 0 24 24"><path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z"/></svg>',
+  alert: '<svg class="i" viewBox="0 0 24 24"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17v.01"/></svg>',
+  pause: '<svg class="i" viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></svg>',
+  play: '<svg class="i" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg>',
+  info: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg>',
+  logo: '<svg class="who" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="#7c5cff"/><circle cx="12" cy="12" r="3" fill="#fff"/></svg>',
+};
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+function h(tag, attrs = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || (v === false && !k.startsWith("aria-"))) continue;
+    if (k === "class") el.className = v;
+    else if (k === "html") el.innerHTML = v;            // static icon markup only
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, k.startsWith("aria-") ? String(v) : v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  return el;
+}
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const api = () => window.pywebview.api;
+const S = {
+  cfg: null, defaults: null, platform: "win", state: {}, bar: "idle", levels: new Array(15).fill(0), mic: 0,
+  history: [], connected: false, histFilter: "all", work: null, asks: [], languages: {}, page: "home",
+  defaultHotkey: "ctrl+alt+space", engines: null, gone: false,
+};
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------- small things ---------- */
+let toastTimer;
+function toast(text, bad = false) {
+  const t = $("#toast");
+  t.textContent = text; t.classList.toggle("bad", bad); t.classList.add("on");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("on"), bad ? 4200 : 1600);
+}
+function fail(e) { toast(String(e && e.message || e).replace(/^Error:\s*/, ""), true); }
+function prettyKeys(combo) {
+  const mac = S.platform === "mac";
+  const names = { ctrl: "Ctrl", alt: mac ? "Option" : "Alt", cmd: "Cmd", shift: "Shift", windows: "Win", win: "Win", space: "Space", enter: "Enter", tab: "Tab" };
+  return combo.split("+").map(k => names[k] || (k.length <= 3 ? k.toUpperCase() : k[0].toUpperCase() + k.slice(1)));
+}
+function keycaps(combo, el) { el.replaceChildren(...prettyKeys(combo).map(k => h("kbd", {}, k))); return el; }
+function hotkey() { return S.cfg.hotkey || S.defaultHotkey; }
+function when(t) { return new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+function dayLabel(t) {
+  const d = new Date(t * 1000), today = new Date(); const y = new Date(); y.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return "Today";
+  if (d.toDateString() === y.toDateString()) return "Yesterday";
+  return d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+}
+function get(path) { return path.split(".").reduce((o, k) => o == null ? o : o[k], S.cfg); }
+const dirty = new Set();
+function set(path, value) { const ks = path.split("."); const last = ks.pop(); ks.reduce((o, k) => o[k] ??= {}, S.cfg)[last] = value; dirty.add(path); }
+let saveTimer;
+function save(now = false) {
+  clearTimeout(saveTimer);
+  const go = () => {
+    const changes = Object.fromEntries([...dirty].map(p => [p, get(p)])); dirty.clear();
+    if (Object.keys(changes).length) api().save(changes).then(() => toast("Saved")).catch(fail);
+  };
+  now ? go() : (saveTimer = setTimeout(go, 450));
+}
+function copyText(text, btn) {
+  api().copy(text).then(() => { if (btn) { btn.innerHTML = I.check; setTimeout(() => btn.innerHTML = I.copy, 1200); } toast("Copied"); }).catch(fail);
+}
+function armed(btn, label, action) {   // two-step confirm for destructive buttons, no modal
+  btn.addEventListener("click", () => {
+    if (btn.classList.contains("armed")) { btn.classList.remove("armed"); btn.querySelector("span").textContent = btn.dataset.label; return action(); }
+    btn.dataset.label = btn.querySelector("span")?.textContent || "";
+    if (!btn.querySelector("span")) btn.append(h("span"));
+    btn.classList.add("armed"); btn.querySelector("span").textContent = label;
+    setTimeout(() => { if (btn.classList.contains("armed")) { btn.classList.remove("armed"); btn.querySelector("span").textContent = btn.dataset.label; } }, 3500);
+  });
+}
+
+/* ---------- the pill: the same shape as the bar at the bottom of the screen ---------- */
+const pills = new Set();
+function pill(canvas, source) { pills.add({ canvas, source, w: 0, h: 0 }); }
+const PILL = { idle: [.42, .32], paused: [.42, .32], listening: [1, .82], thinking: [.6, .68], speaking: [.8, .68], approval: [.6, .68], gone: [.42, .32] };
+function drawPills(t) {
+  // the same states as the bar on the desktop (core/bar.py): standby dots, live voice, thinking wave, speech
+  const sec = t / 1000;
+  for (const p of pills) {
+    const c = p.canvas; if (!c.isConnected) { pills.delete(p); continue; }
+    const ctx = c.getContext("2d"), W = c.width, H = c.height;
+    const { state, levels } = p.source();
+    const [tw, th] = PILL[state] || PILL.idle;
+    p.w += (tw * W - p.w) * .25; p.h += (th * H - p.h) * .25;
+    ctx.clearRect(0, 0, W, H);
+    const x0 = (W - p.w) / 2, y0 = (H - p.h) / 2, r = p.h / 2, lw = Math.max(1.5, H / 32);
+    const amber = state === "approval", dim = state === "paused" || state === "gone";
+    const tint = amber ? "255,186,60" : "124,92,255";
+    const glow = { listening: .55, thinking: .35 + .25 * Math.sin(sec * 2.4), approval: .45 + .3 * Math.sin(sec * 3) }[state];
+    if (glow) for (const [i, g] of [5, 3.2, 1.6].entries()) {
+      const k = g * H / 36;
+      ctx.beginPath(); ctx.roundRect(x0 - k, y0 - k, p.w + 2 * k, p.h + 2 * k, r + k);
+      ctx.strokeStyle = `rgba(${tint},${glow * (40 + 35 * i) / 255})`; ctx.lineWidth = lw; ctx.stroke();
+    }
+    ctx.beginPath(); ctx.roundRect(x0, y0, p.w, p.h, r);
+    ctx.fillStyle = dim ? "rgba(16,16,20,.6)" : "#101014"; ctx.fill();
+    ctx.lineWidth = lw;
+    ctx.strokeStyle = state === "thinking" || amber ? `rgba(${tint},.85)` : `rgba(255,255,255,${dim ? .35 : state === "idle" ? .47 : .84})`;
+    ctx.stroke();
+    const cx = W / 2, cy = H / 2, inner = p.h - H * .3, s = H / 36;
+    if (p.w < tw * W * .85) continue;
+    if (state === "idle" || dim) {  // standby dots
+      ctx.fillStyle = `rgba(255,255,255,${dim ? .27 : .41})`;
+      for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.arc(cx + (i - 2) * 6.5 * s, cy, 1.1 * s, 0, 7); ctx.fill(); }
+      continue;
+    }
+    ctx.fillStyle = "rgba(255,255,255,.95)";
+    const bars = (hs) => {
+      const bw = 3 * s, gap = 3.2 * s; let x = cx - (hs.length * (bw + gap) - gap) / 2;
+      for (const hh0 of hs) { const hh = Math.max(bw, hh0); ctx.beginPath(); ctx.roundRect(x, cy - hh / 2, bw, hh, bw / 2); ctx.fill(); x += bw + gap; }
+    };
+    const bell = (i, n) => .45 + .55 * Math.sin(Math.PI * (i + .5) / n);
+    if (state === "listening") {
+      p.shown ||= new Array(levels.length).fill(0);
+      levels.forEach((v, i) => { const aim = Math.min(1, v * 1.5) * bell(i, levels.length); p.shown[i] += (aim - p.shown[i]) * (aim > p.shown[i] ? .6 : .22); });
+      bars(p.shown.map(v => v * inner));
+    } else if (state === "speaking") {
+      bars(Array.from({ length: 9 }, (_, i) => (.25 + .75 * Math.abs(.6 * Math.sin(sec * 4.2 + i * .55) + .4 * Math.sin(sec * 7.1 + i * 1.3))) * (.5 + .5 * Math.sin(Math.PI * (i + .5) / 9)) * inner));
+    } else for (let i = 0; i < 3; i++) {  // thinking / approval: a travelling wave
+      const up = Math.max(0, Math.sin(sec * 5.2 - i * .75)), a = .55 + .45 * up;
+      ctx.fillStyle = amber ? `rgba(255,186,60,${a})` : `rgba(190,172,255,${a})`;
+      ctx.beginPath(); ctx.arc(cx + (i - 1) * 9 * s, cy - up * 3.2 * s, 2.4 * s, 0, 7); ctx.fill();
+    }
+  }
+  if (!reduced) requestAnimationFrame(drawPills);
+}
+const liveSource = () => ({ state: S.gone ? "gone" : S.bar, levels: S.levels });
+const micLevels = new Array(15).fill(0);
+const micSource = () => ({ state: "listening", levels: micLevels });
+
+/* ---------- live status ---------- */
+const PHRASE = {
+  idle: ["Ready", () => `${prettyKeys(hotkey()).join("+")} to talk`],
+  listening: ["Listening", () => "Press again to stop"],
+  thinking: ["Thinking", () => S.state.brain || "Working"],
+  speaking: ["Talking", () => "Esc to stop"],
+  approval: ["Needs your OK", () => "Allow or deny below"],
+  paused: ["Paused", () => "Resume to use Nova"],
+};
+function renderLive() {
+  const [title, sub] = S.gone ? ["Not running", () => "Start Nova to use it"] : PHRASE[S.bar] || PHRASE.idle;
+  $("#liveTitle").textContent = title; $("#liveSub").textContent = sub();
+  $$("#modeSeg button").forEach(b => b.setAttribute("aria-checked", b.dataset.mode === S.state.mode));
+  $("#pauseBtn").innerHTML = (S.state.paused ? I.play : I.pause) + `<span>${S.state.paused ? "Resume Nova" : "Pause Nova"}</span>`;
+  $("#chatWith").textContent = S.state.brain ? `with ${S.state.brain}` : "No AI connected";
+  $("#gone").hidden = !S.gone;
+  $("#chatBadge").hidden = !(S.state.pending && S.page !== "chat");
+  const st = S.state;
+  $("#stBrain").textContent = st.brain || "Not connected"; $("#stBrainDot").className = "dot " + (st.brain ? "ok" : "warn");
+  $("#stStt").textContent = st.stt ? `On this computer (${st.stt})` : S.gone ? "Off" : "Loading…"; $("#stSttDot").className = "dot " + (st.stt ? "ok" : "");
+  $("#stWake").textContent = S.cfg.wake_word ? "Listening for it" : "Off"; $("#stWakeDot").className = "dot " + (S.cfg.wake_word ? "ok" : "");
+  renderLede(); renderComposer();
+}
+function renderLede() {
+  const keys = prettyKeys(hotkey()).map(k => `<kbd>${esc(k)}</kbd>`).join("");
+  $("#homeLede").innerHTML = S.state.mode === "dictation"
+    ? `Dictation mode. Press <span class="keys">${keys}</span> in any app and talk; Nova types clean text where your cursor is.`
+    : `Press <span class="keys">${keys}</span>, click the bar at the bottom of your screen${S.cfg.wake_word ? ", or say “Hey Nova”" : ""}, then ask for anything.`;
+}
+
+/* ---------- navigation ---------- */
+function go(page, tab) {
+  if (page && page.includes(":")) [page, tab] = page.split(":");
+  if (!page) page = "home";
+  S.page = page;
+  $$("main > section").forEach(s => s.hidden = s.id !== "page-" + page);
+  $$("nav button").forEach(b => b.dataset.page === page ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
+  if (page === "chat") { $("#chatBadge").hidden = true; setTimeout(() => $("#prompt").focus(), 30); scrollThread(); }
+  if (page === "settings") showTab(tab || S.tab || "general");
+  if (page === "history") renderHistory();
+  if (page === "memory") loadMemory();
+  if (page !== "settings") stopMic();
+  $("#main").scrollTop = 0;
+}
+$$("nav button").forEach(b => b.addEventListener("click", () => go(b.dataset.page)));
+document.addEventListener("click", e => {
+  const g = e.target.closest("[data-go]"); if (!g) return;
+  const [page, tab] = g.dataset.go.split(":"); go(page, tab);
+});
+$$("#modeSeg button").forEach(b => b.addEventListener("click", () => send("mode", { mode: b.dataset.mode })));
+$("#pauseBtn").addEventListener("click", () => send("pause"));
+function send(op, data) { return api().send(op, data || null).catch(fail); }
+
+/* ---------- home ---------- */
+const TRY_A = ["What's the weather in Goa?","Open Spotify and play something chill", "In my portfolio project, fix the navbar on mobile", "What's this error on my screen?", "Copy my resume to the clipboard", "Turn on dark mode"];
+const TRY_D = ["“Meet at 6, no wait, 7” becomes “Meet at 7.”", "“Um, so, I think we should ship it” loses the filler", "Select text, then say “make this more formal”", "Hinglish is written in Roman letters"];
+function renderHome() {
+  const hr = new Date().getHours();
+  $("#greet").textContent = hr < 5 ? "Working late" : hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
+  $("#tryAssistant").replaceChildren(...TRY_A.map(t => h("li", {}, h("button", { class: "phrase", title: "Send in Chat", onclick: () => { go("chat"); ask(t); } }, h("span", {}, t), h("span", { html: I.arrow, style: "flex:none" })))));
+  $("#tryDictation").replaceChildren(...TRY_D.map(t => h("li", {}, h("div", { class: "phrase static" }, h("span", {}, t)))));
+  const week = Date.now() / 1000 - 7 * 86400, recent = S.history.filter(e => e.t > week);
+  const words = recent.filter(e => e.event === "dictation" || e.event === "edit").reduce((n, e) => n + String(e.text || "").split(/\s+/).filter(Boolean).length, 0);
+  const asks = recent.filter(e => e.event === "reply").length;
+  $("#week").innerHTML = words || asks
+    ? `You dictated <b class="num">${words.toLocaleString()}</b> word${words === 1 ? "" : "s"} and asked Nova <b class="num">${asks}</b> thing${asks === 1 ? "" : "s"} in the last 7 days.`
+    : "Nothing yet this week. Your first dictation or request will show up here.";
+  const items = S.history.filter(isShown).slice(0, 5);
+  $("#recent").replaceChildren(...(items.length ? items.map(feedItem) : [h("li", { style: "display:block" }, h("p", { class: "muted" }, "Your dictations and requests will appear here."))]));
+}
+
+/* ---------- history ---------- */
+function isShown(e) { return e.event === "dictation" || e.event === "edit" || e.event === "reply" || (e.event === "approval") ; }
+function describe(e) {
+  if (e.event === "dictation") return { icon: I.type, kind: "dict", text: e.text, sub: e.how && e.how !== "local" && e.how !== "verbatim" ? `Tidied by ${e.how}` : "Dictated", copy: e.text };
+  if (e.event === "edit") return { icon: I.pen, kind: "dict", text: e.text, sub: `Rewrote selection: “${e.instruction}”`, copy: e.text };
+  if (e.event === "reply") return { icon: I.chat, kind: "", text: e.request, sub: e.reply, copy: e.reply };
+  if (e.event === "approval") {
+    const r = e.request || {}, why = plainReason(r.reason || "");
+    const verdict = e.allowed ? "Allowed" : e.timed_out ? "Denied (no answer)" : "Denied";
+    const what = String(r.tool || "").startsWith("browser.") ? "a browser action" : "a command";
+    return { icon: I.shield, kind: e.allowed ? "" : "warn", text: `${verdict} ${what}${why ? ` that ${why}` : ""}`, code: r.summary || "", copy: r.summary || "" };
+  }
+  return { icon: I.alert, kind: "warn", text: e.error || "", sub: "", copy: e.error || "" };
+}
+// guard reasons are written for logs ("isn't on the known-safe list (to=x@y.com)"); people get the gist
+function plainReason(reason) {
+  return reason.replace(/\s*\(.*\)\s*$/, "").replace(/^isn't on the known-safe list$/, "Nova doesn't know")
+    .replace(/^writes a file through a redirect$/, "writes to a file").trim();
+}
+function feedItem(e) {
+  const d = describe(e);
+  const body = h("div", { class: "body", onclick: () => body.classList.toggle("open") }, h("div", { class: "t" }, d.text || ""),
+    d.sub ? h("div", { class: "sub" }, String(d.sub).slice(0, 400)) : null,
+    d.code ? h("div", { class: "code mono", title: "Click to see all of it" }, d.code) : null);
+  const cp = h("button", { class: "icon-btn", "aria-label": "Copy", title: "Copy", html: I.copy });
+  cp.addEventListener("click", ev => { ev.stopPropagation(); copyText(d.copy, cp); });
+  return h("li", {}, h("time", { class: "num" }, when(e.t)), h("span", { class: "kind " + d.kind, html: d.icon }), body, h("div", { class: "acts" }, cp));
+}
+function renderHistory() {
+  const q = $("#histSearch").value.trim().toLowerCase();
+  const f = S.histFilter;
+  const items = S.history.filter(isShown).filter(e =>
+    (f === "all" || (f === "dictation" ? e.event === "dictation" || e.event === "edit" : e.event === "reply" || e.event === "approval")) &&
+    (!q || JSON.stringify([e.text, e.raw, e.request, e.reply, e.request?.summary]).toLowerCase().includes(q)));
+  const list = $("#histList");
+  if (!items.length) {
+    list.replaceChildren(h("div", { class: "empty", style: "margin-top:24px" }, h("h3", {}, q ? "No matches" : "Nothing here yet"),
+      h("p", {}, q ? "Try another word." : "Everything you dictate or ask Nova appears here for 30 days, only on this computer.")));
+    return;
+  }
+  const out = []; let day = "", ul;
+  for (const e of items) {
+    const d = dayLabel(e.t);
+    if (d !== day) { day = d; out.push(h("div", { class: "day" }, d)); ul = h("ul", { class: "feed" }); out.push(ul); }
+    ul.append(feedItem(e));
+  }
+  list.replaceChildren(...out);
+}
+$("#histSearch").addEventListener("input", renderHistory);
+$$("#histFilter button").forEach(b => b.addEventListener("click", () => {
+  S.histFilter = b.dataset.f; $$("#histFilter button").forEach(x => x.setAttribute("aria-checked", x === b)); renderHistory();
+}));
+armed($("#clearHist"), "Click again to delete", () => api().clear_history().then(() => { S.history = []; renderHistory(); renderHome(); toast("History cleared"); }).catch(fail));
+async function loadHistory() { try { S.history = await api().history(); } catch (e) { S.history = []; } renderHome(); if (S.page === "history") renderHistory(); }
+
+/* ---------- chat ---------- */
+function md(text) {
+  const parts = String(text || "").split(/```[\w-]*\n?([\s\S]*?)```/g);
+  return parts.map((p, i) => i % 2 ? `<pre><code>${esc(p.replace(/\n$/, ""))}</code></pre>` : blocks(p)).join("");
+}
+function inline(s) { return esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>"); }
+function blocks(src) {
+  let html = "", list = null;
+  const close = () => { if (list) { html += `</${list}>`; list = null; } };
+  for (const para of src.split(/\n{2,}/)) {
+    const lines = para.split("\n").filter(l => l.trim());
+    if (!lines.length) continue;
+    const ul = lines.every(l => /^\s*[-*•]\s+/.test(l)), ol = lines.every(l => /^\s*\d+[.)]\s+/.test(l));
+    if (ul || ol) {
+      const tag = ul ? "ul" : "ol"; if (list !== tag) { close(); html += `<${tag}>`; list = tag; }
+      html += lines.map(l => `<li>${inline(l.replace(/^\s*([-*•]|\d+[.)])\s+/, ""))}</li>`).join("");
+    } else { close(); html += `<p>${lines.map(inline).join("<br>")}</p>`; }
+  }
+  close(); return html;
+}
+const thread = () => $("#threadInner");
+function scrollThread() { const t = $("#thread"); requestAnimationFrame(() => t.scrollTop = t.scrollHeight); }
+function emptyChat() {
+  if (thread().children.length) return;
+  const c = h("canvas", { width: 304, height: 104 });
+  pill(c, () => ({ state: "speaking", levels: [] }));
+  const chips = ["Change my shortcut to Ctrl+Shift+N", "What can you do?", "Summarise what's on my screen", "Make your voice slower"];
+  thread().append(h("div", { class: "chat-empty", id: "chatEmpty" }, c, h("h2", {}, "Ask Nova anything"),
+    h("p", { class: "muted" }, "Nova does it on your computer with " + (S.state.brain || "your AI") + ". You can also ask it to change how Nova itself works."),
+    h("div", { class: "suggest" }, chips.map(t => h("button", { class: "chip", onclick: () => ask(t) }, t)))));
+}
+function addMsg(el) { $("#chatEmpty")?.remove(); thread().append(el); scrollThread(); return el; }
+function userMsg(text, spoken) { return addMsg(h("div", { class: "msg user" }, spoken ? h("div", { class: "spoken", html: I.mic + "<span>Spoken</span>" }) : null, text)); }
+function novaMsg(text, request) {
+  const cp = h("button", { class: "icon-btn", "aria-label": "Copy reply", title: "Copy", html: I.copy });
+  cp.addEventListener("click", () => copyText(text, cp));
+  return addMsg(h("div", { class: "msg nova" }, h("span", { html: I.logo }), h("div", { class: "content" }, h("div", { class: "md", html: md(text) }), h("div", { class: "msg-acts" }, cp))));
+}
+function noteMsg(text) { return addMsg(h("div", { class: "note" }, text)); }
+function startWork() {
+  endWork();
+  const steps = h("div", { class: "steps" }, h("div", { class: "head-line" }, h("span", { class: "dots", html: "<i></i><i></i><i></i>" }), h("span", { class: "label" }, "Working")));
+  S.work = addMsg(h("div", { class: "work" }, h("span"), steps));
+}
+function step(text) { if (!S.work) startWork(); $(".steps", S.work).append(h("div", { class: "step mono" }, text)); scrollThread(); }
+function endWork(label) {
+  if (!S.work) return;
+  const w = S.work; S.work = null;
+  if ($$(".step", w).length === 0 && !label) return w.remove();
+  w.classList.add("done"); $(".dots", w)?.remove();
+  $(".label", w).textContent = label || `${$$(".step", w).length} step${$$(".step", w).length === 1 ? "" : "s"}`;
+}
+function askMsg(ev) {
+  endWork();  // steps after the answer start a fresh group below the request
+  const bar = h("i"), started = Date.now(), total = ev.timeout * 1000;
+  const allow = h("button", { class: "btn primary sm", onclick: () => send("approve", { ok: true }) }, "Allow");
+  const deny = h("button", { class: "btn sm", onclick: () => send("approve", { ok: false }) }, "Deny");
+  const el = addMsg(h("div", { class: "ask", role: "alert" },
+    h("div", { class: "t", html: I.shield + `<span>${esc(ev.who)} needs your OK</span>` }),
+    h("div", {}, `It wants to run something that ${ev.reason}:`),
+    h("pre", { class: "mono" }, ev.summary),
+    h("div", { class: "bar" }, bar),
+    h("div", { class: "btns" }, allow, deny, h("span", { class: "faint small", style: "margin-left:6px" }, `or press ${prettyKeys(hotkey()).join("+")} / Esc`))));
+  const tick = () => { if (!el.isConnected || el.classList.contains("resolved")) return; bar.style.transform = `scaleX(${Math.max(0, 1 - (Date.now() - started) / total)})`; requestAnimationFrame(tick); };
+  tick(); S.asks.push(el); allow.focus({ preventScroll: true });
+}
+function resolveAsk(allowed, timedOut) {
+  const el = S.asks.shift(); if (!el) return;
+  if (allowed) startWork();
+  el.classList.add("resolved"); $(".btns", el).replaceChildren(h("span", { class: "tag " + (allowed ? "ok" : ""), html: (allowed ? I.check : I.x) + `<span>${allowed ? "Allowed" : timedOut ? "No answer, so Nova said no" : "Denied"}</span>` })); $(".bar", el).remove();
+}
+function renderComposer() {
+  const busy = S.state.phase && S.state.phase !== "idle";
+  const btn = $("#sendBtn");
+  btn.innerHTML = busy ? I.stop : I.send; btn.setAttribute("aria-label", busy ? "Stop" : "Send");
+  btn.disabled = !busy && !$("#prompt").value.trim();
+  $("#micBtn").classList.toggle("live-mic", S.bar === "listening");
+}
+function ask(text) {
+  text = text.trim(); if (!text) return;
+  if (S.gone) return toast("Nova isn't running.", true);
+  userMsg(text); startWork(); send("ask", { text });
+  $("#prompt").value = ""; grow(); renderComposer();
+}
+function grow() { const t = $("#prompt"); t.style.height = "auto"; t.style.height = Math.min(180, t.scrollHeight) + "px"; }
+$("#prompt").addEventListener("input", () => { grow(); renderComposer(); });
+$("#prompt").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!S.state.phase || S.state.phase === "idle") ask($("#prompt").value); } });
+$("#composer").addEventListener("submit", e => { e.preventDefault(); if (S.state.phase && S.state.phase !== "idle") send("cancel"); else ask($("#prompt").value); });
+$("#micBtn").addEventListener("click", () => send("listen"));
+$("#newChat").addEventListener("click", () => { send("reset"); thread().replaceChildren(); S.work = null; emptyChat(); });
+function seedChat() {
+  const pairs = S.history.filter(e => e.event === "reply").slice(0, 12).reverse();
+  if (pairs.length) {
+    for (const e of pairs) { userMsg(e.request, e.source === "voice" || !e.source); novaMsg(e.reply); }
+    addMsg(h("div", { class: "divider" }, "Earlier requests above"));
+  } else emptyChat();
+}
+
+/* ---------- dictionary ---------- */
+function renderWords() {
+  const words = get("dictation.dictionary") || [];
+  $("#words").replaceChildren(...words.map((w, i) => h("span", { class: "word" }, w,
+    h("button", { "aria-label": `Remove ${w}`, html: I.x, onclick: () => { words.splice(i, 1); set("dictation.dictionary", words); renderWords(); save(); } }))));
+}
+$("#wordForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const v = $("#wordInput").value.trim(), words = get("dictation.dictionary");
+  if (!v) return;
+  if (words.some(w => w.toLowerCase() === v.toLowerCase())) { toast(`“${v}” is already there`); return; }
+  words.push(v); set("dictation.dictionary", words); $("#wordInput").value = ""; renderWords(); save();
+});
+function pairsEditor(container, path, leftPh, rightPh) {
+  const obj = get(path) || {};
+  const rows = Object.entries(obj);
+  const commit = () => {
+    const out = {};
+    for (const r of $$(".pair", container)) { const [a, b] = $$("input", r).map(i => i.value.trim()); if (a && b) out[a] = b; }
+    set(path, out); save();
+  };
+  const row = (a = "", b = "") => {
+    const rm = h("button", { class: "icon-btn", "aria-label": "Remove", html: I.x });
+    const el = h("div", { class: "pair" }, h("input", { class: "input", value: a, placeholder: leftPh, "aria-label": leftPh, onchange: commit }),
+      h("span", { class: "arrow", html: I.arrow }), h("input", { class: "input", value: b, placeholder: rightPh, "aria-label": rightPh, onchange: commit }), rm);
+    rm.addEventListener("click", () => { el.remove(); commit(); });
+    return el;
+  };
+  container.replaceChildren(...rows.map(([a, b]) => row(a, b)));
+  return () => { const r = row(); container.append(r); $("input", r).focus(); };
+}
+let addRepl, addAlias, addRoutine;
+$("#addRoutine").addEventListener("click", () => addRoutine());
+$("#claudeHook").addEventListener("click", async e => {
+  const btn = e.currentTarget, want = btn.getAttribute("aria-checked") !== "true";
+  try { S.claudeHook = await api().claude_hook(want); btn.setAttribute("aria-checked", S.claudeHook); toast(S.claudeHook ? "Nova will tell you when Claude finishes" : "Hook removed"); } catch (err) { fail(err); }
+});
+$("#addRepl").addEventListener("click", () => addRepl());
+$("#addAlias").addEventListener("click", () => addAlias());
+
+/* ---------- memory ---------- */
+let memLines = [];
+function renderMemory() {
+  const list = $("#memList");
+  if (!memLines.length) {
+    list.replaceChildren(h("li", { style: "display:block" }, h("p", { class: "muted" }, "Nothing yet. Tell Nova something like “remember that my main project is portfolio”, or add it above.")));
+    return;
+  }
+  list.replaceChildren(...memLines.map((line, i) => {
+    const m = line.match(/^-\s*(\d{4}-\d{2}-\d{2}):\s*(.*)$/);
+    const rm = h("button", { class: "icon-btn", "aria-label": "Forget this", title: "Forget this", html: I.x });
+    rm.addEventListener("click", () => { memLines.splice(i, 1); saveMemory("Forgotten"); });
+    return h("li", { style: "grid-template-columns: 96px 1fr auto" }, h("time", { class: "num" }, m ? m[1] : ""),
+      h("div", { class: "body" }, h("div", { class: "t" }, m ? m[2] : line.replace(/^-\s*/, ""))), h("div", { class: "acts" }, rm));
+  }));
+}
+async function loadMemory() { try { memLines = await api().memory(null); } catch (e) { memLines = []; } renderMemory(); }
+async function saveMemory(msg) { try { memLines = await api().memory(memLines); renderMemory(); toast(msg); } catch (e) { fail(e); } }
+$("#memForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const v = $("#memInput").value.trim(); if (!v) return;
+  memLines.push(`- ${new Date().toISOString().slice(0, 10)}: ${v}`); $("#memInput").value = ""; saveMemory("Nova will remember that");
+});
+armed($("#memClear"), "Click again to forget all", () => { memLines = []; saveMemory("Memory cleared"); });
+
+/* ---------- settings ---------- */
+function showTab(tab) {
+  S.tab = tab;
+  $$("#setTabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
+  $$("[data-panel]").forEach(p => p.hidden = p.dataset.panel !== tab);
+  if (tab !== "voice") stopMic();
+  if (tab === "ai") { loadEngines($("#setEngines"), $("#setLog")); loadFallback(); }
+  if (tab === "browsers") loadBrowsers($("#setBrowsers"), $("#browserLog"), false);
+  if (tab === "voice" && $("#voiceSel").options.length <= 1) loadVoices();
+}
+$$("#setTabs button").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+const EDIT = { verbatim: "Exactly what you said, word for word.", light: "Removes “um”s and repeats, applies “no wait” corrections, fixes punctuation.", medium: "Like Light, and also tightens wording and turns spoken lists into bullets." };
+function showValue(path) {
+  for (const el of $$(`[data-show="${path}"]`)) { const v = get(path); el.textContent = el.dataset.unit === "s" ? (v / 1000).toFixed(1) + " s" : el.dataset.unit === "x" ? Number(v).toFixed(2) + "×" : v; }
+  if (path === "dictation.editing") $("#editDesc").textContent = EDIT[get(path)] || "";
+  if (path === "voice.tts_engine") $$("[data-engine]").forEach(r => r.hidden = r.dataset.engine !== get(path));
+}
+function bindSettings() {
+  for (const el of $$("[data-bind]")) {
+    const path = el.dataset.bind;
+    if (el.classList.contains("switch")) {
+      el.setAttribute("aria-checked", !!get(path));
+      el.onclick = () => { const v = !get(path); set(path, v); el.setAttribute("aria-checked", v); save(); renderLive(); };
+    } else if (el.classList.contains("seg")) {
+      el.replaceChildren(...el.dataset.options.split(",").map(o => { const [v, label] = o.split(":"); return h("button", { role: "radio", "data-v": v }, label); }));
+      const paint = () => $$("button", el).forEach(b => b.setAttribute("aria-checked", b.dataset.v === get(path)));
+      $$("button", el).forEach(b => b.onclick = () => { set(path, b.dataset.v); paint(); showValue(path); save(); });
+      paint(); showValue(path);
+    } else {
+      el.value = get(path) ?? "";
+      const num = el.type === "number" || el.type === "range";
+      el.oninput = () => {
+        let v = num ? Number(el.value) : el.value.trim();
+        if (num && (isNaN(v) || el.value === "")) return;
+        if (num && el.type === "number") { const lo = +el.min, hi = +el.max; if (v < lo || v > hi) { el.setCustomValidity(`Between ${lo} and ${hi}`); return; } el.setCustomValidity(""); }
+        set(path, v); showValue(path); save();
+      };
+      if (el.tagName === "SELECT") el.onchange = el.oninput;
+      showValue(path);
+    }
+  }
+  keycaps(hotkey(), $("#setKeys"));
+  $("#cfgPath").textContent = S.paths.config;
+  $("#autostart").setAttribute("aria-checked", !!S.autostart);
+  const lang = $("#langSel"); lang.replaceChildren(...Object.entries(S.languages).map(([v, l]) => h("option", { value: v }, l))); lang.value = get("voice.language");
+  renderWords();
+  addRepl = pairsEditor($("#repls"), "dictation.replacements", "wisper", "Wispr");
+  addAlias = pairsEditor($("#aliases"), "projects.aliases", "my site", "portfolio");
+  addRoutine = pairsEditor($("#routines"), "routines", "deep code mode", "pause music, open VS Code in portfolio, run npm run dev");
+  $("#claudeHook").setAttribute("aria-checked", !!S.claudeHook);
+  $("#watchCmd").textContent = `python "${S.paths.root}${S.platform === "mac" ? "/" : "\\"}helpers${S.platform === "mac" ? "/" : "\\"}watch.py" npm run build`;
+}
+$("#autostart").addEventListener("click", async e => {
+  const btn = e.currentTarget, want = btn.getAttribute("aria-checked") !== "true";
+  try { S.autostart = await api().autostart(want); btn.setAttribute("aria-checked", S.autostart); toast(S.autostart ? "Nova will open when you sign in" : "Nova won't open at sign in"); } catch (err) { fail(err); }
+});
+const ACCENT = { a: "American", b: "British" };
+function voiceLabel(id) {   // "bm_george" -> "George, British man"
+  const name = id.slice(3)[0].toUpperCase() + id.slice(4);
+  return `${name}, ${ACCENT[id[0]] || ""} ${id[1] === "f" ? "woman" : "man"}${id === "af_heart" ? " (most natural)" : ""}`;
+}
+async function loadVoices() {
+  try {
+    const vs = await api().voices();
+    const sys = $("#voiceSel"), nat = $("#naturalSel");
+    sys.replaceChildren(h("option", { value: "" }, "System default"), ...vs.system.map(v => h("option", { value: v }, v)));
+    sys.value = get("voice.tts_voice") || "";
+    const order = ["af_heart", ...vs.natural.filter(v => v !== "af_heart")];
+    nat.replaceChildren(...order.map(v => h("option", { value: v }, voiceLabel(v))));
+    nat.value = get("voice.kokoro_voice") || "af_heart";
+    $("#getNatural").hidden = vs.natural_installed; $("#testNatural").hidden = !vs.natural_installed; nat.disabled = !vs.natural_installed;
+    if (!vs.natural_installed) $("#naturalNote").textContent = "Not downloaded yet. Until it is, Nova uses the system voice.";
+  } catch (e) { fail(e); }
+}
+const voiceTest = () => ({ tts_engine: get("voice.tts_engine"), kokoro_voice: get("voice.kokoro_voice"), tts_voice: get("voice.tts_voice"), tts_speed: get("voice.tts_speed") });
+$("#testVoice").addEventListener("click", () => api().test_voice(voiceTest()).catch(fail));
+$("#testNatural").addEventListener("click", () => api().test_voice(voiceTest()).catch(fail));
+$("#getNatural").addEventListener("click", async e => {
+  const btn = e.currentTarget, log = $("#voiceLog");
+  btn.disabled = true; btn.textContent = "Downloading…"; log.hidden = false; log.textContent = ""; S.installLog = log;
+  try { await api().download_voice(); toast("Natural voice ready"); log.hidden = true; $("#naturalNote").textContent = "Heart is the most natural. For a butler-style voice, try one of the British men."; }
+  catch (err) { fail(err); btn.disabled = false; btn.textContent = "Try again"; }
+  loadVoices();
+});
+$$("[data-open]").forEach(b => b.addEventListener("click", () => api().open(b.dataset.open).catch(fail)));
+$("#rerunSetup").addEventListener("click", () => openOnboarding());
+armed($("#resetBtn"), "Click again to reset", async () => {
+  try { const dict = get("dictation.dictionary"), repl = get("dictation.replacements"); S.cfg = await api().reset_settings();
+    dirty.clear(); set("dictation.dictionary", dict); set("dictation.replacements", repl); save(true); bindSettings(); renderLive(); toast("Settings reset"); } catch (e) { fail(e); }
+});
+$("#setKeyBtn").addEventListener("click", () => recordHotkey($("#setKeys"), $("#setKeyBtn"), combo => { set("hotkey", combo === S.defaultHotkey ? "" : combo); save(true); }));
+
+/* shortcut recorder */
+const CODE = { Space: "space", Backquote: "`", Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]", Semicolon: ";", Quote: "'", Comma: ",", Period: ".", Slash: "/", Backslash: "\\", Enter: "enter", Tab: "tab" };
+function comboFrom(e) {
+  if (/^(Control|Alt|Shift|Meta|OS)/.test(e.code)) return null;
+  const key = e.code.startsWith("Key") ? e.code.slice(3).toLowerCase() : e.code.startsWith("Digit") ? e.code.slice(5) : /^F\d{1,2}$/.test(e.code) ? e.code.toLowerCase() : CODE[e.code];
+  if (!key) return null;
+  const mods = []; if (e.ctrlKey) mods.push("ctrl"); if (e.altKey) mods.push("alt"); if (e.shiftKey) mods.push("shift"); if (e.metaKey) mods.push(S.platform === "mac" ? "cmd" : "windows");
+  if (!mods.length && !/^f\d+$/.test(key)) return "";
+  return [...mods, key].join("+");
+}
+function recordHotkey(capsEl, btn, done) {
+  const holder = capsEl; holder.classList.add("recording");
+  const old = btn.textContent; btn.textContent = "Press keys… (Esc to cancel)";
+  holder.replaceChildren(h("kbd", {}, "…"));
+  const finish = combo => { window.removeEventListener("keydown", onKey, true); holder.classList.remove("recording"); btn.textContent = old; keycaps(combo || hotkey(), holder); };
+  const onKey = async e => {
+    e.preventDefault(); e.stopPropagation();
+    if (e.code === "Escape") return finish();
+    const combo = comboFrom(e);
+    if (combo === null) { const mods = []; if (e.ctrlKey) mods.push("ctrl"); if (e.altKey) mods.push("alt"); if (e.shiftKey) mods.push("shift"); if (e.metaKey) mods.push(S.platform === "mac" ? "cmd" : "windows"); if (mods.length) keycaps(mods.join("+") + "+…", holder); return; }
+    if (combo === "") return toast("Use at least one of Ctrl, Alt, Shift or " + (S.platform === "mac" ? "Cmd" : "Win"), true);
+    const why = await api().check_hotkey(combo);
+    if (why) { toast(why, true); return; }
+    finish(combo); done(combo);
+  };
+  window.addEventListener("keydown", onKey, true);
+}
+
+/* microphone test */
+let micOn = false;
+async function startMic(nameEl) {
+  if (micOn) return; micOn = true;
+  try { const name = await api().mic_start(); if (nameEl) nameEl.textContent = name; return name; }
+  catch (e) { micOn = false; if (nameEl) nameEl.textContent = "No microphone found. Plug one in or check your privacy settings, then try again."; throw e; }
+}
+function stopMic() { if (micOn) { micOn = false; api().mic_stop(); micLevels.fill(0); } }
+$("#setMicBtn").addEventListener("click", () => { if (micOn) { stopMic(); $("#setMicBtn").textContent = "Test"; } else startMic($("#micName")).then(() => $("#setMicBtn").textContent = "Stop").catch(() => {}); });
+pill($("#setMic"), micSource);
+
+/* engines */
+const ENGINE = { claude: ["Claude Code", "by Anthropic. Sign in with your Claude account."], codex: ["Codex", "by OpenAI. Sign in with your ChatGPT account."] };
+let pollTimer;
+async function loadEngines(box, logEl, onChange) {
+  const draw = (state) => {
+    box.replaceChildren(...Object.entries(ENGINE).map(([id, [name, by]]) => {
+      const st = state && state[id], chosen = S.cfg.brain.engine === id;
+      let right;
+      if (!state) right = h("span", { class: "skel" });
+      else if (!st.installed) right = h("button", { class: "btn sm", onclick: ev => { ev.stopPropagation(); install(id, ev.currentTarget); } }, "Install");
+      else if (!st.signed_in) right = h("button", { class: "btn sm primary", onclick: ev => { ev.stopPropagation(); login(id); } }, "Sign in");
+      else right = h("span", { class: "tag ok", html: I.check + "<span>Ready</span>" });
+      return h("div", { class: "engine", role: "radio", tabindex: 0, "aria-checked": chosen, onclick: () => choose(id), onkeydown: e => (e.key === " " || e.key === "Enter") && (e.preventDefault(), choose(id)) },
+        h("span", { class: "radio" }), h("div", {}, h("div", { class: "name" }, name), h("div", { class: "by" }, by)), h("div", { class: "state" }, right));
+    }));
+  };
+  const choose = id => { set("brain.engine", id); save(true); draw(S.engines); onChange && onChange(); };
+  const install = async (id, btn) => {
+    btn.disabled = true; btn.textContent = "Installing…"; logEl.hidden = false; logEl.textContent = "";
+    S.installLog = logEl;
+    try { await api().install(id); toast(`${ENGINE[id][0]} installed`); set("brain.engine", id); save(true); } catch (e) { fail(e); }
+    refresh();
+  };
+  const login = async id => {
+    try { await api().login(id); toast("Finish signing in in the window that opened"); } catch (e) { return fail(e); }
+    clearInterval(pollTimer);
+    let tries = 0;
+    let polling = false;
+    pollTimer = setInterval(async () => {
+      if (!box.isConnected || box.closest("[hidden]") || ++tries > 60) return clearInterval(pollTimer);
+      if (polling) return;
+      polling = true; const st = await api().engines().finally(() => polling = false); if (st[id].signed_in) { clearInterval(pollTimer); S.engines = st; draw(st); onChange && onChange(); toast(`Signed in to ${ENGINE[id][0]}`); }
+    }, 4000);
+  };
+  const refresh = async () => { try { S.engines = await api().engines(); } catch (e) { fail(e); } draw(S.engines); onChange && onChange(); };
+  draw(S.engines); refresh();
+}
+
+/* ---------- onboarding ---------- */
+/* ---------- backup brain ---------- */
+async function loadFallback() {
+  const st = await api().fallback_status().catch(() => ({ set: false }));
+  const status = $("#fbStatus");
+  status.replaceChildren(st.set
+    ? h("span", { class: "tag ok", html: I.check + "<span>Ready: Nova switches to it only when your main AI is out of quota.</span>" })
+    : h("span", {}, "Not set up. Takes a minute: sign in at Google AI Studio, create a key, paste it here."));
+  if (st.set) {
+    const rm = h("button", { class: "btn sm danger", style: "margin-left:10px" }, h("span", {}, "Remove key"));
+    armed(rm, "Click again to remove", async () => { await api().fallback_remove(); toast("Backup brain removed"); loadFallback(); });
+    status.append(rm);
+  }
+}
+$("#fbGet").addEventListener("click", () => api().open_key_page().catch(fail));
+$("#fbSave").addEventListener("click", async () => {
+  const btn = $("#fbSave"), input = $("#fbKey");
+  btn.disabled = true; btn.textContent = "Checking…";
+  try { await api().fallback_save(input.value); input.value = ""; toast("Backup brain ready"); loadFallback(); }
+  catch (e) { fail(e); }
+  btn.disabled = false; btn.textContent = "Check and save";
+});
+
+/* ---------- browsers ---------- */
+const METHOD = { flag: "Set up automatically", guided: "Needs a one-time step" };
+let browserBox = null;
+async function loadBrowsers(box, logEl, onboarding) {
+  browserBox = { box, logEl, onboarding };
+  box.replaceChildren(h("span", { class: "skel" }));
+  let info;
+  try { info = await api().browsers(); } catch (e) { return fail(e); }
+  S.browsers = info;
+  if (!info.found.length) { box.replaceChildren(h("p", { class: "muted" }, "No Chromium browser (Opera GX, Brave, Vivaldi, Edge, Chrome) was found on this computer.")); return; }
+  if (onboarding && !info.enabled.length) S.browserPicks = new Set(info.found.filter(b => b.default_ticked).map(b => b.id));
+  drawBrowsers();
+}
+function drawBrowsers() {
+  if (!browserBox || !browserBox.box.isConnected) return;
+  const { box, onboarding } = browserBox, info = S.browsers, live = S.state.browsers || [];
+  box.replaceChildren(...info.found.map(b => {
+    const on = onboarding && S.browserPicks ? S.browserPicks.has(b.id) : info.enabled.includes(b.id);
+    const isDefault = info.default === b.id && info.enabled.includes(b.id);
+    const sw = h("button", { class: "switch", role: "switch", "aria-checked": on, "aria-label": `Use ${b.name}` });
+    sw.addEventListener("click", ev => { ev.stopPropagation(); toggleBrowser(b, !on); });
+    let status;
+    if (live.includes(b.id)) status = h("span", { class: "tag ok", html: I.check + "<span>Connected</span>" });
+    else if (info.enabled.includes(b.id) && b.method === "guided") status = h("button", { class: "btn sm primary", onclick: () => guide(b) }, "Finish setup");
+    else if (info.enabled.includes(b.id) && b.running) status = h("button", { class: "btn sm primary", onclick: () => restartBrowser(b) }, "Restart to connect");
+    else if (info.enabled.includes(b.id)) status = h("span", { class: "tag" }, "Connects when it opens");
+    else status = h("span", { class: "tag" }, METHOD[b.method]);
+    const def = info.enabled.includes(b.id) && !onboarding
+      ? h("button", { class: "btn sm ghost", disabled: isDefault, onclick: () => makeDefault(b) }, isDefault ? "Default" : "Make default") : null;
+    return h("div", { class: "engine", style: "grid-template-columns: 38px 1fr auto; cursor: default" }, sw,
+      h("div", {}, h("div", { class: "name" }, b.name), h("div", { class: "by" }, isDefault ? "Nova's default browser" : METHOD[b.method])),
+      h("div", { class: "state" }, def, status));
+  }));
+}
+async function toggleBrowser(b, on) {
+  if (browserBox.onboarding && !S.browsers.enabled.length && S.browserPicks) {  // first run: just collect the picks
+    on ? S.browserPicks.add(b.id) : S.browserPicks.delete(b.id); return drawBrowsers();
+  }
+  const log = browserBox.logEl;
+  try {
+    const r = await api().browser_set(b.id, on);
+    Object.assign(S.browsers, { enabled: r.enabled, default: r.default });
+    b.running = r.running;
+    const skipped = (r.skipped || []).filter(Boolean);
+    log.hidden = !skipped.length;
+    log.textContent = skipped.length ? "Left unchanged (only an administrator can edit these):\n" + skipped.join("\n") : "";
+    toast(on ? `Nova is set up for ${b.name}` : `Nova removed from ${b.name}`);
+  } catch (e) { fail(e); }
+  drawBrowsers();
+}
+async function applyBrowserPicks() {
+  for (const b of S.browsers.found) if (S.browserPicks && S.browserPicks.has(b.id) && !S.browsers.enabled.includes(b.id)) {
+    try { const r = await api().browser_set(b.id, true); Object.assign(S.browsers, { enabled: r.enabled, default: r.default }); b.running = r.running; }
+    catch (e) { fail(e); }
+  }
+  S.browserPicks = null; drawBrowsers();
+}
+async function makeDefault(b) { try { S.browsers.default = await api().browser_default(b.id); toast(`${b.name} is now the default`); } catch (e) { fail(e); } drawBrowsers(); }
+async function restartBrowser(b) { try { await api().browser_restart(b.id); toast(`Restarting ${b.name}; your tabs come back`); } catch (e) { fail(e); } }
+async function guide(b) {
+  try {
+    const where = await api().browser_guide(b.id);
+    const log = browserBox.logEl; log.hidden = false;
+    log.textContent = `${b.name} only loads extensions you add yourself. On the page that just opened:\n1. Turn on “Developer mode” (top right).\n2. Click “Load unpacked” and choose this folder (already copied, paste it into the folder box):\n   ${where}\nNova shows “Connected” as soon as it works. Updates are automatic after that.`;
+  } catch (e) { fail(e); }
+}
+
+const STEPS = S_BROWSERS_STEP ? ["welcome", "mic", "brain", "browsers", "keys", "done"] : ["welcome", "mic", "brain", "keys", "done"];
+let onbAt = 0;
+function openOnboarding() { onbAt = 0; $("#onb").hidden = false; renderOnb(); }
+function closeOnboarding() { stopMic(); clearInterval(pollTimer); $("#onb").hidden = true; set("onboarded", true); save(true); go("home"); }
+function renderOnb() {
+  const id = STEPS[onbAt], body = $("#onbBody"), next = $("#onbNext");
+  $("#onbProgress").replaceChildren(...STEPS.map((_, i) => h("i", { class: i <= onbAt ? "on" : "" })));
+  $("#onbBack").style.visibility = onbAt ? "visible" : "hidden";
+  next.disabled = false; next.textContent = "Continue";
+  if (id !== "mic") stopMic();
+  const step = h("div", { class: "onb-step" });
+  if (id === "welcome") {
+    const c = h("canvas", { width: 520, height: 176 }); const demo = { state: "idle", levels: new Array(15).fill(0) };
+    let k = 0; const cycle = ["idle", "listening", "thinking", "speaking"]; clearInterval(S.demoTimer);
+    S.demoTimer = setInterval(() => { if (!c.isConnected) return clearInterval(S.demoTimer); demo.state = cycle[++k % 4]; }, 1600);
+    const wobble = setInterval(() => { if (!c.isConnected) return clearInterval(wobble); if (demo.state === "listening") { demo.levels.push(.15 + Math.random() * .6); demo.levels.shift(); } }, 70);
+    pill(c, () => demo);
+    step.append(h("div", { class: "stage" }, c), h("h1", {}, "Talk to your computer"),
+      h("p", { class: "lede" }, "Ask Nova to do things and it does them with Claude Code or Codex. Or dictate, and clean text appears in whatever app you're typing in."),
+      h("div", { class: "callout" }, h("span", { html: I.shield }), h("p", { class: "muted" }, "Speech recognition runs on this computer. Nova asks before the AI deletes, installs or sends anything.")));
+    next.textContent = "Get started";
+  } else if (id === "mic") {
+    const c = h("canvas", { width: 520, height: 176 }); pill(c, micSource);
+    const name = h("p", { class: "lede" }, "Say something. The bars should move as you talk.");
+    step.append(h("div", { class: "stage" }, c), h("h1", {}, "Check your microphone"), name);
+    startMic().then(n => name.textContent = `Using “${n}”. Say something; the bars should move as you talk.`)
+      .catch(() => name.textContent = "Nova can't find a microphone. Plug one in, or allow microphone access in your privacy settings, then go back and try again.");
+  } else if (id === "brain") {
+    const box = h("div", { class: "engines" }), log = h("div", { class: "log mono", hidden: true });
+    step.append(h("h1", {}, "Choose Nova's brain"), h("p", { class: "lede" }, "Nova uses an AI you already have. You sign in with your own account in your browser; Nova never sees your password."), box, log);
+    const update = () => { const st = S.engines && S.engines[S.cfg.brain.engine]; next.textContent = st && st.signed_in ? "Continue" : "Continue without it"; };
+    loadEngines(box, log, update); update();
+  } else if (id === "browsers") {
+    const box = h("div", { class: "engines" }), log = h("div", { class: "log mono", hidden: true });
+    step.append(h("h1", {}, "Use Nova in your browser"), h("p", { class: "lede" }, "Nova can open tabs, read pages, click and type for you in the browsers you pick, with your own logins. It asks before anything that submits, buys or sends, and never types passwords or card numbers."), box, log);
+    loadBrowsers(box, log, true);
+    next.textContent = "Set up and continue";
+    S.applyBrowsers = true;
+  } else if (id === "keys") {
+    const caps = h("div", { class: "big-keys" }); keycaps(hotkey(), caps);
+    const change = h("button", { class: "btn" }, "Change shortcut");
+    change.addEventListener("click", () => recordHotkey(caps, change, combo => { set("hotkey", combo === S.defaultHotkey ? "" : combo); save(true); }));
+    const wake = h("button", { class: "switch", role: "switch", "aria-checked": !!S.cfg.wake_word, "aria-label": "Listen for Hey Nova" });
+    wake.addEventListener("click", () => { set("wake_word", !S.cfg.wake_word); wake.setAttribute("aria-checked", S.cfg.wake_word); save(); });
+    step.append(h("h1", {}, "Your shortcut"), h("p", { class: "lede" }, "Press it anywhere to talk to Nova, and again to stop. You can also click the small bar at the bottom of your screen."),
+      caps, change,
+      h("div", { class: "rows list-rows" }, h("div", { class: "row" }, h("div", { class: "what" }, h("h2", {}, "Also listen for “Hey Nova”"), h("p", {}, "Hands-free. Runs on this computer; nothing is kept unless it hears its name.")), h("div", { class: "how" }, wake))));
+  } else if (id === "done") {
+    const auto = h("button", { class: "switch", role: "switch", "aria-checked": !!S.autostart, "aria-label": "Open Nova when you sign in" });
+    auto.addEventListener("click", async () => { try { S.autostart = await api().autostart(!S.autostart); auto.setAttribute("aria-checked", S.autostart); } catch (e) { fail(e); } });
+    const trial = h("div", { class: "callout", id: "trial" }, h("span", { html: I.mic }), h("div", {}, h("h3", {}, "Try it now"),
+      h("p", { class: "muted", html: `Press <span class="keys">${prettyKeys(hotkey()).map(k => `<kbd>${esc(k)}</kbd>`).join("")}</span> and say “What time is it?”` })));
+    step.append(h("h1", {}, "You're all set"), h("p", { class: "lede" }, "Nova lives in the tray, next to the clock" + (S.platform === "mac" ? " (the menu bar on a Mac)" : " (click the ^ if you don't see it)") + ". Click its icon any time to open this window."),
+      h("div", { class: "rows list-rows" }, h("div", { class: "row" }, h("div", { class: "what" }, h("h2", {}, "Open Nova when you sign in"), h("p", {}, "So it's always ready.")), h("div", { class: "how" }, auto))),
+      S.platform === "mac" ? h("div", { class: "callout" }, h("span", { html: I.info }), h("div", {}, h("p", {}, "macOS needs your OK for each of these. Open them one by one, allow “Nova”, then quit Nova from the menu bar and open it again."),
+        h("div", { style: "display:flex;flex-wrap:wrap;gap:8px;margin-top:10px" }, [["Microphone", "Privacy_Microphone"], ["Accessibility", "Privacy_Accessibility"], ["Input Monitoring", "Privacy_ListenEvent"], ["Screen Recording", "Privacy_ScreenCapture"]]
+          .map(([label, pane]) => h("button", { class: "btn sm", onclick: () => api().open("mac-privacy:" + pane).catch(fail) }, label))))) : null,
+      trial);
+    next.textContent = "Open Nova";
+  }
+  body.replaceChildren(step);
+  next.focus({ preventScroll: true });
+}
+$("#onbNext").addEventListener("click", async () => {
+  if (STEPS[onbAt] === "browsers" && S.browserPicks) { $("#onbNext").disabled = true; $("#onbNext").textContent = "Setting up…"; await applyBrowserPicks(); } if (onbAt >= STEPS.length - 1) return closeOnboarding(); onbAt++; renderOnb(); });
+$("#onbBack").addEventListener("click", () => { if (onbAt) { onbAt--; renderOnb(); } });
+
+/* ---------- events from Nova ---------- */
+const handlers = {
+  state(ev) {
+    setTimeout(drawBrowsers);
+    const wasBusy = S.state.phase && S.state.phase !== "idle";
+    S.state = ev; S.gone = false; if (ev.phase === "idle" && !ev.paused && S.bar !== "idle" && S.bar !== "paused") S.bar = "idle";
+    if (ev.paused) S.bar = "paused";
+    if (wasBusy && ev.phase === "idle") endWork();
+    renderLive();
+  },
+  bar(ev) { S.bar = ev.state; if (ev.state !== "listening") S.levels.fill(0); renderLive(); },
+  level(ev) { S.levels.push(ev.value); S.levels.shift(); },
+  mic(ev) { micLevels.push(ev.value); micLevels.shift(); },
+  heard(ev) {
+    S.history.unshift(ev);
+    if (ev.source === "voice" && ev.mode === "assistant") { userMsg(ev.text, true); startWork(); }
+    const trial = $("#trial"); if (trial) { trial.classList.add("good"); trial.replaceChildren(h("span", { html: I.check }), h("div", {}, h("h3", {}, "Nova heard you"), h("p", { class: "muted" }, `“${ev.text}”`))); }
+  },
+  step(ev) { step(ev.text); },
+  reply(ev) { endWork(); novaMsg(ev.reply); S.history.unshift(ev); renderHome(); },
+  note(ev) { if (S.work || ev.title !== "Cancelled") { endWork(ev.title === "Cancelled" ? "Stopped" : undefined); noteMsg(ev.text); } },
+  asking(ev) { askMsg(ev); if (S.page !== "chat") $("#chatBadge").hidden = false; },
+  approval(ev) { resolveAsk(ev.allowed, ev.timed_out); S.history.unshift(ev); },
+  dictation(ev) { S.history.unshift(ev); renderHome(); },
+  edit(ev) { S.history.unshift(ev); renderHome(); },
+  error(ev) { if (S.work) { endWork("Stopped"); noteMsg("Something went wrong: " + ev.error); } },
+  install(ev) { if (S.installLog) { S.installLog.textContent += ev.line + "\n"; S.installLog.scrollTop = 1e9; } },
+  focus(ev) { if (ev.page === "welcome") openOnboarding(); else if (ev.page) go(ev.page); },
+  gone() { S.gone = true; S.bar = "idle"; endWork("Stopped"); renderLive(); },
+};
+window.nova = { recv(ev) { ev.t ??= Date.now() / 1000; try { (handlers[ev.event] || (() => {}))(ev); } catch (e) { console.error(e); } } };
+
+async function boot() {
+  const b = await api().hello();
+  Object.assign(S, { cfg: b.config, defaults: b.defaults, platform: b.platform, autostart: b.autostart, claudeHook: b.claude_hook, defaultHotkey: b.default_hotkey, languages: b.languages, paths: b.paths, gone: !b.connected });
+  if (b.error) { $("#cfgError").hidden = false; $("#cfgError span").textContent = b.error; }
+  pill($("#livePill"), liveSource);
+  requestAnimationFrame(drawPills);
+  if (reduced) setInterval(() => drawPills(performance.now()), 250);
+  bindSettings(); renderLive();
+  await loadHistory(); seedChat();
+  if (!b.config.onboarded || b.page === "welcome") { go("home"); openOnboarding(); }
+  else go(b.page || "home");
+  if (b.connected) send("state");
+}
+window.addEventListener("pywebviewready", boot);
+</script>
+</body>
+</html>

@@ -1,0 +1,183 @@
+"""Nova's macOS setup window: setup.sh finds Python, then this window does the rest with visible progress
+(libraries, speech models, the natural voice, Nova.app, self-checks) and opens Nova, whose own screens
+handle the microphone, your AI, the shortcut and macOS permissions. Stdlib + tkinter only.
+
+    python3 helpers/setup_window.py
+"""
+import os
+import queue
+import shutil
+import subprocess
+import sys
+import threading
+import time
+import tkinter as tk
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+VENV, PY = ROOT / ".venv", ROOT / ".venv" / "bin" / "python"
+APP = Path.home() / "Applications" / "Nova.app"
+
+BG, FG, DIM, ACCENT, TRACK, BAD = "#16161a", "#f2f2f4", "#a3a3ad", "#7c5cff", "#2a2a31", "#ff7a7a"
+INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>Nova</string>
+  <key>CFBundleIdentifier</key><string>com.nova.assistant</string>
+  <key>CFBundleExecutable</key><string>Nova</string>
+  <key>CFBundleIconFile</key><string>Nova</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>LSUIElement</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>Nova listens for "Hey Nova" and your requests. Audio never leaves this Mac.</string>
+  <key>NSAppleEventsUsageDescription</key><string>Nova controls apps when you ask it to.</string>
+</dict></plist>
+"""
+
+
+class Window:
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title("Nova setup")
+        self.root.configure(bg=BG)
+        self.root.geometry("560x250")
+        self.root.resizable(False, False)
+        self.lines, self.cancelled, self.proc = queue.Queue(), False, None
+        tk.Label(self.root, text="Installing Nova", bg=BG, fg=FG, font=("Helvetica", 20, "bold")).place(x=28, y=22)
+        self.status = tk.Label(self.root, text="Getting ready", bg=BG, fg=DIM, font=("Helvetica", 13))
+        self.status.place(x=28, y=64)
+        self.track = tk.Canvas(self.root, width=504, height=6, bg=TRACK, highlightthickness=0)
+        self.track.place(x=28, y=100)
+        self.fill = self.track.create_rectangle(0, 0, 0, 6, fill=ACCENT, width=0)
+        self.detail = tk.Label(self.root, text="", bg=BG, fg=DIM, font=("Helvetica", 11), anchor="w", width=70)
+        self.detail.place(x=28, y=116)
+        self.log = tk.Text(self.root, height=6, bg="#0f0f12", fg=DIM, font=("Menlo", 10), relief="flat")
+        self.button = tk.Button(self.root, text="Cancel", command=self.on_button, highlightbackground=BG)
+        self.button.place(x=440, y=200)
+        self.toggle = tk.Label(self.root, text="Show details", bg=BG, fg=DIM, cursor="hand2")
+        self.toggle.place(x=28, y=205)
+        self.toggle.bind("<Button-1>", lambda _: self.show_log(not self.log.winfo_ismapped()))
+        self.root.protocol("WM_DELETE_WINDOW", self.on_button)
+        self.done = False
+
+    def show_log(self, on):
+        if on:
+            self.root.geometry("560x400")
+            self.log.place(x=28, y=144, width=504, height=150)
+            self.button.place(y=350)
+            self.toggle.place(y=355)
+            self.toggle.config(text="Hide details")
+        else:
+            self.log.place_forget()
+            self.root.geometry("560x250")
+            self.button.place(y=200)
+            self.toggle.place(y=205)
+            self.toggle.config(text="Show details")
+
+    def on_button(self):
+        if self.done:
+            self.root.destroy()
+        else:
+            self.cancelled = True
+            if self.proc:
+                self.proc.terminate()
+
+    def ui(self, fn):
+        self.lines.put(fn)
+
+    def pump(self):
+        while not self.lines.empty():
+            self.lines.get_nowait()()
+        self.root.after(80, self.pump)
+
+    def note(self, line):
+        self.ui(lambda: (self.log.insert("end", line + "\n"), self.log.see("end")))
+
+    def run(self, *args, cwd=ROOT):
+        """Run one step, streaming its output into the details box. Returns the exit code."""
+        if self.cancelled:
+            raise RuntimeError("Setup was cancelled.")
+        self.note("> " + " ".join(map(str, args)))
+        self.proc = subprocess.Popen([str(a) for a in args], cwd=cwd, stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, text=True, errors="replace")
+        for line in self.proc.stdout:
+            if line.strip():
+                self.note(line.rstrip()[:300])
+                if line.strip().endswith("MB"):
+                    self.ui(lambda l=line.strip(): self.detail.config(text=l))
+        code = self.proc.wait()
+        if self.cancelled:
+            raise RuntimeError("Setup was cancelled.")
+        return code
+
+
+def steps(win):
+    total = 6
+
+    def step(n, text, detail=""):
+        win.ui(lambda: (win.status.config(text=f"Step {n} of {total}: {text}"), win.detail.config(text=detail),
+                        win.track.coords(win.fill, 0, 0, 504 * (n - 1) / total, 6)))
+        win.note(f"== {text}")
+
+    step(1, "Creating Nova's own Python environment")
+    if not PY.exists() and win.run(sys.executable, "-m", "venv", VENV) != 0:
+        raise RuntimeError("Couldn't create Nova's Python environment (see details).")
+    step(2, "Installing libraries", "This takes a minute or two the first time.")
+    win.run(PY, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", "--upgrade", "pip")
+    if win.run(PY, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", "-r", ROOT / "requirements.txt") != 0:
+        raise RuntimeError("Installing libraries failed. Check your internet connection; the details say more.")
+    os.chmod(ROOT / "helpers" / "clipboard.sh", 0o755)
+    step(3, "Downloading the speech models (about 2 GB, once)")
+    if win.run(PY, "-c", "from faster_whisper.utils import download_model as d; d('small'); d('large-v3-turbo')") != 0:
+        raise RuntimeError("Downloading the speech models failed. Check your internet connection and try again.")
+    (ROOT / "data").mkdir(exist_ok=True)
+    (ROOT / "data" / "models-ready").touch()
+    step(4, "Downloading Nova's natural voice (about 330 MB, once)")
+    if win.run(PY, "-m", "core.tts", "download") != 0:
+        win.note("The natural voice didn't download; Nova will use the macOS voice. Settings > Voice can retry.")
+    step(5, "Adding Nova to your Applications")
+    (APP / "Contents" / "MacOS").mkdir(parents=True, exist_ok=True)
+    (APP / "Contents" / "Resources").mkdir(parents=True, exist_ok=True)
+    launcher = APP / "Contents" / "MacOS" / "Nova"  # a tiny app, so macOS asks permissions for "Nova"
+    launcher.write_text(f'#!/bin/bash\ncd "{ROOT}" && exec "{PY}" "{ROOT / "nova.py"}"\n')
+    launcher.chmod(0o755)
+    (APP / "Contents" / "Info.plist").write_text(INFO_PLIST)
+    win.run(PY, "-m", "core.icon", APP / "Contents" / "Resources" / "Nova.icns")
+    step(6, "Running Nova's self-checks")
+    if win.run(PY, ROOT / "tests.py") != 0:
+        raise RuntimeError("Nova's self-checks failed (see details). Please report this.")
+    subprocess.run(["pkill", "-f", str(ROOT / "nova.py")])  # an update: start again on the new code
+    time.sleep(1)  # until the old copy lets go of its single-instance port, or the new one just exits
+    subprocess.Popen(["open", "-a", str(APP)])
+
+
+def main():
+    win = Window()
+
+    def work():
+        try:
+            steps(win)
+            win.ui(lambda: (win.track.coords(win.fill, 0, 0, 504, 6), win.status.config(
+                text="Nova is opening. It will walk you through the microphone, your AI, the shortcut and permissions."),
+                win.detail.config(text="Nova lives in the menu bar."), win.button.config(text="Close"),
+                win.root.after(6000, win.root.destroy)))
+        except Exception as e:
+            message = str(e)
+            win.note(f"ERROR: {message}")
+            win.ui(lambda: (win.status.config(text=message, fg=BAD), win.button.config(text="Close"), win.show_log(True),
+                            (ROOT / "data" / "setup.log").write_text(win.log.get("1.0", "end"), encoding="utf-8")))
+            (ROOT / "data").mkdir(exist_ok=True)
+        finally:
+            win.done = True
+
+    threading.Thread(target=work, daemon=True).start()
+    win.root.after(80, win.pump)
+    win.root.lift()
+    win.root.attributes("-topmost", True)
+    win.root.after(500, lambda: win.root.attributes("-topmost", False))
+    win.root.mainloop()
+
+
+if __name__ == "__main__":
+    if shutil.which("open") is None:
+        sys.exit("This setup window is for macOS. On Windows, double-click setup.cmd.")
+    main()

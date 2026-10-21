@@ -1,8 +1,12 @@
 """Everything that differs between Windows and macOS, in one place."""
 import os
+import plistlib
 import shlex
 import subprocess
 import sys
+from pathlib import Path
+
+import numpy as np
 
 IS_MAC = sys.platform == "darwin"
 
@@ -17,7 +21,7 @@ if IS_MAC:
 else:
     import ctypes
     import ctypes.wintypes
-    import winsound
+    import winreg
 
     import keyboard
 
@@ -43,23 +47,52 @@ def after_tk():
 
 
 class Hotkeys:
-    """Global shortcut plus Esc. Windows swallows the shortcut; macOS needs Input Monitoring permission."""
+    """Global shortcut plus Esc. Windows swallows the shortcut; macOS needs Input Monitoring permission.
+    Raises ValueError for a shortcut that can't be parsed."""
 
     def __init__(self, combo, on_hotkey, on_esc):
+        self.combo = combo
         if IS_MAC:
             fmt = "+".join(f"<{k}>" if len(k) > 1 else k for k in combo.lower().split("+"))
             self.listener = pk.GlobalHotKeys({fmt: on_hotkey, "<esc>": on_esc})
             self.listener.start()
         else:
-            keyboard.add_hotkey(combo, on_hotkey, suppress=True)
-            keyboard.add_hotkey("esc", on_esc)
+            self.handles = [keyboard.add_hotkey(combo, on_hotkey, suppress=True)]
+            self.handles.append(keyboard.add_hotkey("esc", on_esc))
+
+    def stop(self):
+        if IS_MAC:
+            self.listener.stop()
+        else:
+            for h in self.handles:
+                keyboard.remove_hotkey(h)
+
+
+def pretty_hotkey(combo):
+    """'ctrl+alt+space' -> 'Ctrl+Alt+Space', for showing the shortcut to people."""
+    names = {"ctrl": "Ctrl", "alt": "Option" if IS_MAC else "Alt", "cmd": "Cmd", "shift": "Shift",
+             "windows": "Win", "win": "Win", "space": "Space", "esc": "Esc", "enter": "Enter", "tab": "Tab"}
+    return "+".join(names.get(k, k.upper() if len(k) <= 3 else k.title()) for k in combo.lower().split("+"))
+
+
+def _chime(freqs, seconds=0.07, rate=44100):
+    """A short, soft two-note chime (sine with a fade): gentler than the PC-speaker beep."""
+    t = np.arange(int(seconds * rate)) / rate
+    fade = np.minimum(1, np.minimum(t, seconds - t) / 0.012)
+    return np.concatenate([0.18 * np.sin(2 * np.pi * f * t) * fade for f in freqs]).astype(np.float32)
+
+
+CHIMES = {True: _chime((660, 990)), False: _chime((880, 587))}
 
 
 def beep(start):
-    if IS_MAC:
-        subprocess.Popen(["afplay", "/System/Library/Sounds/" + ("Tink.aiff" if start else "Pop.aiff")])
-    else:
-        winsound.Beep(880 if start else 660, 60)
+    import sounddevice as sd  # lazy: the app window imports this module without needing audio
+    try:
+        sd.play(CHIMES[start], 44100)
+        if start:
+            sd.wait()  # finish before recording, so the chime isn't measured as the room's noise
+    except Exception:  # no speakers: the bar still shows the state
+        pass
 
 
 def foreground():
@@ -84,6 +117,79 @@ def paste():
         keyboard.send("ctrl+v")
 
 
+def copy():
+    if IS_MAC:
+        with _keys.pressed(pk.Key.cmd):
+            _keys.tap("c")
+    else:
+        keyboard.send("ctrl+c")
+
+
+def window_title(target):
+    """The app (macOS) or window title (Windows) the user was in, as context for the AI."""
+    if not target:
+        return ""
+    if IS_MAC:
+        return str(target.localizedName() or "")
+    buf = ctypes.create_unicode_buffer(512)
+    user32.GetWindowTextW(target, buf, 512)
+    return buf.value
+
+
+def window_rect(target):
+    """(left, top, right, bottom) of the user's window on Windows, or None (macOS: the whole screen is used)."""
+    if IS_MAC or not target:
+        return None
+    rect = ctypes.wintypes.RECT()
+    if not user32.GetWindowRect(target, ctypes.byref(rect)) or rect.right - rect.left < 50:
+        return None
+    return rect.left, rect.top, rect.right, rect.bottom
+
+
+def screenshot(path, box=None):
+    """Save the screen, or just `box` (screen pixels), as a PNG. macOS asks for Screen Recording permission
+    the first time."""
+    from PIL import ImageGrab
+    img = ImageGrab.grab()  # shortcut: main screen only; capture the target window's monitor if users ask
+    if box:
+        k = img.width / screen_width()  # Retina Macs grab twice the pixels Tk reports
+        img = img.crop(tuple(max(0, int(v * k)) for v in box))
+    img.save(path)
+    return path
+
+
+def screen_width():
+    return int(NSScreen.mainScreen().frame().size.width) if IS_MAC else user32.GetSystemMetrics(0)
+
+
+def refresh_path(env=None):
+    """Re-read PATH, so a CLI or Node.js installed while Nova runs is found without a restart."""
+    if IS_MAC:
+        # an app opened from Finder gets a bare PATH; the login shell's has nvm, npm and Homebrew in it
+        try:
+            shell = subprocess.run([os.environ.get("SHELL", "/bin/zsh"), "-ilc", "echo $PATH"], capture_output=True,
+                                   text=True, timeout=5, stdin=subprocess.DEVNULL).stdout.strip().splitlines()
+        except (OSError, subprocess.TimeoutExpired):
+            shell = []
+        home = Path.home()
+        extra = (shell[-1].split(os.pathsep) if shell else []) + [
+            str(home / ".local" / "bin"), str(home / ".npm-global" / "bin"), "/opt/homebrew/bin", "/usr/local/bin"]
+        path = os.pathsep.join(p for p in dict.fromkeys(os.environ.get("PATH", "").split(os.pathsep) + extra) if p)
+    else:
+        parts = []
+        for hive, key in ((winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+                          (winreg.HKEY_CURRENT_USER, "Environment")):
+            try:
+                with winreg.OpenKey(hive, key) as k:
+                    parts.append(os.path.expandvars(winreg.QueryValueEx(k, "Path")[0]))
+            except OSError:
+                pass
+        path = os.pathsep.join(parts) or os.environ.get("PATH", "")
+    os.environ["PATH"] = path
+    if env is not None:
+        env["PATH"] = path
+
+
 def media(name, times=1):
     for _ in range(times):
         if IS_MAC:
@@ -102,6 +208,49 @@ def set_volume(percent):
         media("volume_up", percent // 2)
 
 
+# apps people name that aren't Start-menu shortcuts on Windows
+WIN_APPS = {"calculator": "calc", "calc": "calc", "notepad": "notepad", "paint": "mspaint", "settings": "ms-settings:",
+            "file explorer": "explorer", "explorer": "explorer", "files": "explorer", "task manager": "taskmgr",
+            "terminal": "wt", "command prompt": "cmd", "control panel": "control", "snipping tool": "snippingtool",
+            "camera": "microsoft.windows.camera:", "clock": "ms-clock:", "photos": "ms-photos:", "store": "ms-windows-store:",
+            "microsoft store": "ms-windows-store:", "mail": "outlookmail:", "spotify": "spotify:", "whatsapp": "whatsapp:"}
+ALIASES = {"vs code": "visual studio code", "vscode": "visual studio code", "code": "visual studio code",
+           "chrome": "google chrome", "edge": "microsoft edge", "word": "word", "excel": "excel", "opera": "opera gx"}
+
+
+def open_app(name):
+    """Open an installed app by its spoken name. False if Nova can't find it (then the AI takes over)."""
+    name = ALIASES.get(name.lower(), name.lower())
+    if IS_MAC:
+        return subprocess.run(["open", "-a", name], capture_output=True).returncode == 0
+    roots = [Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs",
+             Path(os.environ.get("PROGRAMDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs"]
+    links = [p for root in roots if root.exists() for p in root.rglob("*") if p.suffix.lower() in (".lnk", ".url")]
+    words = lambda s: s.lower().replace("-", " ").split()
+    for rank in (lambda s: s.lower() == name, lambda s: s.lower().startswith(name),
+                 lambda s: all(w in words(s) for w in name.split())):
+        hits = sorted((p for p in links if rank(p.stem) and "uninstall" not in p.stem.lower()), key=lambda p: len(p.stem))
+        if hits:
+            os.startfile(hits[0])
+            return True
+    if name in WIN_APPS:
+        os.startfile(WIN_APPS[name]) if ":" in WIN_APPS[name] else subprocess.Popen(WIN_APPS[name], shell=True)
+        return True
+    return False
+
+
+def open_url(url):
+    subprocess.Popen(["open", url]) if IS_MAC else os.startfile(url)
+
+
+def lock_screen():
+    if IS_MAC:  # Ctrl+Cmd+Q, macOS's own Lock Screen shortcut (sleeping the display only locks with a setting)
+        with _keys.pressed(pk.Key.ctrl, pk.Key.cmd):
+            _keys.tap("q")
+    else:
+        user32.LockWorkStation()
+
+
 def open_path(path):
     if IS_MAC:
         subprocess.Popen(["open", str(path)])
@@ -111,6 +260,42 @@ def open_path(path):
 
 def edit_file(path):
     subprocess.Popen(["open", "-t", str(path)] if IS_MAC else ["notepad", str(path)])
+
+
+MAC_AGENT = Path.home() / "Library" / "LaunchAgents" / "com.nova.assistant.plist"
+MAC_APP = Path.home() / "Applications" / "Nova.app"
+
+
+def _startup_link():
+    return Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / "Nova.lnk"
+
+
+def autostart_enabled():
+    return MAC_AGENT.exists() if IS_MAC else _startup_link().exists()
+
+
+def set_autostart(on, pythonw, script, icon):
+    """Start Nova at login: a Startup-folder shortcut on Windows, a LaunchAgent on macOS."""
+    if IS_MAC:
+        if on:
+            MAC_AGENT.parent.mkdir(parents=True, exist_ok=True)
+            MAC_AGENT.write_bytes(plistlib.dumps({"Label": "com.nova.assistant", "RunAtLoad": True,
+                                                  "ProgramArguments": ["/usr/bin/open", "-a", str(MAC_APP)]}))
+        else:
+            MAC_AGENT.unlink(missing_ok=True)
+        return
+    link = _startup_link()
+    if not on:
+        link.unlink(missing_ok=True)
+        return
+    # the paths travel in the environment, never inside the script text
+    ps = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:NOVA_LNK); $s.TargetPath = $env:NOVA_PY; "
+          "$s.Arguments = [char]34 + $env:NOVA_SCRIPT + [char]34; $s.WorkingDirectory = $env:NOVA_DIR; "
+          "$s.IconLocation = $env:NOVA_ICON; $s.Description = 'Nova voice assistant'; $s.Save()")
+    env = dict(os.environ, NOVA_LNK=str(link), NOVA_PY=str(pythonw), NOVA_SCRIPT=str(script),
+               NOVA_DIR=str(Path(script).parent), NOVA_ICON=str(icon))
+    subprocess.run(["powershell", "-NoProfile", "-Command", ps], env=env, capture_output=True,
+                   creationflags=NO_WINDOW, check=True)
 
 
 def work_area():
@@ -123,6 +308,29 @@ def work_area():
     rect = ctypes.wintypes.RECT()
     user32.SystemParametersInfoW(0x30, 0, ctypes.byref(rect), 0)  # SPI_GETWORKAREA
     return rect.left, rect.top, rect.right, rect.bottom
+
+
+def notch():
+    """(width, height) in points of a MacBook's camera notch, or (0, 0) without one (and on Windows)."""
+    if not IS_MAC:
+        return 0, 0
+    try:
+        screen = NSScreen.mainScreen()
+        top = screen.safeAreaInsets().top  # macOS 12+: the strip the notch takes
+        if top <= 0:
+            return 0, 0
+        left, right = screen.auxiliaryTopLeftArea().size.width, screen.auxiliaryTopRightArea().size.width
+        return int(screen.frame().size.width - left - right), int(top)
+    except AttributeError:  # older macOS: no notch API, and no notch either
+        return 0, 0
+
+
+def screen_span():
+    """(left, right) of the whole main screen, in the same coordinates as work_area()."""
+    if IS_MAC:
+        frame = NSScreen.mainScreen().frame()
+        return frame.origin.x, frame.origin.x + frame.size.width
+    return 0, user32.GetSystemMetrics(0)
 
 
 def no_activate(tk_window, layered=False):

@@ -3,6 +3,10 @@ sounddevice
 numpy
 pystray
 pillow
+pywebview>=5
+sherpa-onnx>=1.12
+pyaudiowpatch; sys_platform == "win32"
+websockets>=13
 keyboard; sys_platform == "win32"
 pynput; sys_platform == "darwin"
 pyobjc-framework-Cocoa; sys_platform == "darwin"

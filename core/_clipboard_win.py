@@ -76,5 +76,27 @@ def restore(items):
         user32.CloseClipboard()
 
 
+def change_count():
+    """Goes up every time anything is copied, without opening the clipboard."""
+    return user32.GetClipboardSequenceNumber()
+
+
+def get_text():
+    """The clipboard's text, or None if it holds no text."""
+    if not _open():
+        return None
+    try:
+        h = user32.GetClipboardData(CF_UNICODETEXT)
+        p = kernel32.GlobalLock(h) if h else None
+        if not p:
+            return None
+        try:
+            return ctypes.wstring_at(p)
+        finally:
+            kernel32.GlobalUnlock(h)
+    finally:
+        user32.CloseClipboard()
+
+
 def set_text(text):
     restore([(CF_UNICODETEXT, (text + "\0").encode("utf-16-le"))])

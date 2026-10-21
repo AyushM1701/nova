@@ -13,7 +13,10 @@ from multiprocessing.connection import Client
 
 UNTIL_END = r"[^;|&\n]*"  # rest of the current command segment
 SECRETS = (r"login data|logins\.json|key4\.db|web data|cookies\.sqlite|[\\/]network[\\/]cookies|local state"
-           r"|\.ssh[\\/]id_|library/keychains|cookies\.binarycookies")
+           r"|\.ssh[\\/]id_|library/keychains|cookies\.binarycookies|fallback\.key|browser-token|events\.key"
+           # other tools' saved logins: cloud, git, package registries, and the AI CLIs themselves
+           r"|\.aws[\\/]credentials|\.git-credentials|\.netrc\b|\.npmrc|\.pypirc|\.docker[\\/]config\.json"
+           r"|\.kube[\\/]config|gh[\\/]hosts\.yml|\.claude[\\/]\.credentials|\.codex[\\/]auth\.json|\.gnupg")
 
 BLOCK = [
     (r"\bformat(\.com)?\s+[a-z]:|\bdiskpart\b|\bbcdedit\b|\bcipher\s+/w|\bvssadmin\s+delete|\bwbadmin\s+delete"
@@ -55,6 +58,9 @@ CONFIRM = [
     (r"\b(launchctl|pmset|networksetup|scutil|chmod|chown|chflags|xattr)\b|\bdefaults\s+(write|delete)\b",
      "changes system configuration"),
     (r"\bosascript\b[^\n]*(do shell script|keystroke|key code)", "scripts other apps or types keystrokes"),
+    # AppleScript that deletes, sends mail/messages or runs page scripts ("tell Finder to delete every item")
+    (r"\bosascript\b[^\n]*\b(delete|empty|move|duplicate|erase|eject|send|do javascript|run script|shut down"
+     r"|restart|log out)\b", "lets an app delete, move or send something"),
     (r"\bopen\s" + UNTIL_END + r"\.(pkg|dmg|command|sh|mpkg)\b", "opens an installer or script"),
     (r"\b(shutdown|restart-computer|stop-computer|logoff)\b", "shuts down or restarts the laptop"),
     (r"\breg(\.exe)?\s+(add|delete|import|load)\b|\b(new-itemproperty|remove-itemproperty)\b"
@@ -72,8 +78,12 @@ CONFIRM = [
      "calls a method that changes things"),
     (r"\b(start-process|start|saps)\s+[\"']?(powershell|pwsh|cmd|wscript|cscript|mshta|regsvr32|python|py|node|bash"
      r"|wsl)\b|-verb\s+runas", "starts a shell or an elevated process"),
-    (r"\b(start-process|start|saps)\s" + UNTIL_END + r"(\.(ps1|bat|cmd|vbs|js|msi|scr|hta)\b|\\(downloads|temp)\\)",
+    (r"\b(start-process|start|saps|invoke-item|ii|explorer(\.exe)?)\s" + UNTIL_END +
+     r"(\.(ps1|bat|cmd|vbs|vbe|js|jse|wsf|msi|scr|hta|py|pyw|jar|reg|cpl)\b|\\(downloads|temp)\\)",
      "runs a script or a downloaded file"),
+    # -ArgumentList (any prefix, e.g. -Args, -a) hides "git push" or "winget install" from the rules above
+    (r"\b(start-process|saps|start)\s" + UNTIL_END + r"\s-a\w*\b|\bopen\s" + UNTIL_END + r"\s--args\b",
+     "starts a program with arguments"),
     (r"\b(out-file|set-content|sc|add-content|ac|tee-object|tee|copy-item|cp|cpi|copy|xcopy|robocopy|ni)\b"
      r"|\bnew-item\b(?!\s+-itemtype\s+directory)", "writes files outside the edit tools"),
 ]
@@ -87,6 +97,8 @@ ALLOW = [
     r"|new-item\s+-itemtype\s+directory|foreach-object|%|where-object|\?)(\s|$)",
     r"(start-process|start|saps|explorer(\.exe)?|invoke-item|ii)(\s|$)",
     r"(open|say|osascript|mdfind|mdls|pbpaste|pbcopy|sw_vers|uname|afplay|defaults\s+read)(\s|$)",  # macOS
+    r"(set-clipboard|scb|get-clipboard|gcb)(\s|$)",  # putting text on the clipboard (pbcopy's Windows twin)
+    r"sed\s+-n\s+\d+(,\d+)?p(\s|$)",  # printing lines 340-420 of a file; sed -i (editing) isn't allowed
     r"git\s+(status|diff|log|show|add|commit|branch|fetch|pull|switch|checkout|stash|remote|rev-parse|ls-files"
     r"|blame|grep|tag)(\s|$)",
     r"(npm|pnpm|yarn)\s+(test|run|start|ls|list|outdated)(\s|$)",
@@ -119,7 +131,8 @@ def classify_command(cmd, home=None):
             return "confirm", why
     if ">" in re.sub(r"\d?>\s*&\s*\d|\d?>\s*(\$null|/dev/null|nul)\b", "", c):
         return "confirm", "writes a file through a redirect"
-    flat = re.sub(r"[\"']", " ", re.sub(SHELL_WRAPPER, ";", c))
+    # an escaped \| is regex alternation inside a grep pattern ("ask\|follow"), not a pipe to another command
+    flat = re.sub(r"[\"']", " ", re.sub(SHELL_WRAPPER, ";", c.replace("\\|", " ")))
     for seg in re.split(SEPARATORS, flat):
         seg = re.sub(r"^\$[\w:]+\s*=\s*", "", seg.strip())
         if not any(re.match(p, seg) for p in ALLOW) and not (helper and re.match(helper, seg.replace("\\", "/"))):
@@ -162,10 +175,15 @@ def classify(tool, inp, cwd, roots, home, notes):
         return "block", "reads browser or SSH secrets"
     if tool in READ_ONLY_TOOLS:
         return "allow", "read only"
+    if "nova-browser" in tool or "nova_browser" in tool:  # Nova applies its own rules to the real page element
+        return "allow", "browser action checked by Nova"
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         full = os.path.realpath(os.path.join(cwd, os.path.expandvars(path)))
-        if ".claude" in [p.lower() for p in full.split(os.sep)]:
-            return "confirm", "changes Claude Code's own settings"
+        parts = [p.lower() for p in full.split(os.sep)]
+        if ".claude" in parts or ".codex" in parts:
+            return "confirm", "changes Claude Code's or Codex's own settings"
+        if ".git" in parts:  # e.g. a hook in .git/hooks would run on the next (allowed) git commit
+            return "confirm", "changes git's internals"
         if notes and _under(full, notes):
             return "allow", "Nova notes"
         if home and _under(full, home):

@@ -19,10 +19,16 @@ if os.name == "nt":
 from faster_whisper import WhisperModel  # noqa: E402
 
 
+# softer speech passes (default threshold 0.5), and 300 ms of padding keeps the first and last words whole
+VAD = {"threshold": 0.35, "speech_pad_ms": 300}
+
+
 class STT:
     def __init__(self, fast_name, accurate_name):
         self.accurate_name, self.accurate = accurate_name, None
         try:
+            if sys.platform == "darwin":  # no NVIDIA GPU on a Mac: go straight to the CPU (int8 is fast on Apple chips)
+                raise RuntimeError("no CUDA on macOS")
             self.fast = WhisperModel(accurate_name, device="cuda", compute_type="float16")
             self.fast.transcribe(np.zeros(16000, dtype=np.float32))  # fails here if cuDNN/cuBLAS can't load
             self.device = "GPU"
@@ -36,9 +42,16 @@ class STT:
 
     def quick(self, audio):
         """One fast English pass to spot "Hey Nova": [(word, end_seconds)]. No prompt: Whisper can echo one on noise."""
-        segments, _ = self.fast.transcribe(audio, language="en", vad_filter=True, beam_size=1,
+        segments, _ = self.fast.transcribe(audio, language="en", vad_filter=True, vad_parameters=VAD, beam_size=1,
                                            condition_on_previous_text=False, word_timestamps=True)
         return [(w.word.strip(), w.end) for s in segments for w in s.words]
+
+    def answer(self, audio, expect):
+        """A one- or two-word reply to a question ("allow" / "deny"): English, primed with what to expect.
+        Without it, an accented "allow" often comes out as "Hello"."""
+        segments, _ = self.fast.transcribe(audio, language="en", initial_prompt=expect, vad_filter=True,
+                                           vad_parameters=VAD, beam_size=1, condition_on_previous_text=False)
+        return " ".join(s.text.strip() for s in segments).strip()
 
     def transcribe(self, audio, language="auto", vocabulary=()):
         prompt = ("Vocabulary: " + ", ".join(vocabulary) + ".") if vocabulary else None
@@ -47,6 +60,7 @@ class STT:
         def run(model):
             # greedy decoding keeps English words in Latin letters inside Hinglish speech
             segments, info = model.transcribe(audio, language=lang, initial_prompt=prompt, vad_filter=True,
+                                              vad_parameters=VAD,
                                               beam_size=1, condition_on_previous_text=False)
             return " ".join(s.text.strip() for s in segments).strip(), info.language
 
