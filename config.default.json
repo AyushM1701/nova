@@ -58,7 +58,11 @@
     "default": "opera-gx",
     "enabled": []
   },
+  "phone": {
+    "enabled": false
+  },
   "safety": {
+    "mode": "auto",
     "confirm_timeout_s": 30
   },
   "overlay": {

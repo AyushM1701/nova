@@ -7,6 +7,7 @@ pywebview>=5
 sherpa-onnx>=1.12
 pyaudiowpatch; sys_platform == "win32"
 websockets>=13
+qrcode>=7
 keyboard; sys_platform == "win32"
 pynput; sys_platform == "darwin"
 pyobjc-framework-Cocoa; sys_platform == "darwin"

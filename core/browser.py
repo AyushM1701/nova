@@ -20,6 +20,8 @@ import threading
 import time
 from pathlib import Path
 
+from guard.guard import PLAN, with_mode
+
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "browser" / "extension"
 HOME = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Nova" / "browser"
@@ -56,9 +58,19 @@ CARD_DIGITS = re.compile(r"^\D*(?:\d[ -]?){13,19}\D*$")
 SEARCH = re.compile(r"search|query|\bq\b|find", re.I)
 
 
-def classify(tool, args, element=None):
+def classify(tool, args, element=None, mode="accept_edits"):
     """('allow' | 'confirm' | 'block', why) for one browser action. `element` is what the extension reports
-    about the real element on the page (not what the AI says it is)."""
+    about the real element on the page (not what the AI says it is). `mode` is the permission mode: Plan only
+    reads, Manual also asks before typing or picking, Bypass never asks; blocked typing stays blocked."""
+    tier, why = _classify(tool, args, element)
+    if tier == "allow" and mode == "plan" and tool not in ("tabs", "navigate", "read", "inspect", "scroll", "screenshot"):
+        return "block", PLAN
+    if tier == "allow" and mode == "manual" and tool in ("type", "select"):
+        return "confirm", f"{why} (Manual mode asks before every change)"
+    return with_mode(tier, why, mode, unfamiliar=False)
+
+
+def _classify(tool, args, element=None):
     el = element or {}
     what = f'"{el.get("name") or el.get("field") or "an element"}" on {el.get("host") or "the page"}'
     if tool in ("tabs", "navigate", "read", "inspect", "scroll", "screenshot"):
@@ -354,12 +366,14 @@ class Bridge:
         raise RuntimeError(f"{BROWSERS[bid][0]} is open but the Nova extension isn't connected. Restart "
                            f"{BROWSERS[bid][0]} once from Nova's Settings → Browsers so the extension loads.")
 
-    def run_tool(self, bid, tool, args, ask):
+    def run_tool(self, bid, tool, args, ask, mode="accept_edits"):
         """Run one browser tool for the AI, applying Nova's safety rules to the real page element."""
         self.ensure(bid)
         element = self.call(bid, "inspect", {"ref": args["ref"], "tab_id": args.get("tab_id")}) \
             if tool in ("click", "type", "select") and args.get("ref") is not None else None
-        verdict, why = classify(tool, args, element)
+        verdict, why = classify(tool, args, element, mode)
+        if verdict == "block" and why == PLAN:
+            raise PermissionError(PLAN)
         if verdict == "block":
             raise PermissionError(f"Blocked by Nova: this {why}. Don't try another way; tell the user.")
         if verdict == "confirm":

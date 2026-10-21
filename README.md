@@ -14,6 +14,7 @@ A voice assistant for Windows and macOS. Say **"Hey Nova"**, press a shortcut or
 - **Listens to your computer (Windows):** say "listen to my computer" (or use the tray menu) during a video, lecture or call, then ask "what did they just say?" or "grab the command they mentioned". The transcript covers the last 15 minutes, stays in memory and is never saved; "stop listening" ends it.
 - **Uses your real browser (Windows):** Opera GX, Brave, Vivaldi or Opera, inside your own profile with your logins, through a small Nova extension that only talks to Nova on this computer. "Open my GitHub notifications and summarise them", "fill this form with my address", "in Brave, find the cheapest flight to Goa". Nova asks before anything that submits, buys, posts or sends, and never types passwords, card numbers or one-time codes. Turn it on in Settings → Browsers (or the tray menu → Browsers…); a Nova panel in the browser shows the same live conversation, with Allow / Deny.
 - **Never stuck at a limit:** when Claude Code or Codex reaches its usage limit, Nova can switch to a free Google Gemini key (Settings → AI → Backup brain) until it resets. Its commands go through the same safety guard. On Google's free tier your requests may be used to improve Google's products, so it's off until you add a key.
+- **On your phone:** turn on Settings → Phone and scan the code with your iPhone or Android phone. You get the same live conversation: type or dictate requests, see replies, and **Allow / Deny** from the couch. Add it to your home screen and it opens like an app. Works on home Wi-Fi, and from anywhere with Tailscale (see [Phone](#phone)).
 - **The Nova window:** click the tray icon (in the hidden icons area, the ^ next to the clock; in the menu bar on a Mac). It has a chat for typed requests, your history, your dictionary and every setting. You can also ask Nova to change itself: "use Ctrl+Shift+N as my shortcut".
 
 ## Install
@@ -95,6 +96,22 @@ To update by hand instead: download the new ZIP into the same folder and run set
 
 Hover over it to see the shortcut. Settings → General → **Where the bar sits** moves it to the top of the screen; on a MacBook with a notch it then hangs from the notch and grows out of it while Nova listens, thinks and talks, like the Dynamic Island. Clicking the tray / menu bar icon opens the Nova window; its menu has mode, **Brain** (switch between Claude Code and Codex), pause, settings and quit.
 
+## Phone
+
+Use Nova from your iPhone (or any phone) while it runs on your computer. Nothing to install on the phone.
+
+1. In the Nova window, open **Settings → Phone** and turn on **Use Nova from your phone**. On Windows, the first time, allow Python through the firewall on **private** networks when Windows asks. (If your Wi-Fi is set to "Public network", phones can't connect; switch it to Private in Windows' network settings.) On a Mac, click **Allow** if macOS asks whether Nova may accept incoming connections.
+2. Make sure the phone is on the same Wi-Fi, open its **Camera**, point it at the QR code and tap the link.
+3. In Safari, tap **Share → Add to Home Screen**. Nova now opens like an app.
+
+Type a request, or tap the **mic on the phone's keyboard** to dictate it. Replies, the steps Nova takes and approval requests appear live; tap **Allow** or **Deny**. The speaker button reads replies aloud. The computer has to be on with Nova running.
+
+**Siri, the Action Button, Apple Watch and CarPlay:** tap **Siri** at the top of the phone page. It gives you a link to copy and five steps to build an "Ask Nova" shortcut in the Shortcuts app (Dictate Text → URL Encode → Get Contents of URL → Speak Text). Then say "Hey Siri, Ask Nova" and your request; Siri reads Nova's answer. A task that takes longer than about 50 seconds keeps going, and its answer appears in the phone page. Siri's dictation is Apple's, not Nova's on-device speech recognition.
+
+**Away from home:** install the free [Tailscale](https://tailscale.com/download) app on the computer and the phone, and sign in to both with the same account. Settings → Phone then shows a second code, "Anywhere, with Tailscale"; scan that one and the page works from anywhere, privately and encrypted, without opening anything to the internet.
+
+**Safety:** only phones that scanned the code can connect; each link carries a secret pairing key. **Forget phones** in Settings → Phone makes a new key and disconnects every paired phone. On home Wi-Fi the connection isn't encrypted, so use it on your own network, not public Wi-Fi; over Tailscale it is encrypted. A paired phone can do anything you can do from the Nova window, including approving requests, so treat the link like a password.
+
 ## What stays on your computer
 
 - **Speech recognition** (Whisper, via faster-whisper) and the **"Hey Nova" wake word** run entirely on your machine. Audio is never uploaded, and nothing you say is kept unless it starts with "Hey Nova" or you pressed the shortcut.
@@ -106,7 +123,17 @@ Hover over it to see the shortcut. Settings → General → **Where the bar sits
 
 **In the browser**, Nova checks the real element on the page (not what the AI says it is): reading, navigating, scrolling and ordinary clicks are allowed; clicks that submit, buy, post, send or delete, pressing Enter in a form, downloads and page scripts ask you first; typing into password, card or one-time-code fields is blocked. Page text is treated as data, never as instructions.
 
-**On the computer**:
+**Permissions** (Settings → Privacy & safety, or the tray menu → Permissions) set how often Nova asks:
+
+| Mode | What asks first |
+|---|---|
+| **Auto** (default) | Only risky things: deleting or moving files, installing, `git push`, closing apps, sending data, system settings, startup items, changes to Nova or to Claude Code/Codex settings, and code typed straight into a command. Unfamiliar commands and ordinary files outside your projects just run. |
+| **Manual** | Every change, including edits inside your projects and `git commit`. Reading, searching and opening apps don't ask. |
+| **Accept edits** | Edits inside your projects run freely; anything unfamiliar asks. |
+| **Plan** | Nothing changes: the AI looks around, describes its plan and asks. Say "go ahead" (or "yes") and that plan runs once with Auto's rules. |
+| **Bypass permissions** | Nothing asks. Wiping disks, turning off the firewall or antivirus, reading saved passwords or SSH keys and running scripts piped from the internet stay blocked in every mode. |
+
+**On the computer**, in Accept edits mode (the others adjust it as above):
 
 Every command, file edit and file read that Claude Code or Codex makes passes through Nova's guard (`guard/guard.py`) first:
 
@@ -143,6 +170,8 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 | `routines` | `{}` | Spoken routines, e.g. `{"deep code mode": "pause music, open VS Code in portfolio"}` |
 | `brain.fallback_model` | `gemini-flash-latest` | The backup brain's Gemini model (the key itself lives in `data/fallback.key`) |
 | `update_check` | `true` | Check GitHub once a day for a newer Nova |
+| `safety.mode` | `auto` | `auto`, `manual`, `accept_edits`, `plan` or `bypass` (see [Safety](#safety)) |
+| `phone.enabled` | `false` | Serve the phone page on your network (Settings → Phone) |
 | `brain.screen_context` | `true` | Tell the AI which app you're in, and send a screenshot when you ask about your screen |
 
 ## Speed
@@ -178,6 +207,7 @@ core/tts.py           spoken replies: the natural Kokoro voice, or system voices
 guard/guard.py        safety hook for Claude Code and Codex
 core/browser.py       the browser bridge, its safety rules and the extension installer
 core/update.py        update check and installer (bump VERSION to publish an update)
+core/phone.py, phone.html  the phone page and its server (Settings → Phone)
 browser/extension/    the Nova extension (Chromium, unpacked; never published to a store)
 helpers/              clipboard helpers, the browser MCP server, the command watcher and Claude Code hook
 setup.* / uninstall.* installers (setup.command: double-click setup for Finder)

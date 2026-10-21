@@ -10,12 +10,13 @@ import base64
 import json
 import re
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 from core.system import IS_MAC, NO_WINDOW
-from guard.guard import classify_command
+from guard.guard import PLAN, classify_command
 
 ROOT = Path(__file__).resolve().parents[1]
 KEY_FILE = ROOT / "data" / "fallback.key"
@@ -62,9 +63,11 @@ def check(api_key, model):
     return "" if model in names else f"Your key works, but the model {model} isn't available to it."
 
 
-def run_command(command, ask, home=str(ROOT)):
-    """Run one command for the backup brain, after the same safety rules Claude's commands get."""
-    tier, why = classify_command(command, home)
+def run_command(command, ask, home=str(ROOT), mode="accept_edits"):
+    """Run one command for the backup brain, after the same safety rules (and permission mode) Claude's get."""
+    tier, why = classify_command(command, home, mode)
+    if tier == "block" and why == PLAN:
+        return PLAN + "."
     if tier == "block":
         return f"Blocked by Nova's safety rules: this {why}. Don't try another way; tell the user."
     if tier == "confirm" and not ask({"tool": "Bash", "summary": command[:400], "reason": why}):
@@ -78,9 +81,9 @@ def run_command(command, ask, home=str(ROOT)):
     return f"exit code {r.returncode}\n{(r.stdout + r.stderr).strip()[-4000:]}"
 
 
-def run(prompt, cfg, ask, on_step, main="Claude Code", memory="(nothing yet)", post=_post):
+def run(prompt, cfg, ask, on_step, main="Claude Code", memory="(nothing yet)", post=_post, mode="accept_edits"):
     """One request: (text to show, line to speak, question to ask back or None)."""
-    from core.brain import OS_HINT, split_say
+    from core.brain import OS_HINT, PLAN_HINT, split_say
     api_key, model = key(), cfg["brain"]["fallback_model"]
     parts = [{"text": prompt}]
     shot = re.search(r"screenshot of .+? is at (\S+?\.png)", prompt)
@@ -88,17 +91,28 @@ def run(prompt, cfg, ask, on_step, main="Claude Code", memory="(nothing yet)", p
         parts.append({"inline_data": {"mime_type": "image/png",
                                       "data": base64.b64encode(Path(shot.group(1)).read_bytes()).decode()}})
     contents = [{"role": "user", "parts": parts}]
-    body = {"system_instruction": {"parts": [{"text": SYSTEM.format(main=main, os_hint=OS_HINT, memory=memory)}]},
+    system = SYSTEM.format(main=main, os_hint=OS_HINT, memory=memory) + (f"\n- {PLAN_HINT}" if mode == "plan" else "")
+    body = {"system_instruction": {"parts": [{"text": system}]},
             "tools": [{"function_declarations": [{
                 "name": "run_command", "description": "Run one PowerShell (Windows) or shell (macOS) command on "
                 "the user's computer and get its output.",
                 "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}]}]}
     for _ in range(8):
         try:
-            reply = post(f"models/{model}:generateContent", {**body, "contents": contents}, api_key)
+            for wait in (2, 5, 0):  # 500/503: Google is briefly overloaded, so try twice more before giving up
+                try:
+                    reply = post(f"models/{model}:generateContent", {**body, "contents": contents}, api_key)
+                    break
+                except urllib.error.HTTPError as e:
+                    if e.code not in (500, 503) or not wait:
+                        raise
+                    on_step("Google is busy, trying again")
+                    time.sleep(wait)
         except urllib.error.HTTPError as e:
             why = ("it's over its free limit too" if e.code == 429 else
-                   "Google didn't accept the key" if e.code in (400, 401, 403) else f"Google returned error {e.code}")
+                   "Google didn't accept the key" if e.code in (400, 401, 403) else
+                   "Google's servers are busy right now; try again in a minute" if e.code in (500, 503) else
+                   f"Google returned error {e.code}")
             return f"The backup brain couldn't answer: {why}.", f"Sorry, the backup brain couldn't answer: {why}.", None
         except OSError:
             return "The backup brain couldn't reach Google.", "Sorry, I can't reach the backup brain right now.", None
@@ -116,6 +130,6 @@ def run(prompt, cfg, ask, on_step, main="Claude Code", memory="(nothing yet)", p
             command = str((call.get("args") or {}).get("command", ""))
             on_step(f"Running: {command[:90]}")
             answers.append({"functionResponse": {"name": call.get("name", "run_command"),
-                                                 "response": {"output": run_command(command, ask)}}})
+                                                 "response": {"output": run_command(command, ask, mode=mode)}}})
         contents.append({"role": "user", "parts": answers})
     return "The backup brain took too many steps and stopped.", "Sorry, that took too many steps.", None

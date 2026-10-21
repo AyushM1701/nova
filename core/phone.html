@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Nova">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#111114">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" href="/icon.png">
+<title>Nova</title>
+<style>
+:root {
+  --bg: #f6f6f8; --surface: #ffffff; --raised: #ececf1; --line: rgba(20, 20, 32, .1);
+  --text: #16161a; --muted: #5b5b66; --faint: #8a8a95;
+  --accent: #6a4cf5; --accent-ink: #fff; --accent-soft: rgba(106, 76, 245, .12);
+  --amber: #a86400; --amber-soft: rgba(255, 186, 60, .18); --amber-line: rgba(204, 132, 0, .45);
+  --ok: #148a5b; --danger: #c93a3a; --glass: rgba(246, 246, 248, .82);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111114; --surface: #1c1c22; --raised: #26262d; --line: rgba(255, 255, 255, .09);
+    --text: #f2f2f4; --muted: #a3a3ad; --faint: #80808b;
+    --accent: #7357ff; --accent-soft: rgba(124, 92, 255, .2);
+    --amber: #ffba3c; --amber-soft: rgba(255, 186, 60, .12); --amber-line: rgba(255, 186, 60, .42);
+    --ok: #3ecf8e; --danger: #ff7a7a; --glass: rgba(17, 17, 20, .82);
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+/* pinned to the screen and sized to what's visible (see fit()): iPhone home-screen apps otherwise keep a blank
+   strip where the keyboard was */
+body {
+  position: fixed; inset: 0 0 auto 0; height: 100%; background: var(--bg); color: var(--text);
+  display: flex; flex-direction: column;
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%;
+}
+button, textarea, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+header {
+  display: flex; align-items: center; gap: 10px; flex: none;
+  padding: calc(8px + env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 8px max(14px, env(safe-area-inset-left));
+  background: var(--glass); -webkit-backdrop-filter: saturate(1.6) blur(18px); backdrop-filter: saturate(1.6) blur(18px);
+  border-bottom: 1px solid var(--line); z-index: 2;
+}
+header svg.logo { width: 30px; height: 30px; flex: none; }
+.who { flex: 1; min-width: 0; }
+.who b { display: block; font-size: 17px; line-height: 1.2; letter-spacing: -.01em; }
+.who span { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+.dot.s-ok { background: var(--ok); } .dot.s-busy { background: var(--accent); } .dot.s-ask { background: var(--amber); } .dot.s-bad { background: var(--danger); }
+.icon { height: 38px; min-width: 38px; padding: 0 12px; border-radius: 19px; border: 0; background: var(--raised); display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: var(--muted); font-size: 14px; font-weight: 600; }
+.icon[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.icon.round { padding: 0; width: 38px; }
+svg.i { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+main {
+  flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  padding: 16px max(14px, env(safe-area-inset-right)) 12px max(14px, env(safe-area-inset-left));
+  display: flex; flex-direction: column; gap: 10px;
+}
+.msg { overflow-wrap: anywhere; max-width: 100%; }
+.user { align-self: flex-end; max-width: 84%; background: var(--accent); color: var(--accent-ink); padding: 9px 14px; border-radius: 20px 20px 6px 20px; white-space: pre-wrap; }
+.nova { align-self: flex-start; max-width: 90%; background: var(--surface); border: 1px solid var(--line); padding: 10px 14px; border-radius: 20px 20px 20px 6px; }
+.md p { margin: 0 0 8px; } .md p:last-child, .md ul:last-child, .md ol:last-child, .md pre:last-child { margin-bottom: 0; }
+.md ul, .md ol { margin: 0 0 8px; padding-left: 20px; } .md li { margin: 3px 0; }
+.md code { font: 13.5px ui-monospace, "SF Mono", Menlo, monospace; background: var(--raised); padding: 1px 5px; border-radius: 5px; }
+.md pre { margin: 0 0 8px; background: var(--raised); border-radius: 10px; padding: 10px 12px; overflow-x: auto; }
+.md pre code { background: none; padding: 0; }
+.md strong { font-weight: 650; }
+.note { align-self: center; color: var(--faint); font-size: 13px; text-align: center; padding: 2px 12px; }
+.step { color: var(--faint); font-size: 13px; font-family: ui-monospace, "SF Mono", Menlo, monospace; border-left: 2px solid var(--line); padding-left: 10px; margin-left: 4px; overflow-wrap: anywhere; }
+.typing { align-self: flex-start; display: flex; gap: 5px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 20px 20px 20px 6px; }
+.typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1.1s infinite ease-in-out; }
+.typing i:nth-child(2) { animation-delay: .15s; } .typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes pulse { 0%, 100% { opacity: .3; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
+.ask { border: 1px solid var(--amber-line); background: var(--amber-soft); border-radius: 18px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.ask b { color: var(--amber); }
+.ask pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.4 ui-monospace, "SF Mono", Menlo, monospace; background: var(--surface); border: 1px solid var(--line); padding: 9px 11px; border-radius: 10px; max-height: 35vh; overflow-y: auto; }
+.ask .bar { height: 3px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.ask .bar i { display: block; height: 100%; background: var(--amber); transform-origin: left; }
+.ask.resolved { background: transparent; border-color: var(--line); }
+.ask.resolved b { color: var(--muted); }
+.ask .done { color: var(--muted); font-size: 14px; }
+.btns { display: flex; gap: 10px; }
+.btn { flex: 1; min-height: 46px; border-radius: 13px; border: 0; font-weight: 600; background: var(--raised); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); }
+.empty { margin: auto; text-align: center; color: var(--muted); max-width: 300px; padding: 24px 8px; display: flex; flex-direction: column; gap: 6px; }
+.empty b { color: var(--text); font-size: 19px; }
+footer {
+  flex: none; display: flex; gap: 8px; align-items: flex-end;
+  padding: 8px max(12px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  background: var(--glass); -webkit-backdrop-filter: saturate(1.6) blur(18px); backdrop-filter: saturate(1.6) blur(18px);
+  border-top: 1px solid var(--line);
+}
+body.typing-now footer { padding-bottom: 8px; }  /* the keyboard covers the home-bar area */
+textarea { flex: 1; resize: none; border: 1px solid var(--line); background: var(--surface); border-radius: 22px; padding: 10px 16px; max-height: 140px; min-height: 44px; font-size: 16px; line-height: 1.4; }
+textarea:focus { outline: none; border-color: var(--accent); }
+.send { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; flex: none; transition: background .15s; }
+.send:disabled { background: var(--raised); color: var(--faint); }
+.send.stop { background: var(--text); color: var(--bg); }
+/* Siri setup sheet */
+.sheet { position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, .45); display: flex; align-items: flex-end; }
+.sheet[hidden] { display: none; }
+.sheet > div { width: 100%; max-height: 92%; overflow-y: auto; background: var(--bg); border-radius: 22px 22px 0 0; padding: 18px max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); }
+.sheet h2 { margin: 0 0 4px; font-size: 21px; }
+.sheet p { margin: 0 0 12px; color: var(--muted); }
+.sheet ol { margin: 0 0 14px; padding-left: 22px; } .sheet li { margin: 8px 0; }
+.sheet li b { color: var(--text); }
+.sheet .link { width: 100%; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 10px 12px; font: 13px ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); margin-bottom: 10px; }
+.sheet .row { display: flex; gap: 10px; margin-top: 4px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="#7c5cff"/><circle cx="12" cy="12" r="3" fill="#fff"/></svg>
+  <div class="who"><b>Nova</b><span><i class="dot" id="dot"></i><span id="state">Connecting…</span></span></div>
+  <button class="icon" id="siri" aria-label="Use Nova with Siri"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>Siri</button>
+  <button class="icon round" id="speak" aria-pressed="false" aria-label="Read replies aloud" title="Read replies aloud"><svg class="i" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg></button>
+</header>
+<main id="log" aria-live="polite"></main>
+<footer>
+  <textarea id="input" rows="1" placeholder="Ask Nova…" aria-label="Message" enterkeyhint="send"></textarea>
+  <button class="send" id="send" aria-label="Send" disabled><svg class="i" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></svg></button>
+</footer>
+
+<div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle"><div>
+  <h2 id="sheetTitle">“Hey Siri, Ask Nova”</h2>
+  <p>Make a Shortcut once, then talk to Nova through Siri, the Action Button, your Apple Watch or CarPlay. Siri reads Nova's answer out loud; the full reply shows up here too.</p>
+  <input class="link" id="siriLink" readonly aria-label="Your Siri link">
+  <div class="row"><button class="btn primary" id="copyLink">Copy Siri link</button></div>
+  <ol>
+    <li>Open the <b>Shortcuts</b> app, tap <b>+</b>, and name the shortcut <b>Ask Nova</b>.</li>
+    <li>Add <b>Dictate Text</b>.</li>
+    <li>Add <b>URL Encode</b>. It encodes the Dictated Text.</li>
+    <li>Add <b>Get Contents of URL</b>. Tap its URL, paste the Siri link, then put the cursor at the very end and pick <b>URL Encoded Text</b> from the bar above the keyboard.</li>
+    <li>Add <b>Speak Text</b>. It speaks the Contents of URL. Tap Done.</li>
+  </ol>
+  <p>Now say <b>“Hey Siri, Ask Nova”</b>, then your request. The first time, allow the shortcut to connect to your computer. For the Action Button: Settings → Action Button → Shortcut → Ask Nova.</p>
+  <p>The link contains your pairing key, so keep it to yourself. Forget phones in Nova's Settings makes it stop working.</p>
+  <div class="row"><button class="btn" id="closeSheet">Done</button></div>
+</div></div>
+
+<script>
+"use strict";
+// the pairing key arrives in the #fragment of the link from Nova's Settings (never sent to a server by the browser);
+// a home-screen copy keeps the link, and the key is also remembered here in case the fragment is lost
+const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+                set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} } };
+let key = decodeURIComponent(location.hash.slice(1)) || store.get("nova-key");
+if (location.hash.length > 1) store.set("nova-key", key);
+const $ = id => document.getElementById(id);
+const log = $("log"), input = $("input"), send = $("send");
+const SEND = '<svg class="i" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></svg>';
+const STOP = '<svg class="i" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>';
+const STATES = { idle: ["Ready", "ok"], listening: ["Listening on the computer", "busy"], thinking: ["Working…", "busy"],
+                 speaking: ["Answering", "busy"], approval: ["Needs your OK", "ask"], paused: ["Paused", ""] };
+let ws = null, wait = 1000, retry = 0, busy = false, asks = [], speak = store.get("nova-speak") === "1", unpaired = false;
+
+/* ---------- layout: the page always fills exactly what's visible, keyboard or not ---------- */
+const vv = window.visualViewport;
+function fit() {
+  document.body.style.height = (vv ? vv.height : innerHeight) + "px";
+  document.body.classList.toggle("typing-now", !!vv && vv.height < innerHeight - 100);
+  if (window.scrollY) window.scrollTo(0, 0);
+}
+if (vv) { vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit); }
+addEventListener("resize", fit); addEventListener("orientationchange", () => setTimeout(fit, 300)); fit();
+
+/* ---------- small things ---------- */
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function inline(s) {
+  return esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*\w])\*([^*\s][^*]*)\*(?!\w)/g, "$1<em>$2</em>");
+}
+function md(text) {  // the replies' markdown, escaped first: bold, code, lists and paragraphs
+  return String(text || "").split(/```[\w-]*\n?([\s\S]*?)```/g).map((part, i) => {
+    if (i % 2) return `<pre><code>${esc(part.replace(/\n$/, ""))}</code></pre>`;
+    return part.split(/\n{2,}/).map(para => {
+      const lines = para.split("\n").filter(l => l.trim());
+      if (!lines.length) return "";
+      if (lines.every(l => /^\s*[-*•]\s+/.test(l))) return `<ul>${lines.map(l => `<li>${inline(l.replace(/^\s*[-*•]\s+/, ""))}</li>`).join("")}</ul>`;
+      if (lines.every(l => /^\s*\d+[.)]\s+/.test(l))) return `<ol>${lines.map(l => `<li>${inline(l.replace(/^\s*\d+[.)]\s+/, ""))}</li>`).join("")}</ol>`;
+      return `<p>${lines.map(inline).join("<br>")}</p>`;
+    }).join("");
+  }).join("");
+}
+function nearEnd() { return log.scrollHeight - log.scrollTop - log.clientHeight < 120; }
+function add(node) {
+  log.querySelector(".empty")?.remove();
+  const end = nearEnd(), dots = $("typing");
+  dots ? log.insertBefore(node, dots) : log.append(node);  // the "working" bubble stays last
+  if (end) log.scrollTop = log.scrollHeight;
+  return node;
+}
+function novaMsg(text) { const m = el("div", "msg nova md"); m.innerHTML = md(text); return add(m); }
+function status(label, cls) { $("state").textContent = label; $("dot").className = "dot" + (cls ? " s-" + cls : ""); }
+function screen(title, text) { log.replaceChildren(); const box = el("div", "empty"); box.append(el("b", null, title), el("span", null, text)); log.append(box); }
+function working(on) {
+  const dots = $("typing");
+  if (on && !dots) { const t = el("div", "typing"); t.id = "typing"; t.innerHTML = "<i></i><i></i><i></i>"; const end = nearEnd(); log.append(t); if (end) log.scrollTop = log.scrollHeight; }
+  if (!on && dots) dots.remove();
+}
+function setBusy(on, pending) {
+  busy = on; send.classList.toggle("stop", on); send.innerHTML = on ? STOP : SEND;
+  send.setAttribute("aria-label", on ? "Stop" : "Send"); send.disabled = !on && !input.value.trim();
+  working(on && !pending);
+}
+
+/* ---------- the connection ---------- */
+function connect() {
+  clearTimeout(retry);
+  if (ws) return;
+  if (!key) { status("Not paired", "bad"); screen("Pair this phone", "On your computer, open Nova → Settings → Phone and scan the QR code with this phone's camera."); return; }
+  ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+  ws.onopen = () => { wait = 1000; ws.send(JSON.stringify({ type: "hello", token: key })); ws.send(JSON.stringify({ op: "history" })); ws.send(JSON.stringify({ op: "state" })); };
+  ws.onmessage = e => { try { onMessage(JSON.parse(e.data)); } catch (err) { console.error(err); } };
+  ws.onclose = e => {
+    ws = null; working(false);
+    if (e.code === 4001) {  // the key was replaced in Settings, or never matched
+      unpaired = true; store.set("nova-key", null); key = "";
+      status("Not paired", "bad"); screen("This phone isn't paired anymore", "On your computer, open Nova → Settings → Phone and scan the QR code again.");
+      return;
+    }
+    status("Can't reach Nova, retrying…", "bad");
+    retry = setTimeout(connect, wait); wait = Math.min(wait * 2, 15000);
+  };
+}
+
+function onMessage(msg) {
+  if (msg.type === "history") {
+    log.replaceChildren();
+    for (const e of msg.items.slice().reverse()) { if (e.request) add(el("div", "msg user", e.request)); if (e.reply) novaMsg(e.reply); }
+    if (!log.children.length) screen("Ask Nova anything", "It runs on your computer, so it can open apps, work in your projects and use your browser. Type, or tap the mic on your keyboard to talk. Nova asks you here before anything risky.");
+    log.scrollTop = log.scrollHeight;
+    return;
+  }
+  if (msg.type !== "event") return;
+  const ev = msg.event;
+  if (ev.event === "state") {
+    const [label, cls] = ev.paused ? STATES.paused : ev.pending ? STATES.approval : ev.phase === "idle" ? STATES.idle : STATES.thinking;
+    const noAI = !ev.brain && ev.phase === "idle";
+    status(noAI ? "No AI connected on the computer" : label, noAI ? "bad" : cls);
+    setBusy(ev.phase !== "idle" || ev.pending, ev.pending);
+  } else if (ev.event === "bar") { const [label, cls] = STATES[ev.state] || STATES.idle; status(label, cls); }
+  else if (ev.event === "heard") add(el("div", "msg user", ev.text));
+  else if (ev.event === "step") add(el("div", "step", ev.text));
+  else if (ev.event === "reply") { novaMsg(ev.reply); say(ev.say || ev.reply); }
+  else if (ev.event === "note") add(el("div", "note", ev.text));
+  else if (ev.event === "asking") { working(false); askCard(ev); }
+  else if (ev.event === "approval") { const box = asks.shift(); if (box) box.done(ev.allowed ? "Allowed" : ev.timed_out ? "No answer, so Nova said no" : "Denied"); if (ev.allowed) working(true); }
+}
+
+function askCard(ev) {
+  const box = add(el("div", "ask")), bar = el("i"), started = Date.now();
+  box.setAttribute("role", "alert");
+  box.append(el("b", null, `${ev.who} needs your OK`), el("div", null, `It wants to run something that ${ev.reason}:`), el("pre", null, ev.summary));
+  const track = el("div", "bar"); track.append(bar);
+  const btns = el("div", "btns"), allow = el("button", "btn primary", "Allow"), deny = el("button", "btn", "Deny");
+  allow.onclick = () => post({ op: "approve", ok: true }); deny.onclick = () => post({ op: "approve", ok: false });
+  btns.append(deny, allow); box.append(track, btns);
+  let live = true;
+  const tick = () => { if (!live) return; bar.style.transform = `scaleX(${Math.max(0, 1 - (Date.now() - started) / (ev.timeout * 1000))})`; requestAnimationFrame(tick); };
+  tick();
+  box.done = text => { live = false; track.remove(); box.classList.add("resolved"); btns.replaceChildren(el("span", "done", text)); };
+  asks.push(box);
+  if (navigator.vibrate) navigator.vibrate(120);
+  say(`${ev.who} needs your OK.`);
+}
+
+function post(msg) { if (ws && ws.readyState === 1) { ws.send(JSON.stringify(msg)); return true; } status("Not connected yet", "bad"); return false; }
+function say(text) {
+  if (!speak || !window.speechSynthesis || !text) return;
+  speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(String(text).replace(/[`*#_]/g, "").slice(0, 600)));
+}
+function grow() { input.style.height = "auto"; input.style.height = Math.min(140, input.scrollHeight) + "px"; send.disabled = !busy && !input.value.trim(); }
+function submit() {
+  if (busy) return post({ op: "cancel" });
+  const text = input.value.trim(); if (!text) return;
+  if (post({ op: "ask", text })) { input.value = ""; grow(); input.blur(); setTimeout(fit, 350); }
+}
+
+/* ---------- Siri ---------- */
+function copy(text, input) {
+  const done = () => { $("copyLink").textContent = "Copied"; setTimeout(() => $("copyLink").textContent = "Copy Siri link", 1500); };
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text).then(done);
+  input.focus(); input.setSelectionRange(0, text.length);  // plain http on home Wi-Fi: the old way still copies
+  if (document.execCommand("copy")) done();
+}
+$("siri").addEventListener("click", () => {
+  if (!key) return;
+  $("siriLink").value = `${location.origin}/ask?key=${encodeURIComponent(key)}&text=`;
+  $("sheet").hidden = false;
+});
+$("copyLink").addEventListener("click", () => copy($("siriLink").value, $("siriLink")));
+$("closeSheet").addEventListener("click", () => { $("sheet").hidden = true; });
+$("sheet").addEventListener("click", e => { if (e.target === $("sheet")) $("sheet").hidden = true; });
+
+input.addEventListener("input", grow);
+input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); } });
+input.addEventListener("focus", () => setTimeout(() => { fit(); log.scrollTop = log.scrollHeight; }, 300));
+input.addEventListener("blur", () => setTimeout(fit, 300));
+send.addEventListener("click", submit);
+$("speak").setAttribute("aria-pressed", speak);
+$("speak").addEventListener("click", () => {
+  speak = !speak; store.set("nova-speak", speak ? "1" : "0"); $("speak").setAttribute("aria-pressed", speak);
+  if (speak && window.speechSynthesis) speechSynthesis.speak(new SpeechSynthesisUtterance("Okay, I'll read replies."));  // iOS needs a tap to allow speech
+});
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { fit(); if (!ws && !unpaired) { wait = 1000; connect(); } } });  // back from the lock screen
+connect();
+</script>
+</body>
+</html>

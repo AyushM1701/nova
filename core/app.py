@@ -4,6 +4,8 @@ Its own process (pywebview and Nova's Tk both need the main thread), started by 
 It talks to Nova over an authenticated local channel and edits config.json directly; Nova notices the
 change and applies it within a second. Run: python -m core.app (Nova starts it for you).
 """
+import base64
+import io
 import json
 import os
 import shlex
@@ -19,7 +21,7 @@ from pathlib import Path
 import webview
 
 from core import browser as web
-from core import clipboard, fallback, system, tts, update
+from core import clipboard, fallback, phone, system, tts, update
 from core.brain import find_cli, too_broad
 from core.config import (CONFIG, DATA, LOGS, NOTES, ROOT, defaults, load_config, log, read_history, save_config,
                          write_private)
@@ -160,6 +162,31 @@ class Api:
             CLAUDE_SETTINGS.with_suffix(".json.nova-backup").write_bytes(CLAUDE_SETTINGS.read_bytes())
         CLAUDE_SETTINGS.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         return self._hook_installed()
+
+    # ---------- the phone page (core/phone.py) ----------
+    def phone_info(self):
+        """The pairing links (home Wi-Fi, then Tailscale) with a QR code for each, while the phone page is on."""
+        cfg, _ = load_config()
+        out = []
+        for link in phone.links() if cfg["phone"]["enabled"] else []:
+            qr = ""
+            try:
+                import qrcode
+                buf = io.BytesIO()
+                qrcode.make(link, box_size=8, border=2).save(buf)
+                qr = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+            except ImportError:  # set up before the phone page existed: the link still works, typed or copied
+                pass
+            tailscale = link.split("//")[1].startswith("100.")
+            out.append({"link": link, "qr": qr, "where": "Anywhere, with Tailscale" if tailscale else "Home Wi-Fi"})
+        return out
+
+    def phone_forget(self):
+        """A new pairing key: every phone has to scan the new QR code."""
+        phone.token(new=True)
+        if self._conn:
+            self.send("phone_forget")
+        return self.phone_info()
 
     # ---------- updates (core/update.py) ----------
     def check_update(self):

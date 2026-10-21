@@ -30,7 +30,8 @@ if (DATA / "models-ready").exists():  # the speech models are downloaded: never 
 
 import pystray  # noqa: E402
 
-from core import audio, cleanup, clipboard, fallback, icon, intents, loopback, region, system, tts, update, wake  # noqa: E402
+from core import (audio, cleanup, clipboard, fallback, icon, intents, loopback, phone, region, system, tts,  # noqa: E402
+                  update, wake)
 from core import browser as web  # noqa: E402
 from core.bar import Bar  # noqa: E402
 from core.brain import discover_projects, find_cli, make_brain, project_folders  # noqa: E402
@@ -40,6 +41,13 @@ CLAUDE_GUARDED = "Bash|PowerShell|Write|Edit|MultiEdit|NotebookEdit|Read|Grep|Gl
 CLAUDE_ALLOWED = ["Read", "Glob", "Grep", "Bash", "PowerShell", "Write", "Edit", "WebSearch", "WebFetch", "TodoWrite",
                   "mcp__nova-browser"]  # browser tools: Nova applies its own rules to each one (core/browser.py)
 SINGLE_INSTANCE_PORT = 47821
+PERMISSIONS = {  # Settings → Privacy & safety; the guard applies them (guard.with_mode)
+    "auto": ("Auto", "Asks only before risky things: deleting, installing, pushing, sending or system changes."),
+    "manual": ("Manual", "Asks before every change, even edits in your projects."),
+    "accept_edits": ("Accept edits", "Edits in your projects run freely; anything unfamiliar asks."),
+    "plan": ("Plan", "Changes nothing: it makes a plan and asks you to go ahead."),
+    "bypass": ("Bypass permissions", "Never asks. Wiping disks and reading saved passwords stay blocked."),
+}
 
 MODE_PHRASES = {
     "dictation": r"(switch|change|go)( to)? dictation( mode)?|dictation mode|start dictation",
@@ -118,7 +126,7 @@ class Nova:
         self.ctrl = Listener(self.ctrl_addr, authkey=self.ctrl_key)
         self.env = dict(os.environ, NOVA_PIPE=self.pipe, NOVA_KEY=key.hex(), NOVA_HOME=str(ROOT),
                         NOVA_NOTES=str(NOTES), NOVA_LOG=str(LOGS),
-                        NOVA_TIMEOUT=str(self.cfg["safety"]["confirm_timeout_s"]),
+                        NOVA_TIMEOUT=str(self.cfg["safety"]["confirm_timeout_s"]), NOVA_MODE=self.cfg["safety"]["mode"],
                         # Claude Code: no telemetry, error reports or other non-essential traffic
                         DISABLE_TELEMETRY="1", DISABLE_ERROR_REPORTING="1",
                         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1")
@@ -129,6 +137,8 @@ class Nova:
         self.web_token = token_file.read_text(encoding="utf-8").strip()
         self.web = web.Bridge(self.web_token, self.cfg["browser"]["enabled"], self.on_panel)
         self.web_target = self.cfg["browser"]["default"]
+        self.phone = phone.Phone(self.on_remote)  # the phone page (Settings → Phone), off until turned on
+        self.phone.enable(self.cfg["phone"]["enabled"])
         self.web_addr, web_key = local_address("browser"), secrets.token_bytes(32)
         self.web_listener = Listener(self.web_addr, authkey=web_key)
         write_private(DATA / "mcp.json", json.dumps({"mcpServers": {"nova-browser": {
@@ -235,6 +245,9 @@ class Nova:
             "Claude Code" if name == "claude" else "Codex", lambda: self.ui(lambda: self.set_engine(name)),
             checked=lambda _: self.cfg["brain"]["engine"] == name, radio=True,
             enabled=lambda _: bool(find_cli(name)))
+        permission = lambda mode: pystray.MenuItem(
+            PERMISSIONS[mode][0], lambda: self.ui(lambda: self.set_permissions(mode)),
+            checked=lambda _: self.cfg["safety"]["mode"] == mode, radio=True)
         menu = pystray.Menu(
             pystray.MenuItem("Open Nova", lambda: self.ui(self.open_app), default=True),  # left-click on Windows
             pystray.Menu.SEPARATOR,
@@ -243,6 +256,7 @@ class Nova:
             pystray.MenuItem("Dictation mode", lambda: self.ui(lambda: self.set_mode("dictation")),
                              checked=lambda _: self.mode == "dictation", radio=True),
             pystray.MenuItem("Brain", pystray.Menu(engine("claude"), engine("codex"))),
+            pystray.MenuItem("Permissions", pystray.Menu(*map(permission, PERMISSIONS))),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Pause", lambda: self.ui(self.toggle_pause), checked=lambda _: self.paused),
             pystray.MenuItem("Listen to computer audio", lambda: self.ui(self.toggle_sysaudio),
@@ -302,6 +316,8 @@ class Nova:
         elif self.brain:
             self.brain.cfg = cfg
         self.web.enabled = list(cfg["browser"]["enabled"])
+        if cfg["phone"] != old["phone"]:
+            self.phone.enable(cfg["phone"]["enabled"])
         if cfg["safety"] != old["safety"]:
             self.env["NOVA_TIMEOUT"] = str(cfg["safety"]["confirm_timeout_s"])
             self.settings = self.write_claude_settings()
@@ -336,7 +352,8 @@ class Nova:
                 "pending": bool(self.pending), "brain": self.brain.name if self.brain else None,
                 "engine": self.cfg["brain"]["engine"], "stt": self.stt.device if self.stt else None,
                 "browsers": list(self.web.conns),
-                "hotkey": self.pretty(), "wake_word": self.cfg["wake_word"], "update": self.update}
+                "hotkey": self.pretty(), "wake_word": self.cfg["wake_word"], "update": self.update,
+                "phones": len(self.phone.clients), "phone_error": self.phone.error}
 
     def push_state(self):
         self.outbox.put(self.state())
@@ -384,6 +401,8 @@ class Nova:
         finally:
             self.phase = "idle"
             self.ui(lambda: self.show_bar("paused" if self.paused else "idle"))
+            # the request is over: a card still saying "Thinking" or "Allowed, continuing…" would never go away
+            self.ui(lambda: getattr(self.card, "kind", "") == "thinking" and self.card.hide())
             self.ui(self.push_state)
             if self.followup and not self.cancel.is_set():  # keep the conversation going without "Hey Nova"
                 self.ui(lambda: self.phase == "idle" and not self.paused and not self.pending
@@ -426,8 +445,8 @@ class Nova:
             done, box = self.pending
             box[0] = ok
             done.set()
-            if ok:
-                self.card.show("Allowed", "Continuing…", kind="thinking")
+            if ok:  # a spoken request replaces this card with the answer; a typed one has no spoken answer
+                self.card.show("Allowed", "Continuing…", kind="thinking", hide_after=None if self.voice else 3)
             else:
                 self.card.show("Denied", "Nova won't run that.", hide_after=3)
             self.show_bar("thinking")
@@ -449,6 +468,12 @@ class Nova:
         self.icon.update_menu()
         self.push_state()
         self.card.show("Brain", f"Nova now uses {self.brain.name}.", hide_after=2)
+
+    def set_permissions(self, mode):
+        self.cfg["safety"]["mode"] = mode
+        save_config(self.cfg)  # the watcher applies it; the window's picker follows
+        self.icon.update_menu()
+        self.card.show(f"Permissions: {PERMISSIONS[mode][0]}", PERMISSIONS[mode][1], hide_after=4)
 
     def toggle_pause(self):
         self.paused = not self.paused
@@ -502,7 +527,8 @@ class Nova:
         """Activity for the open Nova window, sent off the UI thread so a stuck window can't freeze Nova."""
         while True:
             event = self.outbox.get()
-            self.web.broadcast(event)  # the browser panels show the same live conversation
+            self.web.broadcast(event)  # the browser panels and paired phones show the same live conversation
+            self.phone.broadcast(event)
             for conn in list(self.clients):
                 try:
                     conn.send(event)
@@ -529,6 +555,8 @@ class Nova:
             self.outbox.put({"event": "note", "title": "New conversation", "text": "Okay, starting fresh."})
         elif op == "state":
             self.push_state()
+        elif op == "phone_forget":  # Settings made a new pairing key: drop the phones that had the old one
+            self.phone.disconnect_all()
         elif op == "test_voice" and self.phase == "idle":  # Settings' Play button: the window's unsaved choice
             v = dict(self.cfg["voice"], **{k: msg[k] for k in ("tts_engine", "kokoro_voice", "tts_voice", "tts_speed")
                                            if k in msg})
@@ -911,6 +939,12 @@ class Nova:
         # folders chosen in Settings → AI
         folders = project_folders(projects, self.cfg["projects"]["folders"])
         self.env["NOVA_ROOTS"] = os.pathsep.join([*projects.values(), *folders])
+        mode = self.cfg["safety"]["mode"]
+        if mode == "plan" and self.asked and wake.approval(text):  # "yes, go ahead" to a plan: carry it out, once
+            mode, note = "auto", note + "[The user approved your plan. Carry it out now.]\n"
+        self.env["NOVA_MODE"] = mode  # the guard and the browser apply it to every action of this request
+        if self.brain:
+            self.brain.mode = mode
         prompt = note + self.context(text) + text
         main = self.brain.name if self.brain else "no AI"
         if self.brain:
@@ -920,7 +954,7 @@ class Nova:
         if (not self.brain or self.brain.limited) and fallback.key():  # out of quota: the backup brain takes over
             self.on_step(f"{main} is at its usage limit, so the backup brain (Gemini) is answering")
             shown, spoken, ask = fallback.run(prompt, self.cfg, self.ask, self.on_step, main=main,
-                                              memory=self.memory_text())
+                                              memory=self.memory_text(), mode=mode)
             main = "Gemini (backup)"
             if self.cancel.is_set():
                 return
@@ -1016,7 +1050,7 @@ class Nova:
                 tool, args, bid = req.get("tool"), req.get("args") or {}, self.web_target
                 self.outbox.put({"event": "step", "text": f"{web.BROWSERS.get(bid, (bid,))[0]}: {tool} {json.dumps(args)[:80]}"})
                 try:
-                    result = self.web.run_tool(bid, tool, args, self.ask)
+                    result = self.web.run_tool(bid, tool, args, self.ask, self.env.get("NOVA_MODE", "auto"))
                     log("browser", browser=bid, tool=tool, args=json.dumps(args)[:300], ok=True)
                     conn.send({"ok": True, "result": result})
                 except Exception as e:
@@ -1026,19 +1060,27 @@ class Nova:
                 pass
 
     def on_panel(self, bid, msg):
-        """The browser panel: type a request, press the mic, answer an approval, or load the history."""
+        self.on_remote(msg, lambda reply: self.web.send(bid, reply))
+
+    def on_remote(self, msg, reply):
+        """The browser panel or the phone page: type a request, press the mic, answer an approval, stop, or load
+        the history. `reply` answers only the one that asked."""
         op = msg.get("op")
-        if op == "connected":  # an extension connected or went away: the window's status updates
+        if op == "connected":  # a browser or phone connected or went away: the window's status updates
             self.ui(self.push_state)
         elif op == "ask" and str(msg.get("text", "")).strip():
             self.ui(lambda: self.typed(str(msg["text"]).strip()[:4000]))
         elif op == "approve":
             self.ui(lambda: self.answer(bool(msg.get("ok"))))
+        elif op == "cancel":
+            self.ui(lambda: (self.phase != "idle" or self.pending) and self.abort())
         elif op == "listen":
             self.ui(lambda: not self.pending and self.on_hotkey())
         elif op == "history":
             items = [{"request": e.get("request"), "reply": e.get("reply")} for e in read_history({"reply"}, 30)]
-            self.web.send(bid, {"type": "history", "items": items})
+            reply({"type": "history", "items": items})
+        elif op == "state":
+            reply({"type": "event", "event": self.state()})
 
     def repair_browsers(self):
         """At startup: make sure every browser Nova is set up for still loads the extension (browser updates

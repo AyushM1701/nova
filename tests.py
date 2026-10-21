@@ -18,6 +18,7 @@ import io  # noqa: E402
 import tempfile  # noqa: E402
 import zipfile  # noqa: E402
 from core.update import parse as parse_version, unpack  # noqa: E402
+from core.phone import Phone  # noqa: E402
 from pathlib import Path  # noqa: E402
 from core.browser import classify as browser_classify, extension_id, with_flag  # noqa: E402
 from guard.guard import classify, classify_command  # noqa: E402
@@ -191,6 +192,22 @@ with tempfile.TemporaryDirectory() as tmp:
         raise AssertionError("an update path outside Nova's folder was written")
     except ValueError:
         pass
+
+# the phone server hands out its page and icon only, never a file from Nova's folder
+class FakeConn:
+    respond = staticmethod(lambda status, text: status)
+
+
+class FakeRequest:
+    def __init__(self, path):
+        self.path = path
+
+
+for path, want in [("/", 200), ("/?x=1", 200), ("/icon.png", 200), ("/ws", None), ("/data/phone-token", 404),
+                   ("/../config.json", 404), ("/core/phone.py", 404)]:
+    got = Phone._http(None, FakeConn, FakeRequest(path))
+    got = getattr(got, "status_code", got)
+    assert got == want, f"phone {path}: got {got}, want {want}"
 
 # browser safety: decided from what the page says the element really is
 BROWSER = [
@@ -397,6 +414,47 @@ for tool, path, want in FILES:
     got, why = classify(tool, {"file_path": native(path)}, native(r"D:\code\portfolio"), [native(r) for r in roots],
                         native(home), native(notes))
     assert got == want, f"guard {tool} {path}: got {got} ({why}), want {want}"
+
+# permission modes: (command or file) -> verdict in auto / manual / accept_edits / plan / bypass
+MODE_ORDER = ("auto", "manual", "accept_edits", "plan", "bypass")
+MODE_CMDS = [
+    ("Get-ChildItem", "allow allow allow allow allow"),
+    ("python script.py", "allow confirm confirm block allow"),             # unfamiliar: only Auto runs it
+    ("python -c \"import shutil; shutil.rmtree('x')\"", "confirm confirm confirm block allow"),  # inline code
+    ("echo hi > x.txt", "allow confirm confirm block allow"),
+    ("rm -rf build", "confirm confirm confirm block allow"),
+    ("git push", "confirm confirm confirm block allow"),
+    ("git commit -m \"x\"", "allow confirm allow block allow"),            # Manual asks before any change
+    ("Start-Process spotify", "allow allow allow block allow"),            # opening an app isn't a change
+    ("format D:", "block block block block block"),                        # hard blocks stay in every mode
+    ("cat ~/.aws/credentials", "block block block block block"),
+]
+for cmd, wants in MODE_CMDS:
+    for mode, want in zip(MODE_ORDER, wants.split()):
+        got = classify_command(cmd, home, mode)[0]
+        assert got == want, f"mode {mode} {cmd!r}: got {got}, want {want}"
+MODE_FILES = [
+    (r"D:\code\portfolio\a.css", "allow confirm allow block allow"),
+    (r"C:\Users\me\Desktop\notes.txt", "allow confirm confirm block allow"),
+    (r"C:\Users\me\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\x.bat", "confirm confirm confirm block allow"),
+    (r"D:\projects\NOVA\nova.py", "confirm confirm confirm block allow"),
+    (r"D:\code\portfolio\.git\hooks\pre-commit", "confirm confirm confirm block allow"),
+    (r"C:\Users\me\.ssh\id_ed25519", "block block block block block"),
+]
+for path, wants in MODE_FILES:
+    for mode, want in zip(MODE_ORDER, wants.split()):
+        got = classify("Write", {"file_path": native(path)}, native(r"D:\code\portfolio"), [native(r) for r in roots],
+                       native(home), native(notes), mode)[0]
+        assert got == want, f"mode {mode} write {path}: got {got}, want {want}"
+for (tool, args, el), wants in [(("click", {"ref": "1"}, {"name": "Pull requests"}), "allow allow allow block allow"),
+                                (("click", {"ref": "9"}, {"name": "Place order"}), "confirm confirm confirm block allow"),
+                                (("type", {"ref": "2", "text": "hi"}, {"type": "text"}), "allow confirm allow block allow"),
+                                (("type", {"ref": "6", "text": "x"}, {"type": "password"}), "block block block block block"),
+                                (("read", {}, {}), "allow allow allow allow allow")]:
+    for mode, want in zip(MODE_ORDER, wants.split()):
+        got = browser_classify(tool, args, el, mode)[0]
+        assert got == want, f"mode {mode} browser {tool} {el}: got {got}, want {want}"
+assert classify_command("rm x", home, "plan")[1].startswith("Plan mode is on")  # the AI is told to plan, not to give up
 
 n_cmd = sum(map(len, COMMANDS.values())) + sum(map(len, MAC_COMMANDS.values())) + len(HELPER) + len(CODEX)
 print(f"OK: {len(CLEANUP)} cleanup, {len(EDITS)} command-mode, {len(WAKE)} wake-word, {n_cmd} command and "

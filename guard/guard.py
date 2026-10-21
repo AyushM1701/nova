@@ -74,7 +74,7 @@ CONFIRM = [
     (r"\s-enc(odedcommand)?\b|frombase64string", "runs an encoded command"),
     (r"&\s*[\$\"']|(^|[;|&\s])\.\s+\$|\binvoke-expression\b|\biex\b|\binvoke-command\b|\bicm\b|\beval\b",
      "runs a dynamically built command"),
-    (r"\.(delete|kill|moveto|copyto|terminate|invoke|run|exec|create|stop|start|close|clear|write\w*|set\w*"
+    (r"\.(delete|kill|moveto|copyto|terminate|invoke|run|exec|create|stop|start|close|clear|write\w*|set\w*|rmtree|unlink"
      r"|remove\w*|deletesubkey\w*|download\w*|upload\w*)\s*\(",
      "calls a method that changes things"),
     (r"\b(start-process|start|saps)\s+[\"']?(powershell|pwsh|cmd|wscript|cscript|mshta|regsvr32|python|py|node|bash"
@@ -126,7 +126,53 @@ SHELL_WRAPPER = (r"\b(powershell|pwsh)(\.exe)?((\s+-(noprofile|nologo|noninterac
                  r"|\bcmd(\.exe)?\s+/[ck]|\b(ba|z)?sh\s+-l?c\b")
 
 
-def classify_command(cmd, home=None):
+# ---------- permission modes (Settings → Privacy & safety): how much asks, on top of the rules above ----------
+MODES = ("auto", "manual", "accept_edits", "plan", "bypass")
+PLAN = ("Plan mode is on, so nothing may change yet. Finish investigating, describe your plan, and end with an "
+        "ASK: line asking the user to go ahead")
+UNFAMILIAR = ("isn't on the known-safe list", "writes a file through a redirect", "unrecognised tool")
+# Auto still asks for code typed straight into a command: the easy way around every rule above
+INLINE_CODE = r"\b(python3?|py|node|deno|bun|ruby|perl|php)(\.exe)?\s+(-c|-e|--eval|-p)\b"
+# known-safe commands that still change something, which Plan mode holds back too
+CHANGES = (r"\bgit\s+(add|commit|pull|switch|checkout|stash|fetch|tag|branch\s+\S)|\b(start-process|start|saps|"
+           r"invoke-item|ii|explorer(\.exe)?|open|npm|pnpm|yarn|npx|pytest|mkdir|md|new-item|set-clipboard|scb|pbcopy"
+           r"|say|afplay|osascript|curl|rundll32|notepad|mspaint|wordpad|write|nohup)\b|sendkeys|wmisetbrightness"
+           r"|set-itemproperty|clipboard\.(ps1|sh)")
+# ...and of those, the ones Manual mode asks about (opening an app or a page isn't a change)
+EDITS = (r"\bgit\s+(add|commit|pull|switch|checkout|stash|tag|branch\s+\S)|\b(npm|pnpm|yarn|npx|pytest|mkdir|md"
+         r"|new-item)\b|sendkeys|wmisetbrightness|set-itemproperty")
+# outside your projects, Auto writes freely except where a file could start programs or change the system
+PROTECTED = (r"[\\/](windows|program files[^\\/]*|programdata|appdata|library|system|usr|bin|sbin|etc|private"
+             r"|applications)[\\/]|[\\/]start menu[\\/]|launch(agents|daemons)|[\\/]documents[\\/](windows)?powershell"
+             r"[\\/]|[\\/]\.(ssh|config|local|bashrc|zshrc|zshenv|zprofile|profile|bash_profile|gitconfig|npmrc)\b")
+
+
+def with_mode(tier, why, mode, unfamiliar=None):
+    """Adjust one verdict for the permission mode. Blocks always stay blocks."""
+    if tier == "block" or mode not in MODES:
+        return tier, why
+    if mode == "bypass":
+        return "allow", f"Bypass mode ({why})"
+    if mode == "plan":
+        return (tier, why) if tier == "allow" else ("block", PLAN)
+    unfamiliar = why.startswith(UNFAMILIAR) if unfamiliar is None else unfamiliar
+    if mode == "auto" and tier == "confirm" and unfamiliar:
+        return "allow", f"Auto mode ({why})"
+    return tier, why
+
+
+def classify_command(cmd, home=None, mode="accept_edits"):
+    tier, why = _command(cmd, home)
+    if mode == "plan" and tier == "allow" and re.search(CHANGES, cmd.lower()):
+        return "block", PLAN
+    if mode == "manual" and tier == "allow" and re.search(EDITS, cmd.lower()):
+        return "confirm", "changes something (Manual mode asks before every change)"
+    if mode == "auto" and re.search(INLINE_CODE, cmd.lower()):
+        return with_mode(tier, why, mode, unfamiliar=False)
+    return with_mode(tier, why, mode)
+
+
+def _command(cmd, home=None):
     c = cmd.lower()
     # Nova's own clipboard helper, only from Nova's folder (a same-named script elsewhere is not trusted)
     helper = home and (r"(-file\s+|(ba|z)?sh\s+)?" + re.escape(home.lower().replace("\\", "/") + "/helpers/clipboard.")
@@ -169,23 +215,23 @@ READ_ONLY_TOOLS = {"Read", "Grep", "Glob", "view_image", "update_plan", "web_sea
 SEVERITY = {"allow": 0, "confirm": 1, "block": 2}
 
 
-def classify_patch(patch, cwd, roots, home, notes):
+def classify_patch(patch, cwd, roots, home, notes, mode="accept_edits"):
     """Codex's apply_patch: judge every file the patch touches; the most severe verdict wins."""
     files = re.findall(r"^\*\*\* (Add|Update|Delete) File: (.+?)\s*$|^\*\*\* Move to: (.+?)\s*$", patch, re.M)
     if not files:
-        return "confirm", "edits files in a way Nova can't read"
-    verdicts = [("confirm", "deletes a file") if kind == "Delete"
-                else classify("Write", {"file_path": path or moved}, cwd, roots, home, notes)
+        return with_mode("confirm", "edits files in a way Nova can't read", mode, unfamiliar=False)
+    verdicts = [with_mode("confirm", "deletes a file", mode, unfamiliar=False) if kind == "Delete"
+                else classify("Write", {"file_path": path or moved}, cwd, roots, home, notes, mode)
                 for kind, path, moved in files]
     return max(verdicts, key=lambda v: SEVERITY[v[0]])
 
 
-def classify(tool, inp, cwd, roots, home, notes):
+def classify(tool, inp, cwd, roots, home, notes, mode="accept_edits"):
     if tool in ("Bash", "PowerShell"):
         command = inp.get("command", "")
-        return classify_command(" ".join(command) if isinstance(command, list) else command, home)
+        return classify_command(" ".join(command) if isinstance(command, list) else command, home, mode)
     if tool == "apply_patch":
-        return classify_patch(inp.get("command", "") or inp.get("patch", ""), cwd, roots, home, notes)
+        return classify_patch(inp.get("command", "") or inp.get("patch", ""), cwd, roots, home, notes, mode)
     path = inp.get("file_path") or inp.get("notebook_path") or inp.get("path") or ""
     if re.search(SECRETS, f"{path} {inp.get('pattern', '')} {inp.get('glob', '')}".lower()):
         return "block", "reads browser or SSH secrets"
@@ -195,19 +241,30 @@ def classify(tool, inp, cwd, roots, home, notes):
         return "allow", "browser action checked by Nova"
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         full = os.path.realpath(os.path.join(cwd, os.path.expandvars(path)))
-        parts = [p.lower() for p in full.split(os.sep)]
-        if ".claude" in parts or ".codex" in parts:
-            return "confirm", "changes Claude Code's or Codex's own settings"
-        if ".git" in parts:  # e.g. a hook in .git/hooks would run on the next (allowed) git commit
-            return "confirm", "changes git's internals"
-        if notes and _under(full, notes):
-            return "allow", "Nova notes"
-        if home and _under(full, home):
-            return "confirm", "changes Nova itself"
-        if any(_under(full, r) for r in roots):
-            return "allow", "edit inside a project"
-        return "confirm", "writes outside your projects"
-    return "confirm", f"unrecognised tool {tool}"
+        tier, why = _write(full, roots, home, notes)
+        if mode == "plan":
+            return "block", PLAN
+        if mode == "manual" and tier == "allow":
+            return "confirm", "changes a file (Manual mode asks before every change)"
+        # Auto: an ordinary file outside your projects (Desktop, Downloads...) is fine; system and startup spots ask
+        outside = why == "writes outside your projects" and not re.search(PROTECTED, full.lower())
+        return with_mode(tier, why, mode, unfamiliar=outside)
+    return with_mode("confirm", f"unrecognised tool {tool}", mode)
+
+
+def _write(full, roots, home, notes):
+    parts = [p.lower() for p in full.split(os.sep)]
+    if ".claude" in parts or ".codex" in parts:
+        return "confirm", "changes Claude Code's or Codex's own settings"
+    if ".git" in parts:  # e.g. a hook in .git/hooks would run on the next (allowed) git commit
+        return "confirm", "changes git's internals"
+    if notes and _under(full, notes):
+        return "allow", "Nova notes"
+    if home and _under(full, home):
+        return "confirm", "changes Nova itself"
+    if any(_under(full, r) for r in roots):
+        return "allow", "edit inside a project"
+    return "confirm", "writes outside your projects"
 
 
 def ask_nova(tool, summary, reason):
@@ -230,12 +287,15 @@ def main():
     tool, inp = data.get("tool_name", ""), data.get("tool_input") or {}
     env = os.environ.get
     roots = [r for r in env("NOVA_ROOTS", "").split(os.pathsep) if r]
-    tier, reason = classify(tool, inp, data.get("cwd") or os.getcwd(), roots, env("NOVA_HOME"), env("NOVA_NOTES"))
+    tier, reason = classify(tool, inp, data.get("cwd") or os.getcwd(), roots, env("NOVA_HOME"), env("NOVA_NOTES"),
+                            env("NOVA_MODE") or "accept_edits")
     summary = str(inp.get("command") or inp.get("file_path") or inp.get("notebook_path") or inp)[:400]
     decision = tier
     if tier == "confirm":
         decision = "allow" if ask_nova(tool, summary, reason) else "deny"
         reason = f"{reason}: user {'approved' if decision == 'allow' else 'declined or did not answer'}"
+    elif tier == "block" and reason == PLAN:
+        decision = "deny"
     elif tier == "block":
         decision, reason = "deny", f"blocked by Nova's safety rules: {reason}. Do not try another way; tell the user."
     if env("NOVA_HOOK_MARK"):  # lets Nova verify the CLI really ran this hook

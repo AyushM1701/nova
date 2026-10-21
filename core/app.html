@@ -448,6 +448,7 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
         <button role="tab" data-tab="ai">AI</button>
         <button role="tab" data-tab="routines">Routines</button>
         <button role="tab" data-tab="browsers">Browsers</button>
+        <button role="tab" data-tab="phone">Phone</button>
         <button role="tab" data-tab="privacy">Privacy &amp; safety</button>
         <button role="tab" data-tab="advanced">Advanced</button>
       </div>
@@ -537,6 +538,18 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
           <div class="engines" id="setBrowsers"></div><div class="log mono" id="browserLog" hidden></div></div>
       </div>
 
+      <div data-panel="phone" class="rows" hidden>
+        <div class="row"><div class="what"><h2>Use Nova from your phone</h2><p>Your phone gets the same conversation as this window: type or dictate requests, see Nova's replies, and Allow or Deny from the couch. Nova still runs on this computer, so it has to be on.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="phone.enabled" id="phoneSwitch" aria-label="Use Nova from your phone"></button></div></div>
+        <div class="row" style="display:block" id="phonePair" hidden><div class="what"><h2>Pair your phone</h2>
+          <p>1. Connect the phone to the same Wi-Fi as this computer. 2. Point its Camera at the code and open the link. 3. In Safari, tap Share → Add to Home Screen, so Nova opens like an app. For “Hey Siri, Ask Nova”, tap Siri at the top of the phone page and follow its 5 steps. If nothing loads, allow Python through Windows Firewall on private networks (a Windows prompt asks the first time).</p></div>
+          <div id="phoneCodes" style="display:flex;flex-wrap:wrap;gap:24px;margin-top:16px"></div>
+          <p class="muted small" id="phoneStatus" style="margin-top:12px"></p></div>
+        <div class="row" id="phoneAway" hidden><div class="what"><h2>Away from home</h2><p>Install the free Tailscale app on this computer and your phone and sign in to both with the same account. A second code, “Anywhere, with Tailscale”, appears here; pair with it to reach Nova from anywhere, privately, without opening anything to the internet.</p></div></div>
+        <div class="row" id="phoneReset" hidden><div class="what"><h2>Forget paired phones</h2><p>Makes a new code. Every phone that's paired now is disconnected and has to scan again. Do this if you lose a phone or shared the link by mistake.</p></div>
+          <div class="how"><button class="btn danger sm" id="phoneForget"><span>Forget phones</span></button></div></div>
+      </div>
+
       <div data-panel="routines" class="rows" hidden>
         <div class="row" style="display:block"><div class="what"><h2>Routines</h2><p>One phrase, several steps. Say the phrase (or “switch to … mode”) and Nova does every step, asking first for anything risky. “Start my day” is built in: a short spoken rundown of your projects' branches, open tasks in your notes and follow-ups from memory.</p></div>
           <div class="pair-head"><span>When you say</span><span></span><span>Nova does</span><span></span></div>
@@ -547,6 +560,9 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
       </div>
 
       <div data-panel="privacy" class="rows" hidden>
+        <div class="row" style="display:block"><div class="what"><h2>Permissions</h2><p>How often Nova asks before the AI does something. You can also switch from the tray menu → Permissions.</p></div>
+          <div class="engines" id="permModes" role="radiogroup" aria-label="Permissions"></div>
+          <p class="small" id="permWarn" style="margin-top:10px;color:var(--danger)" hidden>Bypass runs everything without asking, including deleting files, installing software and pushing code. Only wiping disks, turning off security and reading saved passwords stay blocked. Switch back when you're done.</p></div>
         <div class="row"><div class="what"><h2>Share what you're looking at</h2><p>Tells the AI which app you're in, and when you ask about your screen (“what's this error?”) lets it see a screenshot. Off means the AI only gets your words.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="brain.screen_context" aria-label="Share what you're looking at"></button></div></div>
         <div class="row"><div class="what"><h2>Remember what you copy</h2><p>The last 20 things you copied, kept in memory only and gone when Nova quits, so you can say “paste the link I copied earlier”. Anything that looks like a password or key is skipped. The AI only sees them when you mention copying or the clipboard.</p></div>
@@ -1064,6 +1080,7 @@ function showTab(tab) {
   if (tab !== "voice") stopMic();
   if (tab === "ai") { loadEngines($("#setEngines"), $("#setLog")); loadFallback(); }
   if (tab === "browsers") loadBrowsers($("#setBrowsers"), $("#browserLog"), false);
+  if (tab === "phone") loadPhone();
   if (tab === "voice" && $("#voiceSel").options.length <= 1) loadVoices();
 }
 $$("#setTabs button").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
@@ -1104,7 +1121,7 @@ function bindSettings() {
   renderWords();
   addRepl = pairsEditor($("#repls"), "dictation.replacements", "wisper", "Wispr");
   addAlias = pairsEditor($("#aliases"), "projects.aliases", "my site", "portfolio");
-  renderFolders();
+  renderFolders(); renderPermissions();
   addRoutine = pairsEditor($("#routines"), "routines", "deep code mode", "pause music, open VS Code in portfolio, run npm run dev");
   $("#claudeHook").setAttribute("aria-checked", !!S.claudeHook);
   $("#watchCmd").textContent = `python "${S.paths.root}${S.platform === "mac" ? "/" : "\\"}helpers${S.platform === "mac" ? "/" : "\\"}watch.py" npm run build`;
@@ -1260,6 +1277,47 @@ $("#fbSave").addEventListener("click", async () => {
   btn.disabled = false; btn.textContent = "Check and save";
 });
 
+/* ---------- permissions (guard/guard.py applies them) ---------- */
+const PERMS = [
+  ["auto", "Auto", "Asks only before risky things: deleting, installing, pushing code, sending data, system settings and changes to Nova itself. Everything else just runs."],
+  ["manual", "Manual", "Asks before every change, even edits inside your projects. Reading, searching and opening apps don't ask."],
+  ["accept_edits", "Accept edits", "Edits inside your projects run freely; anything unfamiliar asks first."],
+  ["plan", "Plan", "Changes nothing. Nova looks around, tells you its plan and asks; say “go ahead” to run it."],
+  ["bypass", "Bypass permissions", "Never asks. Only the most dangerous actions stay blocked."],
+];
+function renderPermissions() {
+  const now = get("safety.mode") || "auto";
+  $("#permModes").replaceChildren(...PERMS.map(([id, name, what]) => {
+    const pick = () => { set("safety.mode", id); save(true); renderPermissions(); };
+    return h("div", { class: "engine", role: "radio", tabindex: 0, "aria-checked": now === id, onclick: pick,
+      onkeydown: e => (e.key === " " || e.key === "Enter") && (e.preventDefault(), pick()) },
+      h("span", { class: "radio" }), h("div", {}, h("div", { class: "name" }, name), h("div", { class: "by" }, what)), h("span"));
+  }));
+  $("#permWarn").hidden = now !== "bypass";
+}
+
+/* ---------- phone ---------- */
+function drawPhone(codes) {
+  const on = !!get("phone.enabled");
+  $("#phonePair").hidden = $("#phoneAway").hidden = $("#phoneReset").hidden = !on;
+  if (!on) return;
+  $("#phoneAway").hidden = codes.some(c => c.where !== "Home Wi-Fi");
+  $("#phoneCodes").replaceChildren(...(codes.length ? codes.map(c => {
+    const cp = h("button", { class: "btn sm" }, "Copy link"); cp.addEventListener("click", () => copyText(c.link));
+    return h("div", { style: "display:flex;flex-direction:column;gap:8px;align-items:flex-start" }, h("b", { class: "small" }, c.where),
+      c.qr ? h("img", { src: c.qr, alt: `QR code for ${c.where}`, width: 168, height: 168, style: "border-radius:10px;background:#fff;padding:6px" }) : null, cp);
+  }) : [h("p", { class: "muted" }, "This computer isn't on a network right now. Connect to Wi-Fi, then come back to this tab.")]));
+  renderPhoneStatus();
+}
+function renderPhoneStatus() {
+  const st = S.state, el = $("#phoneStatus"); if (!el) return;
+  el.textContent = st.phone_error ? st.phone_error : S.gone ? "Nova isn't running, so phones can't connect." :
+    st.phones ? `${st.phones} phone${st.phones === 1 ? " is" : "s are"} connected.` : "No phone connected right now.";
+}
+async function loadPhone() { try { drawPhone(await api().phone_info()); } catch (e) { fail(e); } }
+$("#phoneSwitch").addEventListener("click", () => setTimeout(loadPhone, 1500));  // Nova starts listening within a second
+armed($("#phoneForget"), "Click again to forget", async () => { try { drawPhone(await api().phone_forget()); toast("Paired phones forgotten"); } catch (e) { fail(e); } });
+
 /* ---------- browsers ---------- */
 const METHOD = { flag: "Set up automatically", guided: "Needs a one-time step" };
 let browserBox = null;
@@ -1402,7 +1460,7 @@ const handlers = {
     S.state = ev; S.gone = false; if (ev.phase === "idle" && !ev.paused && S.bar !== "idle" && S.bar !== "paused") S.bar = "idle";
     if (ev.paused) S.bar = "paused";
     if (wasBusy && ev.phase === "idle") endWork();
-    renderLive();
+    renderLive(); renderPhoneStatus();
   },
   bar(ev) { S.bar = ev.state; if (ev.state !== "listening") S.levels.fill(0); renderLive(); },
   level(ev) { S.levels.push(ev.value); S.levels.shift(); },
