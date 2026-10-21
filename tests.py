@@ -215,6 +215,14 @@ COMMANDS = {
         'cd /d/projects/NOVA && wc -l nova.py core/*.py && cat config.default.json && '
         'grep -n -i "ask\\|follow\\|session" nova.py | head -80',
         "cd /d/projects/NOVA && sed -n 340,420p nova.py && echo ---- && cat config.default.json",
+        # opening a Gmail draft, finding a video: the "&" and braces inside quotes are data, not commands
+        "powershell -NoProfile -Command \"Start-Process 'https://mail.google.com/mail/?view=cm&fs=1&to=a@b.com&su=Hi'\"",
+        "powershell -NoProfile -Command \"\\$to=[uri]::EscapeDataString('a@b.com'); "
+        "Start-Process ('https://mail.google.com/mail/?view=cm&fs=1&to=' + \\$to + '&body=' + \\$body)\"",
+        "powershell -NoProfile -Command '$p=\"$env:LOCALAPPDATA\\Programs\\Opera GX\\opera.exe\"; "
+        "if(!(Test-Path $p)){$p=\"$env:LOCALAPPDATA\\Programs\\Opera GX\\launcher.exe\"}; Start-Process $p \"https://mail.google.com/mail/?view=cm&fs=1\"'",
+        "curl -s -A \"Mozilla/5.0\" \"https://www.youtube.com/results?search_query=ludwig\" | "
+        "grep -o '\"videoId\":\"[^\"]\\{11\\}\"' | head -3",
     ],
     "confirm": [
         "Remove-Item .\\old.txt",
@@ -246,6 +254,12 @@ COMMANDS = {
         "grep -n x nova.py \\| Remove-Item y",
         "Invoke-Item .\\build\\run.bat",
         "Start-Process .\\tools\\x.py",
+        "& ('calc')",
+        "[uri]::EscapeDataString('a'); calc",
+        "Start-Process ('https://x.test/?a=' + $t); notepad",
+        "grep -o 'x' f | python y.py",
+        "curl -s https://x.test/a.exe -o a.exe",
+        "$ws.SendKeys('rm{ENTER}')",
     ],
     "block": [
         "format D:",

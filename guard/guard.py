@@ -68,6 +68,7 @@ CONFIRM = [
     (r"-method\s+(post|put|patch|delete)|\bcurl\b" + UNTIL_END +
      r"\s(-d|--data\S*|-f|--form|-t|--upload-file|-x\s*(post|put|patch|delete))\b"
      r"|\b(scp|sftp|ftp|rsync|send-mailmessage)\b", "sends data over the network"),
+    (r"\bcurl\b" + UNTIL_END + r"\s(-o|--output|--remote-name\S*|--config)\b", "downloads a file"),
     (r"\b(set-executionpolicy|schtasks|register-scheduledtask|new-service)\b|\bsc(\.exe)?\s+(create|config|delete)\b",
      "changes system configuration"),
     (r"\s-enc(odedcommand)?\b|frombase64string", "runs an encoded command"),
@@ -109,6 +110,11 @@ ALLOW = [
     r"invoke-cimmethod\s+-methodname\s+wmisetbrightness(\s|$)",
     r"set-itemproperty\s" + UNTIL_END + r"\\themes\\personalize\b",
     r"\[char\]\s*\d+$", r"[\d\s,.]+$", r"[@$]?$", r"[\w$]+\s*=\s*[\w.\-]*$",
+    r"(if|elseif|else|!)$",  # PowerShell's if (...) {...}: its condition and body are checked as their own segments
+    r"\[(system\.)?(uri|math|datetime|string)\]::\w+$",  # pure helpers: [uri]::EscapeDataString(...), [math]::Round
+    # a web address glued together from quoted parts and variables: ('https://...?to=' + $to + '&body=' + $body)
+    r"(?:\+?\s*(?:url|\\?\$[\w:]+|[\w-]+=)\s*)+\+?$",
+    r"curl\s",  # a plain web fetch; posting, uploading or saving a file was caught by CONFIRM above
     r"\$",  # an expression on a variable; anything that runs it was caught by CONFIRM above
 ]
 SEPARATORS = r"[;&|\n{}()`]"
@@ -132,9 +138,15 @@ def classify_command(cmd, home=None):
     if ">" in re.sub(r"\d?>\s*&\s*\d|\d?>\s*(\$null|/dev/null|nul)\b", "", c):
         return "confirm", "writes a file through a redirect"
     # an escaped \| is regex alternation inside a grep pattern ("ask\|follow"), not a pipe to another command
-    flat = re.sub(r"[\"']", " ", re.sub(SHELL_WRAPPER, ";", c.replace("\\|", " ")))
+    # a quoted web address is one value: its "&" and "?" aren't command separators ("...?view=cm&to=x")
+    urls = re.sub(r"(['\"])https?://[^'\"\s`$]*\1", " url ", c.replace("\\|", " "))
+    # quoted text that is only data: a pure helper's argument ([uri]::EscapeDataString('a b')) or a search pattern
+    data = r"(?:'[^']*'|\"[^\"$`]*\")"
+    urls = re.sub(r"(\]::\w+\s*)\(\s*" + data + r"\s*\)", r"\1()", urls)
+    urls = re.sub(r"\b(grep|rg|findstr|select-string|sls)((?:\s+-[\w-]+)*)\s+" + data, r"\1\2 x", urls)
+    flat = re.sub(r"[\"']", " ", re.sub(SHELL_WRAPPER, ";", urls))
     for seg in re.split(SEPARATORS, flat):
-        seg = re.sub(r"^\$[\w:]+\s*=\s*", "", seg.strip())
+        seg = re.sub(r"^\\?\$[\w:]+\s*=\s*", "", seg.strip())  # "\$x=" is $x= escaped for bash
         if not any(re.match(p, seg) for p in ALLOW) and not (helper and re.match(helper, seg.replace("\\", "/"))):
             return "confirm", f"isn't on the known-safe list ({seg[:60]})"
     return "allow", "known safe command"

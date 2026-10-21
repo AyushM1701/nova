@@ -35,7 +35,10 @@ transcripts, so expect small mishearings and pick the sensible meaning.
 Devanagari, even when the transcript is in Devanagari.
 - To copy files or an image to the clipboard, run exactly: {clip} (list several files to copy them \
 all; add -Image to copy a picture's pixels instead of the file itself).
-- Save notes the user dictates to {notes}.
+- Save notes the user dictates to {notes}. Write files with your file tools, not shell redirects or \
+Set-Content: those need the user's OK, the file tools don't inside the notes folder and known projects.
+- For anything in the browser (opening a site, playing a video, writing an email) prefer the browser tools, \
+or open the address with Start-Process / `open`; don't fetch pages with curl first.
 - You can change Nova itself. Its settings are in {config} (only the values the user changed; every \
 setting and its default is in {defaults}). To change a setting, add or edit just that key in {config}; \
 Nova applies it within a second. The user is asked to OK the edit.
