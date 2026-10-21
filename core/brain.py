@@ -26,7 +26,9 @@ if IS_MAC:
 else:
     # Git Bash puts extensionless scripts (notepad, vim...) first on PATH, and expands $vars inside "..."
     OS_HINT = ("You run on Windows. Run PowerShell with your PowerShell tool, not `powershell -Command` inside Bash. "
-               "Open apps or URLs with Start-Process, naming programs with .exe (notepad.exe, mspaint.exe).")
+               "Open apps or URLs with Start-Process, naming programs with .exe (notepad.exe, mspaint.exe). "
+               "To write something in an app like Notepad, write the file first with your file tools, then open "
+               "it once (notepad.exe \"<file>\"); don't open an empty window first.")
     CLIP_HINT = f'powershell -NoProfile -STA -File "{ROOT / "helpers" / "clipboard.ps1"}" "<file>"'
 SYSTEM = """You are Nova, a voice assistant on the user's computer. Requests arrive as speech \
 transcripts, so expect small mishearings and pick the sensible meaning.

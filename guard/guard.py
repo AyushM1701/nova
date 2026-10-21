@@ -100,6 +100,7 @@ ALLOW = [
     r"|convertto-json|convertfrom-json|out-null|whoami|hostname|date|tree|head|tail|wc|grep|rg|find|true|exit|mkdir|md"
     r"|new-item\s+-itemtype\s+directory|foreach-object|%|where-object|\?)(\s|$)",
     r"(start-process|start|saps|explorer(\.exe)?|invoke-item|ii)(\s|$)",
+    r"(nohup\s+)?(notepad|mspaint|wordpad|write)(\.exe)?(\s|$)",  # editors that only open a file to show it
     r"(open|say|osascript|mdfind|mdls|pbpaste|pbcopy|sw_vers|uname|afplay|defaults\s+read)(\s|$)",  # macOS
     r"(set-clipboard|scb|get-clipboard|gcb)(\s|$)",  # putting text on the clipboard (pbcopy's Windows twin)
     r"sed\s+-n\s+\d+(,\d+)?p(\s|$)",  # printing lines 340-420 of a file; sed -i (editing) isn't allowed

