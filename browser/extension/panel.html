@@ -53,11 +53,31 @@ textarea { flex: 1; resize: none; border: 1px solid var(--line); background: var
            padding: 8px 13px; font: inherit; max-height: 120px; }
 .round { width: 34px; height: 34px; border-radius: 50%; padding: 0; display: grid; place-items: center; flex: none; }
 .round svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+/* Nova's mark: five sound bars that spell an "N" (core/icon.py draws the same). They rise into place when shown;
+   html[data-nova] (the bar's state) makes them follow the mic while listening (--nv-l0..4, set by the page), roll a
+   wave through while thinking, and bounce like a voice while talking */
+.mark { display: block; flex: none; overflow: visible; }
+.mark g rect { fill: url(#nv-ink); transform-box: fill-box; transform-origin: center;
+  transition: transform .1s ease-out; animation: nv-rise .7s cubic-bezier(.3, 1.5, .5, 1) calc(var(--i) * .07s) backwards; }
+.mark .nv-glow { filter: url(#nv-blur); opacity: .8; }
+[data-nova="listening"] .mark g rect { transform: scaleY(calc(.4 + .75 * var(--l))); }
+[data-nova="listening"] .mark .nv-glow { opacity: 1; }
+[data-nova="thinking"] .mark g rect { animation: nv-wave 1.3s ease-in-out calc(var(--i) * -.16s) infinite; }
+[data-nova="thinking"] .mark .nv-glow { animation: nv-breathe 1.3s ease-in-out infinite; }
+[data-nova="speaking"] .mark g rect { animation: nv-talk var(--d) ease-in-out infinite alternate; }
+[data-nova="approval"] .mark g rect { animation: nv-wave 2.2s ease-in-out calc(var(--i) * -.2s) infinite; }
+[data-nova="paused"] .mark, [data-nova="gone"] .mark { filter: saturate(.2) brightness(.8); }
+@keyframes nv-rise { from { transform: scaleY(.05); opacity: 0; } }
+@keyframes nv-wave { 0%, 100% { transform: none; } 50% { transform: translateY(-2.5px) scaleY(.72); } }
+@keyframes nv-talk { from { transform: scaleY(1.12); } to { transform: scaleY(.5); } }
+@keyframes nv-breathe { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .mark * { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><linearGradient id="nv-tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#131528"/><stop offset="1" stop-color="#080a12"/></linearGradient><linearGradient id="nv-ink" gradientUnits="userSpaceOnUse" x1="8" y1="24" x2="40" y2="24"><stop offset="0.00" stop-color="#7b6dff"/><stop offset="0.31" stop-color="#5a8cff"/><stop offset="0.62" stop-color="#3fd6e6"/><stop offset="1.00" stop-color="#e0479a"/></linearGradient><filter id="nv-blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.4"/></filter></defs></svg>
 <header>
-  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="#7c5cff"/><circle cx="12" cy="12" r="3" fill="#fff"/></svg>
+  <svg class="mark" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="11" fill="url(#nv-tile)"/><g class="nv-glow"><rect x="8.3" y="11" width="5" height="26" rx="2.5" style="--i:0;--d:0.42s;--l:var(--nv-l0,.5)"/><rect x="14.9" y="11.5" width="5" height="13" rx="2.5" style="--i:1;--d:0.34s;--l:var(--nv-l1,.5)"/><rect x="21.5" y="17.5" width="5" height="13" rx="2.5" style="--i:2;--d:0.5s;--l:var(--nv-l2,.5)"/><rect x="28.1" y="23.5" width="5" height="13" rx="2.5" style="--i:3;--d:0.38s;--l:var(--nv-l3,.5)"/><rect x="34.7" y="11" width="5" height="26" rx="2.5" style="--i:4;--d:0.46s;--l:var(--nv-l4,.5)"/></g><g class="nv-bars"><rect x="8.3" y="11" width="5" height="26" rx="2.5" style="--i:0;--d:0.42s;--l:var(--nv-l0,.5)"/><rect x="14.9" y="11.5" width="5" height="13" rx="2.5" style="--i:1;--d:0.34s;--l:var(--nv-l1,.5)"/><rect x="21.5" y="17.5" width="5" height="13" rx="2.5" style="--i:2;--d:0.5s;--l:var(--nv-l2,.5)"/><rect x="28.1" y="23.5" width="5" height="13" rx="2.5" style="--i:3;--d:0.38s;--l:var(--nv-l3,.5)"/><rect x="34.7" y="11" width="5" height="26" rx="2.5" style="--i:4;--d:0.46s;--l:var(--nv-l4,.5)"/></g></svg>
   <b>Nova</b>
   <span class="state"><i class="dot" id="dot"></i><span id="state">Connecting…</span></span>
 </header>

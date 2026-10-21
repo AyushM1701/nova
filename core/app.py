@@ -416,10 +416,15 @@ class Api:
         return True
 
 
+def stale(drawn):
+    """An icon file drawn before core/icon.py last changed (an update brought a new design)."""
+    return not drawn.exists() or drawn.stat().st_mtime < (ROOT / "core" / "icon.py").stat().st_mtime
+
+
 def nova_icon():
-    """Nova's .ico (setup makes one; draw it if this copy has none)."""
+    """Nova's .ico (setup makes one; draw it if this copy has none, or core/icon.py changed since)."""
     ico = DATA / "nova.ico"
-    if not ico.exists():
+    if stale(ico):
         from core.icon import draw
         ico.parent.mkdir(parents=True, exist_ok=True)
         draw(256).save(ico)
@@ -463,7 +468,7 @@ def main():
         try:
             from AppKit import NSApplication, NSImage
             png = DATA / "nova.png"
-            if not png.exists():
+            if stale(png):
                 from core.icon import draw
                 draw(512).save(png)
             NSApplication.sharedApplication().setApplicationIconImage_(NSImage.alloc().initWithContentsOfFile_(str(png)))
