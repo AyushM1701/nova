@@ -32,11 +32,17 @@ You need about 3 GB of free space and an internet connection for the first setup
 
 **macOS 12+ (Apple Silicon or Intel)**
 
-1. On the [GitHub page](https://github.com/AyushM1701/nova), click **Code → Download ZIP**, then double-click the ZIP in Downloads to unpack it.
-2. Move the `nova-main` folder somewhere you'll keep, for example your home folder. Nova runs from it.
-3. Right-click **`setup.command`** → **Open**, then **Open** again (macOS asks once because it was downloaded). Terminal opens and runs setup.
-4. If Python 3.11–3.13 with Tk isn't installed, setup offers to install it with Homebrew, or tells you to get it from [python.org](https://www.python.org/downloads/macos/) and run setup again.
-5. A Nova setup window shows the rest of the progress, then opens Nova from `~/Applications/Nova.app`.
+1. Open **Terminal** (press Cmd+Space, type "Terminal", press Enter).
+2. Paste this line and press Enter. It downloads Nova into a `nova-main` folder in your home folder and starts setup:
+
+   ```bash
+   cd ~ && curl -fsSL https://github.com/AyushM1701/nova/archive/refs/heads/main.tar.gz | tar xz && cd nova-main && bash setup.sh
+   ```
+
+3. If Python 3.11–3.13 with Tk isn't installed, setup offers to install it with Homebrew, or tells you to get it from [python.org](https://www.python.org/downloads/macos/) and run the same line again.
+4. A Nova setup window shows the rest of the progress, then opens Nova from `~/Applications/Nova.app`. Nova runs from `~/nova-main`, so keep that folder.
+
+Prefer a ZIP? Click **Code → Download ZIP**, unpack it, and double-click **`setup.command`**. Because it was downloaded, macOS blocks it the first time ("Apple could not verify…"): click **Done**, open **System Settings → Privacy & Security**, scroll down to *"setup.command" was blocked*, click **Open Anyway**, enter your password and click **Open**. (On macOS 14 and earlier, right-click → **Open** does the same.)
 
 If you use git, `git clone https://github.com/AyushM1701/nova.git`, then run `setup.cmd` (Windows) or `./setup.sh` (Mac) in the folder; `git pull` and running setup again updates Nova.
 
@@ -60,7 +66,7 @@ Nova then shows its own first-run screens:
 
 **Try it:** press the shortcut (or say "Hey Nova") and say "what time is it?". Then try "open YouTube", and, with an AI connected, "what's the weather in Goa?".
 
-To update, download the new ZIP into the same folder (or `git pull`) and run setup again; it restarts Nova on the new code. To see the first-run screens again, use Settings → Advanced → Run setup. Uninstall with `uninstall.cmd` (Windows) or `./uninstall.sh` (Mac).
+To update, download the new ZIP into the same folder (or `git pull`) and run setup again; it restarts Nova on the new code. On a Mac installed with the Terminal line, run the same line again: it replaces the files in `~/nova-main` and keeps your settings, history and downloaded models. To see the first-run screens again, use Settings → Advanced → Run setup. Uninstall with `uninstall.cmd` (Windows) or `./uninstall.sh` (Mac).
 
 ## Using it
 
