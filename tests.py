@@ -221,6 +221,8 @@ COMMANDS = {
         "Start-Process ('https://mail.google.com/mail/?view=cm&fs=1&to=' + \\$to + '&body=' + \\$body)\"",
         "powershell -NoProfile -Command '$p=\"$env:LOCALAPPDATA\\Programs\\Opera GX\\opera.exe\"; "
         "if(!(Test-Path $p)){$p=\"$env:LOCALAPPDATA\\Programs\\Opera GX\\launcher.exe\"}; Start-Process $p \"https://mail.google.com/mail/?view=cm&fs=1\"'",
+        "powershell -NoProfile -Command \"Start-Process notepad -ArgumentList 'D:\\notes\\idea.txt'\"",
+        "Start-Process -FilePath 'notepad.exe' -ArgumentList 'D:\\notes\\idea.txt'",
         "curl -s -A \"Mozilla/5.0\" \"https://www.youtube.com/results?search_query=ludwig\" | "
         "grep -o '\"videoId\":\"[^\"]\\{11\\}\"' | head -3",
     ],
@@ -260,6 +262,8 @@ COMMANDS = {
         "grep -o 'x' f | python y.py",
         "curl -s https://x.test/a.exe -o a.exe",
         "$ws.SendKeys('rm{ENTER}')",
+        "Start-Process notepad -ArgumentList 'x.ps1'; Start-Process git -ArgumentList 'push'",
+        "Start-Process notepad -ArgumentList 'run.bat'",
     ],
     "block": [
         "format D:",

@@ -911,8 +911,9 @@ class Nova:
         elif self.brain and self.brain.limited:
             shown += "\n\nTip: add a free backup brain in Nova's Settings → AI, so Nova keeps working when this happens."
         self.asked = bool(ask)
-        if ask:  # the AI wants an answer: say the question, then listen for it
-            shown, spoken, self.followup = f"{shown}\n\n{ask}", f"{spoken} {ask}", self.voice
+        if ask:  # the AI wants an answer: say the question, then listen for it (once, if the reply has it already)
+            shown = shown if ask in shown else f"{shown}\n\n{ask}"
+            spoken, self.followup = spoken if ask in spoken else f"{spoken} {ask}", self.voice
         log("reply", brain=main, request=text, reply=shown, say=spoken,
             source="voice" if self.voice else "chat")
         self.say("Nova", spoken, shown)

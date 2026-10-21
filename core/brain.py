@@ -24,7 +24,9 @@ if IS_MAC:
     OS_HINT = "You run on macOS. Open apps with `open -a`, URLs with `open`, and control apps with osascript."
     CLIP_HINT = f'"{ROOT / "helpers" / "clipboard.sh"}" "<file>"'
 else:
-    OS_HINT = "You run on Windows. Prefer PowerShell; open apps or URLs with Start-Process."
+    # Git Bash puts extensionless scripts (notepad, vim...) first on PATH, and expands $vars inside "..."
+    OS_HINT = ("You run on Windows. Run PowerShell with your PowerShell tool, not `powershell -Command` inside Bash. "
+               "Open apps or URLs with Start-Process, naming programs with .exe (notepad.exe, mspaint.exe).")
     CLIP_HINT = f'powershell -NoProfile -STA -File "{ROOT / "helpers" / "clipboard.ps1"}" "<file>"'
 SYSTEM = """You are Nova, a voice assistant on the user's computer. Requests arrive as speech \
 transcripts, so expect small mishearings and pick the sensible meaning.

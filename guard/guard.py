@@ -83,7 +83,10 @@ CONFIRM = [
      r"(\.(ps1|bat|cmd|vbs|vbe|js|jse|wsf|msi|scr|hta|py|pyw|jar|reg|cpl)\b|\\(downloads|temp)\\)",
      "runs a script or a downloaded file"),
     # -ArgumentList (any prefix, e.g. -Args, -a) hides "git push" or "winget install" from the rules above
-    (r"\b(start-process|saps|start)\s" + UNTIL_END + r"\s-a\w*\b|\bopen\s" + UNTIL_END + r"\s--args\b",
+    # (except plain editors that only open a file: "Start-Process notepad -ArgumentList notes.txt")
+    (r"\b(start-process|saps|start)\s+(?!(-filepath\s+)?[\"']?(notepad|mspaint|wordpad|write)(\.exe)?[\"']?\s)"
+     + UNTIL_END +
+     r"\s-a\w*\b|\bopen\s" + UNTIL_END + r"\s--args\b",
      "starts a program with arguments"),
     (r"\b(out-file|set-content|sc|add-content|ac|tee-object|tee|copy-item|cp|cpi|copy|xcopy|robocopy|ni)\b"
      r"|\bnew-item\b(?!\s+-itemtype\s+directory)", "writes files outside the edit tools"),
