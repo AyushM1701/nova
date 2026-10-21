@@ -132,15 +132,29 @@ def discover_projects(exclude, nova_root):
 PERSONAL = {"documents", "desktop", "downloads", "pictures", "music", "videos", "onedrive"}
 
 
-def project_folders(projects):
-    """Folders that hold a project (e.g. D:\\projects), so a new project made there counts as known. Never the
-    home folder or anything above it, a drive root, or a personal folder like Documents."""
-    home, out = Path.home().resolve(), set()
-    for p in projects.values():
-        parent = Path(p).resolve().parent
-        if parent.parent != parent and not home.is_relative_to(parent) and parent.name.lower() not in PERSONAL:
-            out.add(str(parent))
-    return sorted(out)
+def too_broad(folder):
+    """Why `folder` can't be one where Nova edits freely, or '' if it can: never a drive root, the home folder
+    or anything above it, a personal folder like Documents, the system's folders, or Nova itself."""
+    path = Path(folder).resolve()
+    if path.parent == path or Path.home().resolve().is_relative_to(path):
+        return "That's a whole drive or your user folder. Pick the folder your projects are in, like D:\\projects."
+    if path.name.lower() in PERSONAL:
+        return f"{path.name} has more than projects in it. Pick a folder inside it that holds only projects."
+    system = [os.environ.get(k) for k in ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "ProgramData")]
+    if any(s and path.is_relative_to(Path(s).resolve()) for s in system) or \
+            path.is_relative_to(Path.home().resolve() / ("Library" if IS_MAC else "AppData")) or \
+            str(path).startswith(("/System", "/Library", "/Applications", "/usr", "/bin", "/etc")):
+        return "That's a system folder."
+    if path.is_relative_to(ROOT):  # a folder holding Nova is fine: the guard checks Nova's own files first
+        return "Nova always asks before changing itself, so its own folder can't be added."
+    return ""
+
+
+def project_folders(projects, chosen=()):
+    """Folders Nova may edit freely: the ones you chose in Settings, plus each folder that holds one of your
+    projects (e.g. D:\\projects), so a new project made there counts as known. Anything too broad is skipped."""
+    found = {str(Path(p).resolve().parent) for p in projects.values()} | {str(Path(f).resolve()) for f in chosen}
+    return sorted(f for f in found if not too_broad(f))
 
 
 def split_say(text):
@@ -303,7 +317,7 @@ class Codex(Brain):
                 "timeout": self.cfg["safety"]["confirm_timeout_s"] + 30}
         hooks = "[{hooks=[{" + ", ".join(f"{k}={json.dumps(v)}" for k, v in hook.items()) + "}]}]"
         # Nova's own folder too, so "change my shortcut" can edit config.json; the guard asks before every write there
-        roots = json.dumps(list(projects.values()) + project_folders(projects)
+        roots = json.dumps(list(projects.values()) + project_folders(projects, self.cfg["projects"]["folders"])
                            + [str(Path(self.workspace) / "notes"), str(ROOT)])
         pairs = ["features.hooks=true", f"hooks.PreToolUse={hooks}", f'sandbox_mode="{b["codex_sandbox"]}"',
                  f"sandbox_workspace_write.writable_roots={roots}", "sandbox_workspace_write.network_access=true",

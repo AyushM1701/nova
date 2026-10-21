@@ -20,7 +20,7 @@ import webview
 
 from core import browser as web
 from core import clipboard, fallback, system, tts
-from core.brain import find_cli
+from core.brain import find_cli, too_broad
 from core.config import (CONFIG, DATA, LOGS, NOTES, ROOT, defaults, load_config, log, read_history, save_config,
                          write_private)
 
@@ -160,6 +160,17 @@ class Api:
             CLAUDE_SETTINGS.with_suffix(".json.nova-backup").write_bytes(CLAUDE_SETTINGS.read_bytes())
         CLAUDE_SETTINGS.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         return self._hook_installed()
+
+    # ---------- folders Nova may edit without asking (core/brain.py) ----------
+    def pick_folder(self):
+        """Ask for a folder; returns its path, None if cancelled. Folders that are too broad are refused."""
+        picked = self._window.create_file_dialog(webview.FileDialog.FOLDER)
+        if not picked:
+            return None
+        why = too_broad(picked[0])
+        if why:
+            raise ValueError(why)
+        return str(Path(picked[0]).resolve())
 
     # ---------- the backup brain (core/fallback.py) ----------
     def fallback_status(self):

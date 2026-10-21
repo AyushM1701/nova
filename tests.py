@@ -12,7 +12,7 @@ from core.wake import approval, is_done, is_echo  # noqa: E402
 from core.intents import parse as parse_intent  # noqa: E402
 from core.fallback import LIMIT_RE, run as fallback_run  # noqa: E402
 from core.clipboard import History  # noqa: E402
-from core.brain import pick_model, project_folders  # noqa: E402
+from core.brain import pick_model, project_folders, too_broad  # noqa: E402
 import tempfile  # noqa: E402
 from pathlib import Path  # noqa: E402
 from core.browser import classify as browser_classify, extension_id, with_flag  # noqa: E402
@@ -158,9 +158,12 @@ assert pick_model("Open Spotify", {"claude_model": "sonnet", "auto_model": True}
 assert pick_model("Open Spotify", {"claude_model": "", "auto_model": False}) == ""
 
 # a new project beside a known one ("D:\projects\my first website") is editable; home and Documents never are
-code = Path(tempfile.gettempdir()) / "nova-test-code"
+code, here = Path(__file__).resolve().parent.parent / "nova-test-code", Path(__file__).resolve().parent
 assert project_folders({"site": str(code / "portfolio"), "doc": str(Path.home() / "Documents" / "essay"),
                         "top": str(Path.home() / "notes")}) == [str(code.resolve())]
+assert project_folders({}, [str(code), str(Path.home()), str(Path.home() / "Documents"), str(here / "core")]) \
+    == [str(code.resolve())]  # chosen in Settings: the user folder, Documents and Nova itself are refused
+assert too_broad(code) == "" and too_broad(Path(code.anchor)) and too_broad(Path.home() / "Documents")
 assert approval("Hello? Hello?") is True and approval("Allow, allow.") is True and approval("No no no") is False
 
 # browser safety: decided from what the page says the element really is

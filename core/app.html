@@ -526,6 +526,9 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
           <div class="pair-head"><span>When you say</span><span></span><span>Project folder</span><span></span></div>
           <div class="pairs" id="aliases"></div>
           <button class="btn sm" id="addAlias" style="margin-top:12px"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add nickname</button></div>
+        <div class="row" style="display:block"><div class="what"><h2>Folders Nova can edit freely</h2><p>Nova creates and edits files in these folders, and the projects inside them, without asking. It still asks before deleting files, installing anything or pushing code. Nova already does this for your Claude Code and Codex projects and the folders they're in.</p></div>
+          <ul class="feed" id="folders" style="margin-top:14px"></ul>
+          <button class="btn sm" id="addFolder" style="margin-top:12px"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add folder</button></div>
       </div>
 
       <div data-panel="browsers" class="rows" hidden>
@@ -1004,6 +1007,22 @@ $("#claudeHook").addEventListener("click", async e => {
   try { S.claudeHook = await api().claude_hook(want); btn.setAttribute("aria-checked", S.claudeHook); toast(S.claudeHook ? "Nova will tell you when Claude finishes" : "Hook removed"); } catch (err) { fail(err); }
 });
 $("#addRepl").addEventListener("click", () => addRepl());
+function renderFolders() {
+  const folders = get("projects.folders") || [];
+  $("#folders").replaceChildren(...(folders.length ? folders.map((f, i) => {
+    const rm = h("button", { class: "icon-btn", "aria-label": `Remove ${f}`, title: "Remove", html: I.x });
+    rm.addEventListener("click", () => { folders.splice(i, 1); set("projects.folders", folders); renderFolders(); save(); });
+    return h("li", { style: "grid-template-columns: 1fr auto" }, h("div", { class: "body mono" }, f), h("div", { class: "acts", style: "opacity:1" }, rm));
+  }) : [h("li", { style: "display:block" }, h("p", { class: "muted" }, "None yet. Add the folder you keep projects in, like D:\\projects."))]));
+}
+$("#addFolder").addEventListener("click", async () => {
+  try {
+    const f = await api().pick_folder(); if (!f) return;
+    const folders = get("projects.folders") || [];
+    if (folders.some(x => x.toLowerCase() === f.toLowerCase())) return toast("Already in the list");
+    folders.push(f); set("projects.folders", folders); renderFolders(); save(true);
+  } catch (e) { fail(e); }
+});
 $("#addAlias").addEventListener("click", () => addAlias());
 
 /* ---------- memory ---------- */
@@ -1079,6 +1098,7 @@ function bindSettings() {
   renderWords();
   addRepl = pairsEditor($("#repls"), "dictation.replacements", "wisper", "Wispr");
   addAlias = pairsEditor($("#aliases"), "projects.aliases", "my site", "portfolio");
+  renderFolders();
   addRoutine = pairsEditor($("#routines"), "routines", "deep code mode", "pause music, open VS Code in portfolio, run npm run dev");
   $("#claudeHook").setAttribute("aria-checked", !!S.claudeHook);
   $("#watchCmd").textContent = `python "${S.paths.root}${S.platform === "mac" ? "/" : "\\"}helpers${S.platform === "mac" ? "/" : "\\"}watch.py" npm run build`;

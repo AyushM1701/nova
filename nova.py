@@ -894,8 +894,10 @@ class Nova:
         if self.voice:  # show what Nova heard right away, so a mishearing is obvious before the AI acts
             self.ui(lambda: self.card.show("Thinking", quote=text, kind="thinking"))
         projects = discover_projects(self.cfg["projects"]["exclude"], ROOT)
-        # edits are allowed in known projects and in new ones made beside them (D:\projects\my first website)
-        self.env["NOVA_ROOTS"] = os.pathsep.join([*projects.values(), *project_folders(projects)])
+        # edits are allowed in known projects, new ones made beside them (D:\projects\my first website) and the
+        # folders chosen in Settings → AI
+        folders = project_folders(projects, self.cfg["projects"]["folders"])
+        self.env["NOVA_ROOTS"] = os.pathsep.join([*projects.values(), *folders])
         prompt = note + self.context(text) + text
         main = self.brain.name if self.brain else "no AI"
         if self.brain:

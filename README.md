@@ -125,6 +125,7 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 | `dictation.editing` | `light` | `verbatim`, `light` or `medium` |
 | `dictation.dictionary` / `replacements` | | Words to spell right, e.g. `{"wisper": "Wispr"}` |
 | `projects.aliases` | | Spoken nicknames, e.g. `{"my site": "portfolio"}` |
+| `projects.folders` | `[]` | Folders where Nova creates and edits files without asking, e.g. `["D:\\projects"]` (Settings → AI). Folders holding your Claude Code / Codex projects count automatically. A drive, your user folder, Documents, system folders and Nova's own folder are refused |
 | `voice.barge_in` | `true` | Talk while Nova answers to interrupt it |
 | `brain.auto_model` | `true` | Quick actions use Haiku; "use opus to…" picks the model for one request |
 | `brain.clipboard_history` | `true` | Remember your last 20 copies, in memory only |

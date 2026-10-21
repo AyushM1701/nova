@@ -44,6 +44,7 @@
   },
   "projects": {
     "aliases": {},
+    "folders": [],
     "exclude": [
       "AppData",
       "Library/Application Support",
