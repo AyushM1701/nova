@@ -79,7 +79,7 @@ To update by hand instead: download the new ZIP into the same folder and run set
 |---|---|
 | Say "Hey Nova", press **Ctrl+Alt+Space** (Mac: **Cmd+Shift+Space**), or click the bar | Nova listens. Press again to stop early, or press while it's working to cancel. |
 | "Hey Nova, play some music" in one breath | Runs straight away |
-| Esc | Cancel; when Nova is asking for permission, Esc denies |
+| Esc | Stop listening or talking; when Nova is asking for permission, Esc denies. A request Nova is working on keeps going (Esc in another app shouldn't stop it): press the shortcut again, or Stop in the Nova window or on your phone |
 | "switch to dictation" / "switch to assistant" | Change mode |
 | "new conversation" | Forget the follow-up context |
 | "add Kubernetes to my dictionary" | Teaches the speech recognizer a word |
@@ -104,9 +104,15 @@ Use Nova from your iPhone (or any phone) while it runs on your computer. Nothing
 2. Make sure the phone is on the same Wi-Fi, open its **Camera**, point it at the QR code and tap the link.
 3. In Safari, tap **Share → Add to Home Screen**. Nova now opens like an app.
 
+If you added Nova to your home screen before version 1.2.2 and see a blank strip at the bottom, remove the icon and add it again (iOS keeps the old status-bar setting until then).
+
 You pair once. The page reconnects by itself after the phone locks, leaves and rejoins the Wi-Fi, or Nova restarts. While phone access is on and the computer is plugged in, Nova keeps it from sleeping (Settings → Phone → Keep this computer awake), because a sleeping computer can't answer. If you have Tailscale, pair with its code: that address never changes, while a home Wi-Fi address can change when the router restarts (then scan again, or give the computer a fixed address in your router).
 
 Type a request, or tap the **mic on the phone's keyboard** to dictate it. Replies, the steps Nova takes and approval requests appear live; tap **Allow** or **Deny**. The speaker button reads replies aloud. The computer has to be on with Nova running.
+
+**Dictate from your phone into the computer:** switch the bar above the message box to **Type on computer**, tap the mic on the phone's keyboard and speak (or type), then tap send. Nova types it into whatever app is in front on the computer, cleaned up like any dictation: fillers removed, "no wait" corrections applied, Hinglish in Roman letters, your dictionary and replacements. Select text on the computer first and say "make this more formal" to rewrite it. Switch back to **Ask Nova** for requests.
+
+**Send things from your phone to the computer:** tap the clipboard button next to the message box. Tap and hold in the box and choose **Paste** (text, or a picture or screenshot you copied), or tap **Choose photo or file**, then **Copy to computer**. It lands on the computer's clipboard: press Ctrl+V (Cmd+V on a Mac) in any app. Text also goes into Nova's clipboard history, so "paste what I copied on my phone" works; pictures paste as pictures and other files (up to 25 MB) as files. Received pictures and files are also kept in `workspace/phone/` (the newest 30).
 
 **Siri, the Action Button, Apple Watch and CarPlay:** tap **Siri** at the top of the phone page. It gives you a link to copy and five steps to build an "Ask Nova" shortcut in the Shortcuts app (Dictate Text → URL Encode → Get Contents of URL → Speak Text). Then say "Hey Siri, Ask Nova" and your request; Siri reads Nova's answer. A task that takes longer than about 50 seconds keeps going, and its answer appears in the phone page. Siri's dictation is Apple's, not Nova's on-device speech recognition.
 
@@ -184,6 +190,7 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 
 ## Troubleshooting
 
+- **The Nova window opens as a second taskbar button next to your pinned Nova (Windows):** your pin was made before version 1.2.2. Run setup again (or update), then unpin Nova and pin it again from the Start menu.
 - **No icon?** On Windows, click the ^ next to the clock. Nova may already be running; only one copy can run at a time.
 - **The shortcut does nothing (Mac):** allow Nova under Input Monitoring and Accessibility, then restart it.
 - **"No AI connected":** open the Nova window → Settings → AI, and install or sign in to Claude Code or Codex there.

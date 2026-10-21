@@ -31,6 +31,8 @@ else:
 
 DEFAULT_HOTKEY = "cmd+shift+space" if IS_MAC else "ctrl+alt+space"
 NO_WINDOW = 0 if IS_MAC else subprocess.CREATE_NO_WINDOW  # creationflags for child processes
+# Nova runs under pythonw on Windows, which has no stdout; hooks and helpers must answer on stdout
+CONSOLE_PYTHON = Path(sys.executable).with_name("python.exe") if os.name == "nt" else Path(sys.executable)
 
 
 def before_tk():
@@ -123,6 +125,43 @@ def copy():
             _keys.tap("c")
     else:
         keyboard.send("ctrl+c")
+
+
+def raise_app(exe):
+    """Bring a running program's front window to the front, restoring it if it's minimized (Windows; e.g. the
+    browser after Nova opened a page in it). False if it has no open window."""
+    if IS_MAC or not exe:
+        return False
+    kernel32, name, found = ctypes.windll.kernel32, Path(exe).name.lower(), []
+
+    def each(hwnd, _):
+        if user32.IsWindowVisible(hwnd) and user32.GetWindowTextLengthW(hwnd) and not user32.GetWindow(hwnd, 4):
+            pid = ctypes.wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            proc = kernel32.OpenProcess(0x1000, False, pid.value)  # PROCESS_QUERY_LIMITED_INFORMATION
+            if proc:
+                buf, size = ctypes.create_unicode_buffer(1024), ctypes.wintypes.DWORD(1024)
+                if kernel32.QueryFullProcessImageNameW(proc, 0, buf, ctypes.byref(size)) and \
+                        Path(buf.value).name.lower() == name:
+                    found.append(hwnd)
+                kernel32.CloseHandle(proc)
+        return not found  # windows come front to back: the first match is the one used last
+
+    user32.EnumWindows(ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)(each), 0)
+    if not found:
+        return False
+    hwnd = found[0]
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+    # Windows lets only the app in front hand the front to another; sharing its input for a moment allows it
+    here, front = kernel32.GetCurrentThreadId(), user32.GetWindowThreadProcessId(user32.GetForegroundWindow(), None)
+    attached = front and front != here and user32.AttachThreadInput(here, front, True)
+    try:
+        user32.BringWindowToTop(hwnd)
+        return bool(user32.SetForegroundWindow(hwnd))
+    finally:
+        if attached:
+            user32.AttachThreadInput(here, front, False)
 
 
 def window_title(target):

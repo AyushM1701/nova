@@ -24,7 +24,7 @@ from core import browser as web
 from core import clipboard, fallback, phone, system, tts, update
 from core.brain import find_cli, too_broad
 from core.config import (CONFIG, DATA, LOGS, NOTES, ROOT, defaults, load_config, log, read_history, save_config,
-                         write_private)
+                         update_config, write_private)
 
 HTML = Path(__file__).with_name("app.html")
 CLAUDE_SETTINGS = Path.home() / ".claude" / "settings.json"
@@ -97,17 +97,12 @@ class Api:
     def save(self, changes):
         """Apply {"dotted.path": value} on top of the settings on disk now, so changes Nova or the AI made
         while the window was open survive. Only values that differ from the defaults are written."""
-        cfg, error = load_config()
-        if error:
-            raise ValueError(error)
-        for path, value in changes.items():
-            *parents, last = path.split(".")
-            node = cfg
-            for key in parents:
-                node = node.setdefault(key, {})
-            node[last] = value
-        save_config(cfg)
+        update_config(changes)
         return True
+
+    def settings(self):
+        """The settings on disk now (the page's list editors re-read theirs before changing them)."""
+        return load_config()[0]
 
     def reset_settings(self):
         cfg, _ = load_config()
@@ -131,8 +126,7 @@ class Api:
 
     # ---------- "Claude Code finished" announcements: a Stop hook in the user's own Claude settings ----------
     def _hook(self):
-        python = Path(sys.executable).with_name("python.exe") if os.name == "nt" else Path(sys.executable)
-        return system.hook_command(python, ROOT / "helpers" / "on_stop.py")
+        return system.hook_command(system.CONSOLE_PYTHON, ROOT / "helpers" / "on_stop.py")
 
     def _hook_installed(self):
         try:
@@ -198,6 +192,10 @@ class Api:
         """Fetch the new version and start setup, which restarts Nova (and closes this window)."""
         update.install()
         return True
+
+    def close(self):
+        """Cmd+W on a Mac: close the window, like its red button."""
+        self._window.destroy()
 
     # ---------- folders Nova may edit without asking (core/brain.py) ----------
     def pick_folder(self):
@@ -442,6 +440,21 @@ def set_window_icon(window):
         log("error", error=f"window icon: {e!r}")
 
 
+def window_bg():
+    """The colour the window shows before the page paints: app.html's --bg for the system's light or dark mode."""
+    try:
+        if system.IS_MAC:
+            out = subprocess.run(["defaults", "read", "-g", "AppleInterfaceStyle"], capture_output=True, text=True, timeout=3)
+            dark = out.stdout.strip() == "Dark"
+        else:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as k:
+                dark = winreg.QueryValueEx(k, "AppsUseLightTheme")[0] == 0
+    except Exception:  # no setting saved means the system default, which is light
+        dark = False
+    return "#111114" if dark else "#f6f6f8"
+
+
 def main():
     if not system.IS_MAC:  # its own taskbar identity, so Windows doesn't group the window under "Python"
         import ctypes
@@ -458,7 +471,7 @@ def main():
             log("error", error=f"dock icon: {e!r}")
     api = Api()
     window = webview.create_window("Nova", html=HTML.read_text(encoding="utf-8"), js_api=api, width=1080, height=740,
-                                   min_size=(820, 580), background_color="#111114")
+                                   min_size=(820, 580), background_color=window_bg())
     api._window = window
     window.events.closed += api.mic_stop
     if not system.IS_MAC:

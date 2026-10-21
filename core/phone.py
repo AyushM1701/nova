@@ -6,24 +6,31 @@ key; anything else on the network gets the page but can't connect. The key trave
 browsers never send to a server, and then only in the first message of the connection.
 """
 import asyncio
+import base64
 import io
 import json
 import os
+import re
 import secrets
 import shutil
 import socket
 import subprocess
 import threading
+import time
 import urllib.parse
 from pathlib import Path
 
 from websockets.datastructures import Headers
 from websockets.http11 import Response
 
-from core.config import DATA, write_private
+from core.config import DATA, WORKSPACE, write_private
 
 PORT = 47823
 SIRI_WAIT_S = 50
+DROP = WORKSPACE / "phone"  # what the phone sends: images and files, put on this computer's clipboard
+MAX_UPLOAD = 25 * 2 ** 20
+TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/heic": "heic", "image/heif": "heif", "image/gif": "gif",
+         "image/webp": "webp", "application/pdf": "pdf", "text/plain": "txt"}
 PAGE = Path(__file__).with_name("phone.html")
 TOKEN = DATA / "phone-token"
 # the page only talks to the Nova that served it; nothing loads from the internet
@@ -75,6 +82,27 @@ def _tailscale_ips():
         return []
 
 
+def save_upload(data_url, name="", folder=DROP, keep=30):
+    """Write a file the phone sent (a data: URL) into workspace/phone and return its path. Only the newest `keep`
+    stay; the phone's own file name is cleaned and only gives the name and extension."""
+    m = re.match(r"data:([\w.+-]+/[\w.+-]+)?(?:;[^,;]*)*;base64,(.*)$", str(data_url), re.S)
+    if not m:
+        raise ValueError("That didn't arrive as a file. Try again.")
+    raw = base64.b64decode(m.group(2))
+    if len(raw) > MAX_UPLOAD:
+        raise ValueError(f"That's {len(raw) >> 20} MB; Nova takes up to {MAX_UPLOAD >> 20} MB.")
+    stem = re.sub(r"[^\w\- ]", "_", Path(str(name)).stem).strip()[:60] or "from-phone"
+    ext = Path(str(name)).suffix.lstrip(".").lower()
+    if not re.fullmatch(r"[a-z0-9]{1,8}", ext):
+        ext = TYPES.get((m.group(1) or "").lower(), "bin")
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{time.strftime('%Y%m%d-%H%M%S')}-{int(time.time() * 1000) % 1000:03d}-{stem}.{ext}"
+    path.write_bytes(raw)
+    for old in sorted(folder.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)[keep:]:
+        old.unlink(missing_ok=True)
+    return path
+
+
 def links():
     return [f"http://{ip}:{PORT}/#{token()}" for ip in addresses()]
 
@@ -103,7 +131,9 @@ class Phone:
         from websockets.asyncio.server import serve
         if on and not self.server:
             try:
-                self.server = await serve(self._client, "0.0.0.0", PORT, process_request=self._http, max_size=2 ** 20)
+                # room for a 25 MB photo or file from the phone (sent base64-encoded, a third bigger)
+                self.server = await serve(self._client, "0.0.0.0", PORT, process_request=self._http,
+                                          max_size=MAX_UPLOAD * 4 // 3 + 2 ** 16)
                 self.error = ""
             except OSError as e:  # the port is taken: Settings shows why
                 self.error = f"Port {PORT} is in use by another program ({e.strerror})."
@@ -130,7 +160,7 @@ class Phone:
 
     async def _ask(self, connection, query):
         """Run one request like a typed one and answer with the line to speak, once Nova replies."""
-        if not secrets.compare_digest(query.get("key", [""])[0], token()):
+        if not secrets.compare_digest(query.get("key", [""])[0].encode(), token().encode()):  # bytes: any key is just wrong
             return connection.respond(401, "This Siri shortcut isn't paired with Nova. Set it up again from the Nova "
                                            "app on your phone.\n")
         text = query.get("text", [""])[0].strip()[:4000]
@@ -156,7 +186,7 @@ class Phone:
     async def _client(self, ws):
         try:
             hello = json.loads(await asyncio.wait_for(ws.recv(), 10))
-            if not (isinstance(hello, dict) and secrets.compare_digest(str(hello.get("token", "")), token())):
+            if not (isinstance(hello, dict) and secrets.compare_digest(str(hello.get("token", "")).encode(), token().encode())):
                 return await ws.close(4001, "not paired")
             self.clients.add(ws)
             reply = lambda msg: self.send(ws, msg)  # noqa: E731
@@ -182,7 +212,8 @@ class Phone:
 
     def broadcast(self, event):
         # a Siri request waiting for its answer: the reply (its spoken line), or a note such as "It's 6:05 PM."
-        if self.waiters and event.get("event") in ("reply", "note", "error"):
+        # (only a request's own error: a background one, like a failed browser repair, isn't Siri's answer)
+        if self.waiters and (event.get("event") in ("reply", "note") or event.get("event") == "error" and event.get("request")):
             text = event.get("say") or event.get("text") or event.get("reply") or event.get("error") or "Done."
             self.loop.call_soon_threadsafe(self._answered, str(text))
         for ws in list(self.clients):

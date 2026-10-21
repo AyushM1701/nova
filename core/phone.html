@@ -6,23 +6,27 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Nova">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- not "black-translucent": in iPhone home-screen apps (iOS 26+) that draws the page under the clock but cuts the same
+     59 points off the bottom, which no CSS can reach. "black" puts the page below the clock, down to the bottom edge. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="theme-color" content="#111114">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="icon" href="/icon.png">
 <title>Nova</title>
 <style>
+/* core/app.html's tokens; only the fills (--raised, --line, the -soft tints) are stronger for a phone in daylight.
+   tests.py fails if the rest drift. */
 :root {
   --bg: #f6f6f8; --surface: #ffffff; --raised: #ececf1; --line: rgba(20, 20, 32, .1);
-  --text: #16161a; --muted: #5b5b66; --faint: #8a8a95;
-  --accent: #6a4cf5; --accent-ink: #fff; --accent-soft: rgba(106, 76, 245, .12);
-  --amber: #a86400; --amber-soft: rgba(255, 186, 60, .18); --amber-line: rgba(204, 132, 0, .45);
-  --ok: #148a5b; --danger: #c93a3a; --glass: rgba(246, 246, 248, .82);
+  --text: #16161a; --muted: #5b5b66; --faint: #6a6a74;
+  --accent: #6a4cf5; --accent-ink: #ffffff; --accent-soft: rgba(106, 76, 245, .12);
+  --amber: #8f5500; --amber-soft: rgba(255, 186, 60, .18); --amber-line: rgba(204, 132, 0, .45);
+  --ok: #117a50; --danger: #c93a3a; --glass: rgba(246, 246, 248, .82);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #111114; --surface: #1c1c22; --raised: #26262d; --line: rgba(255, 255, 255, .09);
+    --bg: #111114; --surface: #18181d; --raised: #26262d; --line: rgba(255, 255, 255, .09);
     --text: #f2f2f4; --muted: #a3a3ad; --faint: #80808b;
     --accent: #7357ff; --accent-soft: rgba(124, 92, 255, .2);
     --amber: #ffba3c; --amber-soft: rgba(255, 186, 60, .12); --amber-line: rgba(255, 186, 60, .42);
@@ -31,7 +35,7 @@
   }
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html { height: 100%; overflow: hidden; }
+html { height: 100%; overflow: hidden; background: var(--bg); }
 body { margin: 0; overflow: hidden; }
 /* pinned to all four edges of the screen; fit() lifts the bottom edge only while the keyboard is open */
 body {
@@ -41,7 +45,8 @@ body {
   -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%;
 }
 button, textarea, input { font: inherit; color: inherit; }
-button { cursor: pointer; }
+button { cursor: pointer; transition: opacity .12s; }
+button:active:not(:disabled) { opacity: .6; transition: none; }  /* the tap highlight is off, so a press shows here */
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 header {
   display: flex; align-items: center; gap: 10px; flex: none;
@@ -55,9 +60,9 @@ header svg.logo { width: 30px; height: 30px; flex: none; }
 .who span { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
 .dot.s-ok { background: var(--ok); } .dot.s-busy { background: var(--accent); } .dot.s-ask { background: var(--amber); } .dot.s-bad { background: var(--danger); }
-.icon { height: 38px; min-width: 38px; padding: 0 12px; border-radius: 19px; border: 0; background: var(--raised); display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: var(--muted); font-size: 14px; font-weight: 600; }
+.icon { height: 44px; min-width: 44px; padding: 0 14px; border-radius: 22px; border: 0; background: var(--raised); display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: var(--muted); font-size: 14px; font-weight: 600; }
 .icon[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
-.icon.round { padding: 0; width: 38px; }
+.icon.round { padding: 0; width: 44px; }
 svg.i { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 main {
   flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
@@ -100,9 +105,11 @@ footer {
   border-top: 1px solid var(--line);
 }
 body.typing-now footer { padding-bottom: 8px; }  /* the keyboard covers the home-bar area */
-textarea { flex: 1; resize: none; border: 1px solid var(--line); background: var(--surface); border-radius: 22px; padding: 10px 16px; max-height: 140px; min-height: 44px; font-size: 16px; line-height: 1.4; }
+textarea { flex: 1; min-width: 0; resize: none; border: 1px solid var(--line); background: var(--surface); border-radius: 22px; padding: 10px 16px; max-height: 140px; min-height: 44px; font-size: 16px; line-height: 1.4; overflow-y: hidden; scrollbar-width: none; }
+textarea::-webkit-scrollbar { display: none; }
+textarea::placeholder { color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 textarea:focus { outline: none; border-color: var(--accent); }
-.send { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; flex: none; transition: background .15s; }
+.send { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; flex: none; transition: background .15s, opacity .12s; }
 .send:disabled { background: var(--raised); color: var(--faint); }
 .send.stop { background: var(--text); color: var(--bg); }
 /* Siri setup sheet */
@@ -110,12 +117,36 @@ textarea:focus { outline: none; border-color: var(--accent); }
 .sheet[hidden] { display: none; }
 .sheet > div { width: 100%; max-height: 92%; overflow-y: auto; background: var(--bg); border-radius: 22px 22px 0 0; padding: 18px max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); }
 .sheet h2 { margin: 0 0 4px; font-size: 21px; }
+.sheet h2:focus { outline: none; }  /* focused only so the sheet is announced and Tab starts inside it */
 .sheet p { margin: 0 0 12px; color: var(--muted); }
 .sheet ol { margin: 0 0 14px; padding-left: 22px; } .sheet li { margin: 8px 0; }
 .sheet li b { color: var(--text); }
 .sheet .link { width: 100%; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 10px 12px; font: 13px ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); margin-bottom: 10px; }
 .sheet .row { display: flex; gap: 10px; margin-top: 4px; }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+/* ask Nova, or type on the computer */
+.modes { flex: none; display: flex; justify-content: center; padding: 6px 12px; background: var(--glass); -webkit-backdrop-filter: saturate(1.6) blur(18px); backdrop-filter: saturate(1.6) blur(18px); border-top: 1px solid var(--line); }
+.modes + footer { border-top: 0; padding-top: 0; }  /* the bar above already leaves the gap */
+.seg { display: inline-flex; padding: 3px; border-radius: 12px; background: var(--raised); gap: 2px; }
+.seg button { border: 0; background: none; min-height: 44px; padding: 0 16px; border-radius: 9px; color: var(--muted); font-size: 14px; font-weight: 600; }
+.seg button[aria-checked="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.18); }
+.typed { align-self: flex-end; max-width: 84%; color: var(--muted); font-size: 14px; border: 1px dashed var(--line); border-radius: 16px; padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.typed b { display: block; color: var(--faint); font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+/* send to computer */
+.attach { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--raised); color: var(--muted); display: grid; place-items: center; flex: none; }
+.pastebox { min-height: 96px; max-height: 30vh; overflow-y: auto; border: 1.5px dashed var(--line); border-radius: 14px; padding: 12px 14px; background: var(--surface); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+.pastebox:empty::before { content: attr(data-hint); color: var(--faint); }
+.pastebox:focus { outline: none; border-color: var(--accent); border-style: solid; }
+.preview { margin: 10px 0 4px; display: flex; gap: 12px; align-items: center; color: var(--muted); font-size: 14px; }
+.preview img { max-width: 96px; max-height: 96px; border-radius: 10px; border: 1px solid var(--line); object-fit: cover; }
+.toast { position: fixed; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom)); transform: translateX(-50%); max-width: 88%; z-index: 20; background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 18px; font-size: 14px; text-align: center; box-shadow: 0 6px 24px rgba(0,0,0,.3); }
+.toast.bad { background: var(--danger); color: #fff; }
+.toast[hidden] { display: none; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+  .typing i { animation: breathe 1.6s ease-in-out infinite !important; }  /* still says "busy", without movement */
+}
+@keyframes breathe { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
 </style>
 </head>
 <body>
@@ -125,14 +156,30 @@ textarea:focus { outline: none; border-color: var(--accent); }
   <button class="icon" id="siri" aria-label="Use Nova with Siri"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>Siri</button>
   <button class="icon round" id="speak" aria-pressed="false" aria-label="Read replies aloud" title="Read replies aloud"><svg class="i" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg></button>
 </header>
-<main id="log" aria-live="polite"></main>
+<main id="log"></main>
+<div class="sr" id="said" aria-live="polite"></div>
+<div class="modes"><div class="seg" role="radiogroup" aria-label="What sending does">
+  <button role="radio" data-mode="ask">Ask Nova</button><button role="radio" data-mode="type">Type on computer</button>
+</div></div>
 <footer>
+  <button class="attach" id="clipBtn" aria-label="Send to your computer" title="Send to your computer"><svg class="i" viewBox="0 0 24 24"><rect x="8" y="3" width="8" height="4" rx="1.5"/><path d="M16 5h2a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h2"/><path d="M12 10v7M9 13l3-3 3 3"/></svg></button>
   <textarea id="input" rows="1" placeholder="Ask Nova…" aria-label="Message" enterkeyhint="send"></textarea>
   <button class="send" id="send" aria-label="Send" disabled><svg class="i" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></svg></button>
 </footer>
 
+<div class="sheet" id="clipSheet" hidden role="dialog" aria-modal="true" aria-labelledby="clipTitle"><div>
+  <h2 id="clipTitle" tabindex="-1">Send to your computer</h2>
+  <p>It lands on your computer's clipboard: press Ctrl+V (Cmd+V on a Mac) in any app there.</p>
+  <div class="pastebox" id="pasteBox" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Paste or type here" data-hint="Tap and hold here, then Paste. Or type."></div>
+  <div class="preview" id="clipPreview" hidden></div>
+  <input type="file" id="clipFile" hidden>
+  <div class="row" style="margin-top:12px"><button class="btn" id="clipPick">Choose photo or file</button></div>
+  <div class="row" style="margin-top:10px"><button class="btn" id="clipCancel">Cancel</button><button class="btn primary" id="clipSend" disabled>Copy to computer</button></div>
+</div></div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
 <div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle"><div>
-  <h2 id="sheetTitle">“Hey Siri, Ask Nova”</h2>
+  <h2 id="sheetTitle" tabindex="-1">“Hey Siri, Ask Nova”</h2>
   <p>Make a Shortcut once, then talk to Nova through Siri, the Action Button, your Apple Watch or CarPlay. Siri reads Nova's answer out loud; the full reply shows up here too.</p>
   <input class="link" id="siriLink" readonly aria-label="Your Siri link">
   <div class="row"><button class="btn primary" id="copyLink">Copy Siri link</button></div>
@@ -168,12 +215,14 @@ let ws = null, wait = 1000, retry = 0, busy = false, asks = [], speak = store.ge
 // The page is pinned to the screen's edges; only an open keyboard (the visible area much shorter than the page)
 // moves its top and bottom, to exactly the part you can see. Sizing it from the visible area all the time left a
 // blank strip in iPhone home-screen apps, where that area doesn't include the status bar.
+// (The blank strip in iPhone home-screen apps came from the translucent status bar; see the meta tag above.)
 const vv = window.visualViewport;
+const standalone = navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
 function fit() {
   const keyboard = vv ? innerHeight - vv.height - vv.offsetTop : 0;
-  const open = !!vv && keyboard > 80;
-  document.body.style.top = open ? vv.offsetTop + "px" : "";
-  document.body.style.bottom = open ? keyboard + "px" : "";
+  const open = !!vv && keyboard > 80, b = document.body.style;
+  b.top = open ? vv.offsetTop + "px" : "";
+  b.bottom = open ? keyboard + "px" : "";
   document.body.classList.toggle("typing-now", open);
   if (!open && (window.scrollY || document.documentElement.scrollTop)) window.scrollTo(0, 0);
 }
@@ -210,15 +259,16 @@ function add(node) {
 }
 function novaMsg(text) { const m = el("div", "msg nova md"); m.innerHTML = md(text); return add(m); }
 function status(label, cls) { $("state").textContent = label; $("dot").className = "dot" + (cls ? " s-" + cls : ""); }
-function screen(title, text) { log.replaceChildren(); const box = el("div", "empty"); box.append(el("b", null, title), el("span", null, text)); log.append(box); }
+function emptyState(title, text) { log.replaceChildren(); const box = el("div", "empty"); box.append(el("b", null, title), el("span", null, text)); log.append(box); }
 function working(on) {
   const dots = $("typing");
   if (on && !dots) { const t = el("div", "typing"); t.id = "typing"; t.innerHTML = "<i></i><i></i><i></i>"; const end = nearEnd(); log.append(t); if (end) log.scrollTop = log.scrollHeight; }
   if (!on && dots) dots.remove();
 }
 function setBusy(on, pending) {
-  busy = on; send.classList.toggle("stop", on); send.innerHTML = on ? STOP : SEND;
-  send.setAttribute("aria-label", on ? "Stop" : "Send"); send.disabled = !on && !input.value.trim();
+  const typeMode = mode === "type";
+  busy = on; send.classList.toggle("stop", on); send.innerHTML = on ? STOP : typeMode ? KEYBOARD : SEND;
+  send.setAttribute("aria-label", on ? "Stop" : typeMode ? "Type on computer" : "Send"); send.disabled = !on && !input.value.trim();
   working(on && !pending);
 }
 
@@ -230,7 +280,7 @@ let lastSeen = 0;
 function connect() {
   clearTimeout(retry);
   if (ws || unpaired) return;
-  if (!key) { status("Not paired", "bad"); screen("Pair this phone", "On your computer, open Nova → Settings → Phone and scan the QR code with this phone's camera."); return; }
+  if (!key) { status("Not paired", "bad"); emptyState("Pair this phone", "On your computer, open Nova → Settings → Phone and scan the QR code with this phone's camera."); return; }
   const sock = ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
   sock.onopen = () => {
     wait = 1000; lastSeen = Date.now();
@@ -242,7 +292,7 @@ function connect() {
     ws = null; working(false);
     if (e.code === 4001) {  // the key was replaced in Settings, or never matched
       unpaired = true; store.set("nova-key", null); key = "";
-      status("Not paired", "bad"); screen("This phone isn't paired anymore", "On your computer, open Nova → Settings → Phone and scan the QR code again.");
+      status("Not paired", "bad"); emptyState("This phone isn't paired anymore", "On your computer, open Nova → Settings → Phone and scan the QR code again.");
       return;
     }
     status(navigator.onLine === false ? "No network, waiting…" : "Reconnecting to Nova…", "bad");
@@ -268,10 +318,14 @@ addEventListener("pageshow", wake);
 addEventListener("focus", wake);
 
 function onMessage(msg) {
+  if (msg.type === "clip-done") return clipDone(msg);
+  if (msg.type === "dictate-done") return dictateDone(msg);
   if (msg.type === "history") {
-    log.replaceChildren();
+    // (re)connected: the old cards are gone from view, so forget them too, or the next answer would close an old
+    // card and leave the visible one with live Allow / Deny buttons
+    log.replaceChildren(); asks = [];
     for (const e of msg.items.slice().reverse()) { if (e.request) add(el("div", "msg user", e.request)); if (e.reply) novaMsg(e.reply); }
-    if (!log.children.length) screen("Ask Nova anything", "It runs on your computer, so it can open apps, work in your projects and use your browser. Type, or tap the mic on your keyboard to talk. Nova asks you here before anything risky.");
+    if (!log.children.length) emptyState("Ask Nova anything", "It runs on your computer, so it can open apps, work in your projects and use your browser. Type, or tap the mic on your keyboard to talk. Nova asks you here before anything risky.");
     log.scrollTop = log.scrollHeight;
     return;
   }
@@ -283,10 +337,11 @@ function onMessage(msg) {
     status(noAI ? "No AI connected on the computer" : label, noAI ? "bad" : cls);
     setBusy(ev.phase !== "idle" || ev.pending, ev.pending);
   } else if (ev.event === "bar") { const [label, cls] = STATES[ev.state] || STATES.idle; status(label, cls); }
-  else if (ev.event === "heard") add(el("div", "msg user", ev.text));
+  else if (ev.event === "heard" && ev.mode !== "dictation") add(el("div", "msg user", ev.text));  // dictation isn't chat
   else if (ev.event === "step") add(el("div", "step", ev.text));
-  else if (ev.event === "reply") { novaMsg(ev.reply); say(ev.say || ev.reply); }
-  else if (ev.event === "note") add(el("div", "note", ev.text));
+  // VoiceOver hears replies and notes; steps stream by silently (the OK card announces itself as an alert)
+  else if (ev.event === "reply") { novaMsg(ev.reply); say(ev.say || ev.reply); $("said").textContent = String(ev.reply || "").replace(/[`*#_]/g, ""); }
+  else if (ev.event === "note") { add(el("div", "note", ev.text)); $("said").textContent = ev.text; }
   else if (ev.event === "asking") { working(false); askCard(ev); }
   else if (ev.event === "approval") { const box = asks.shift(); if (box) box.done(ev.allowed ? "Allowed" : ev.timed_out ? "No answer, so Nova said no" : "Denied"); if (ev.allowed) working(true); }
 }
@@ -313,12 +368,47 @@ function say(text) {
   if (!speak || !window.speechSynthesis || !text) return;
   speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(String(text).replace(/[`*#_]/g, "").slice(0, 600)));
 }
-function grow() { input.style.height = "auto"; input.style.height = Math.min(140, input.scrollHeight) + "px"; send.disabled = !busy && !input.value.trim(); }
+function grow() {  // one line until you write more; it scrolls only past its tallest size
+  input.style.height = "auto";
+  const h = input.value ? input.scrollHeight + 2 : 44;
+  input.style.height = Math.min(140, Math.max(44, h)) + "px";
+  input.style.overflowY = h > 140 ? "auto" : "hidden";
+  send.disabled = !busy && !input.value.trim();
+}
 function submit() {
   if (busy) return post({ op: "cancel" });
   const text = input.value.trim(); if (!text) return;
-  if (post({ op: "ask", text })) { input.value = ""; grow(); input.blur(); setTimeout(fit, 350); }
+  if (!post({ op: mode === "type" ? "dictate" : "ask", text })) return;
+  if (mode === "type") { typing = text; }  // kept until the computer confirms, so a failure loses nothing
+  input.value = ""; grow(); if (mode === "ask") { input.blur(); setTimeout(fit, 350); }
 }
+
+/* ---------- Ask Nova, or Type on computer (dictate with the keyboard's mic straight into the app in front) ---------- */
+let mode = store.get("nova-mode") === "type" ? "type" : "ask", typing = "";
+const KEYBOARD = '<svg class="i" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/></svg>';
+function setMode(m) {
+  mode = m; store.set("nova-mode", m);
+  document.querySelectorAll(".seg button").forEach(b => { b.setAttribute("aria-checked", b.dataset.mode === m); b.tabIndex = b.dataset.mode === m ? 0 : -1; });
+  input.placeholder = m === "type" ? "Type on your computer…" : "Ask Nova…";
+  if (!busy) { send.innerHTML = m === "type" ? KEYBOARD : SEND; send.setAttribute("aria-label", m === "type" ? "Type on computer" : "Send"); }
+}
+document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => { setMode(b.dataset.mode); input.focus(); }));
+document.querySelector(".seg").addEventListener("keydown", e => {  // arrows switch, like any radio group
+  const d = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key]; if (!d) return;
+  const bs = [...document.querySelectorAll(".seg button")], b = bs[(bs.indexOf(e.target) + d + bs.length) % bs.length];
+  e.preventDefault(); setMode(b.dataset.mode); b.focus();
+});
+function dictateDone(msg) {
+  if (msg.ok) {
+    const box = el("div", "typed"); box.append(el("b", null, msg.text || "Typed on your computer"), document.createTextNode(typing)); add(box);
+    typing = "";
+  } else {
+    if (typing && !input.value) { input.value = typing; grow(); }
+    typing = ""; toast(msg.error || "That didn't get typed.", true);
+  }
+}
+setMode(mode);
+document.addEventListener("touchstart", () => {}, { passive: true });  // without a touch listener iOS Safari never applies :active
 
 /* ---------- Siri ---------- */
 function copy(text, input) {
@@ -330,11 +420,81 @@ function copy(text, input) {
 $("siri").addEventListener("click", () => {
   if (!key) return;
   $("siriLink").value = `${location.origin}/ask?key=${encodeURIComponent(key)}&text=`;
-  $("sheet").hidden = false;
+  showSheet($("sheet"), true);
+});
+let sheetFrom = null;
+function showSheet(s, open) {  // modal: the page behind goes inert, focus moves in, and goes back where it was on close
+  if (s.hidden !== open) return;
+  s.hidden = !open;
+  document.querySelectorAll("body > header, body > main, body > .modes, body > footer").forEach(n => n.inert = open);
+  if (open) { sheetFrom = document.activeElement; s.querySelector("h2").focus(); } else sheetFrom?.focus();
+}
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if (!$("clipSheet").hidden) closeClip(); else showSheet($("sheet"), false);
 });
 $("copyLink").addEventListener("click", () => copy($("siriLink").value, $("siriLink")));
-$("closeSheet").addEventListener("click", () => { $("sheet").hidden = true; });
-$("sheet").addEventListener("click", e => { if (e.target === $("sheet")) $("sheet").hidden = true; });
+$("closeSheet").addEventListener("click", () => showSheet($("sheet"), false));
+$("sheet").addEventListener("click", e => { if (e.target === $("sheet")) showSheet($("sheet"), false); });
+
+/* ---------- send to computer: paste or pick, then onto the computer's clipboard ---------- */
+let item = null, toastTimer = 0;
+const MAX_MB = 25, box = $("pasteBox");
+function toast(text, bad) {
+  const t = $("toast"); t.textContent = text; t.classList.toggle("bad", !!bad); t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, bad ? 5000 : 3000);
+}
+function pick(it) {  // what will be sent, with a preview
+  item = it; const p = $("clipPreview"); p.hidden = !it || it.kind === "text"; p.replaceChildren();
+  if (it && it.kind === "image") { const img = el("img"); img.src = it.data; img.alt = "Picture to send"; p.append(img, el("span", null, it.name || "Picture")); }
+  else if (it && it.kind === "file") p.append(el("span", null, `${it.name || "File"} · ${(it.size / 1048576).toFixed(1)} MB`));
+  $("clipSend").disabled = !it;
+}
+function readFile(f) {
+  if (f.size > MAX_MB * 1048576) return toast(`That's ${Math.round(f.size / 1048576)} MB; Nova takes up to ${MAX_MB} MB.`, true);
+  const r = new FileReader();
+  r.onload = () => { box.textContent = ""; pick({ kind: f.type.startsWith("image/") ? "image" : "file", data: r.result, name: f.name || "", size: f.size }); };
+  r.onerror = () => toast("Couldn't read that file.", true);
+  r.readAsDataURL(f);
+}
+box.addEventListener("paste", e => {
+  const dt = e.clipboardData; if (!dt) return;
+  const file = [...(dt.files || [])][0] || [...(dt.items || [])].filter(i => i.kind === "file").map(i => i.getAsFile()).find(Boolean);
+  if (file) { e.preventDefault(); return readFile(file); }
+  const text = dt.getData("text/plain");
+  if (text) { e.preventDefault(); box.textContent = text; pick({ kind: "text", text }); }
+});
+box.addEventListener("input", () => { const t = box.innerText; pick(t.trim() ? { kind: "text", text: t } : null); });
+$("clipPick").addEventListener("click", () => $("clipFile").click());
+$("clipFile").addEventListener("change", e => { const f = e.target.files[0]; e.target.value = ""; if (f) readFile(f); });
+function closeClip() { showSheet($("clipSheet"), false); box.textContent = ""; pick(null); $("clipSend").textContent = "Copy to computer"; }
+$("clipBtn").addEventListener("click", () => { if (!key) return; showSheet($("clipSheet"), true); });
+$("clipCancel").addEventListener("click", closeClip);
+$("clipSheet").addEventListener("click", e => { if (e.target === $("clipSheet")) closeClip(); });
+$("clipSend").addEventListener("click", () => {
+  if (!item) return;
+  if (post({ op: "clip", ...item })) { $("clipSend").disabled = true; $("clipSend").textContent = "Sending…"; }
+});
+function clipDone(msg) {
+  $("clipSend").textContent = "Copy to computer";
+  if (msg.ok) { closeClip(); toast(msg.text || "Copied to your computer"); } else { $("clipSend").disabled = false; toast(msg.error || "That didn't work.", true); }
+}
+
+// triple-tap "Nova" at the top: the sizes iOS reports, for fixing layout problems from a screenshot
+let taps = [];
+document.querySelector(".who b").addEventListener("click", () => {
+  taps = [...taps.filter(t => Date.now() - t < 800), Date.now()];
+  if (taps.length < 3) return;
+  taps = [];
+  const probe = el("div");
+  probe.style.cssText = "position:fixed;top:env(safe-area-inset-top);bottom:env(safe-area-inset-bottom);left:0;width:1px;visibility:hidden";
+  document.body.append(probe); const safe = probe.getBoundingClientRect(); probe.remove();
+  const r = document.body.getBoundingClientRect(), f = document.querySelector("footer").getBoundingClientRect();
+  alert(`Nova layout\nstandalone: ${standalone}\nscreen: ${screen.width}x${screen.height} (dpr ${devicePixelRatio})\n` +
+        `innerHeight: ${innerHeight}  outer: ${outerHeight}\nvisualViewport: ${vv ? `${Math.round(vv.height)} @${Math.round(vv.offsetTop)}` : "none"}\n` +
+        `html clientHeight: ${document.documentElement.clientHeight}\nsafe area: top ${Math.round(safe.top)}, bottom ${Math.round(innerHeight - safe.bottom)}\n` +
+        `body: ${Math.round(r.top)}–${Math.round(r.bottom)}  footer bottom: ${Math.round(f.bottom)}\n${navigator.userAgent.replace(/^.*?\(/, "(").slice(0, 80)}`);
+});
 
 input.addEventListener("input", grow);
 input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); } });

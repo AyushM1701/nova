@@ -33,13 +33,13 @@ def current():
 
 
 def newer():
-    """The version on GitHub if it's newer than this one, else '' (also when offline)."""
+    """The version on GitHub if it's newer than this one, '' if not, None if GitHub couldn't be asked."""
     try:
         with urllib.request.urlopen(VERSION_URL, timeout=10) as r:
             latest = r.read(64).decode("utf-8").strip()
         return latest if parse(latest) > parse(current()) else ""
     except (OSError, ValueError):
-        return ""
+        return None
 
 
 def unpack(archive, root=ROOT):

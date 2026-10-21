@@ -18,7 +18,7 @@ TRIGGER_RE = re.compile(r"\b(?:" + "|".join(SCRATCH + SWAP + AMBIGUOUS) + r")\b"
 
 DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")  # Whisper writes detected Hindi this way
 FILLER_RE = re.compile(r",?\s*\b(?:u+m+|u+h+m*|e+r+m+|e+h+|a+h+|h+m+|m+h*m+)\b,?", re.I)
-STUTTER_RE = re.compile(r"\b(\w+)(?:,?\s+\1\b)+", re.I)
+STUTTER_RE = re.compile(r"\b([^\W\d]\w*)(?:,?\s+\1\b)+", re.I)  # words only: "9 9 9" is a number, not a stumble
 KEEP_REPEATS = {"that", "had", "very", "no", "bye", "ha", "really", "so", "blah"}
 
 LLM_PROMPT = """You are the formatter stage of a dictation app. The user message is a raw speech \
@@ -96,10 +96,14 @@ def backtrack(text):
                         break
                 sent = [_norm(w) for w in out[starts[-1]:]]
                 cut = len(out) - len(repl)
-                if len(repl) > 1 and repl[-1] in sent:
-                    # "5 baje hai, no wait, 6 baje": line up the repeated last word instead of counting words
-                    last = len(sent) - 1 - sent[::-1].index(repl[-1])
-                    cut = starts[-1] + last - (len(repl) - 1)
+                if repl and re.match(r"\d", repl[0]) and re.fullmatch(r"\d[\d:.]*", _norm(out[-1])):
+                    cut = len(out) - 1  # "meet at 6, no wait, 7 near the metro": only the number changes
+                else:
+                    # "5 baje hai, no wait, 6 baje", "2 tickets, no wait, 3 tickets for Friday": line up the first
+                    # replacement word said before too, instead of counting words
+                    j = next((j for j in range(1, len(repl)) if repl[j] in sent), None)
+                    if j is not None:
+                        cut = starts[-1] + len(sent) - 1 - sent[::-1].index(repl[j]) - j
                 del out[max(starts[-1], cut):]
             continue
         out.append(words[i])
@@ -131,7 +135,10 @@ def needs_llm(text, min_words):
 
 def apply_replacements(text, replacements):
     for wrong, right in replacements.items():
-        text = re.sub(r"\b" + re.escape(wrong) + r"\b", right, text, flags=re.I)
+        if not wrong.strip():  # an empty "wrong" would match between every two letters
+            continue
+        # whole words even when they start or end with a symbol ("c++"); `right` is literal text ("D:\projects")
+        text = re.sub(r"(?<!\w)" + re.escape(wrong) + r"(?!\w)", lambda m: right, text, flags=re.I)
     return text
 
 

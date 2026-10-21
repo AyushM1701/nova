@@ -26,7 +26,8 @@ port.onMessage.addListener(msg => {
   const ev = msg.event;
   if (ev.event === "bar") setState(ev.state);
   else if (ev.event === "state") setState(ev.paused ? "paused" : ev.phase === "idle" ? "idle" : "thinking");
-  else if (ev.event === "heard" && ev.source !== "chat") add(el("div", "msg user", ev.text));
+  // every request, from here, the Nova window, the phone or by voice, shows once Nova takes it (like the phone page)
+  else if (ev.event === "heard" && ev.mode !== "dictation") add(el("div", "msg user", ev.text));
   else if (ev.event === "step") add(el("div", "step", ev.text));
   else if (ev.event === "reply") add(el("div", "msg nova", ev.reply));
   else if (ev.event === "note") add(el("div", "note", ev.text));
@@ -46,11 +47,10 @@ port.onMessage.addListener(msg => {
 const input = document.getElementById("input");
 function send() {
   const text = input.value.trim(); if (!text) return;
-  add(el("div", "msg user", text));
   port.postMessage({ op: "ask", text });
   input.value = "";
 }
 document.getElementById("send").onclick = send;
 document.getElementById("mic").onclick = () => port.postMessage({ op: "listen" });
-input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
 empty();

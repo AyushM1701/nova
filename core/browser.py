@@ -90,8 +90,8 @@ def _classify(tool, args, element=None):
     if tool == "select":
         return "allow", "picks from a dropdown"
     if tool == "press":
-        if args.get("key") == "Enter":
-            return "confirm", "presses Enter, which may submit a form"
+        if args.get("key") in ("Enter", "Space", " ", "\r", "\n"):  # on a focused button these click it
+            return "confirm", f"presses {args['key']!r}, which may submit a form or click a button"
         return "allow", "presses a key"
     if tool == "download":
         return "confirm", f"downloads {str(args.get('url', ''))[:120]}"
@@ -282,6 +282,7 @@ class Bridge:
     def __init__(self, token, enabled, on_panel):
         self.token, self.enabled, self.on_panel = token, list(enabled), on_panel
         self.conns, self.pending, self.next_id = {}, {}, 0
+        self.page_read = False  # the AI read the page since it last changed (see run_tool)
         self.loop = asyncio.new_event_loop()
         threading.Thread(target=self._run, daemon=True).start()
 
@@ -333,10 +334,13 @@ class Bridge:
     def call(self, bid, tool, args, timeout=60):
         async def go():
             self.next_id += 1
-            future = self.loop.create_future()
-            self.pending[self.next_id] = future
-            await self.conns[bid].send(json.dumps({"type": "call", "id": self.next_id, "tool": tool, "args": args}))
-            return await asyncio.wait_for(future, timeout)
+            cid, future = self.next_id, self.loop.create_future()
+            self.pending[cid] = future
+            try:
+                await self.conns[bid].send(json.dumps({"type": "call", "id": cid, "tool": tool, "args": args}))
+                return await asyncio.wait_for(future, timeout)
+            finally:  # no answer (the browser closed mid-action): don't keep its slot
+                self.pending.pop(cid, None)
         reply = asyncio.run_coroutine_threadsafe(go(), self.loop).result(timeout + 5)
         if not reply.get("ok"):
             raise RuntimeError(reply.get("error") or "the browser didn't say why")
@@ -376,9 +380,20 @@ class Bridge:
             raise PermissionError(PLAN)
         if verdict == "block":
             raise PermissionError(f"Blocked by Nova: this {why}. Don't try another way; tell the user.")
+        if verdict == "confirm" and tool == "script" and not self.page_read:
+            # a script needs the user's OK every time, and is usually a shortcut past read + click: send the AI
+            # there first instead of interrupting the user
+            raise PermissionError("Read the page first (read with mode=outline), then use click, type, select or "
+                                  "press with a [ref], and read or screenshot to check the result. Those don't need "
+                                  "the user's OK; a script does. Use script only if those can't do it.")
         if verdict == "confirm":
             summary = json.dumps({k: v for k, v in args.items() if k != "tab_id"})[:300]
             where = (element or {}).get("url") or ""
             if not ask({"tool": f"browser.{tool}", "reason": why, "summary": f"{BROWSERS[bid][0]}: {summary}\n{where}"}):
                 raise PermissionError(f"The user didn't allow this ({why}). Don't try another way; ask them.")
-        return self.call(bid, tool, args)
+        result = self.call(bid, tool, args)
+        if tool == "read":
+            self.page_read = True
+        elif tool not in ("screenshot", "scroll", "inspect") and args.get("action") != "list":  # may show another page
+            self.page_read = False
+        return result

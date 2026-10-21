@@ -112,11 +112,18 @@ async function withDebugger(tabId, work) {
 
 const describeTab = t => ({ id: t.id, title: t.title, url: t.url, active: t.active, window: t.windowId, group: t.groupId });
 
+// what you asked to see comes to the front: its tab active, its window focused and not minimized
+async function bringForward(tab) {
+  await chrome.tabs.update(tab.id, { active: true });
+  const win = await chrome.windows.get(tab.windowId);
+  await chrome.windows.update(tab.windowId, win.state === "minimized" ? { state: "normal", focused: true } : { focused: true });
+}
+
 const TOOLS = {
   async tabs({ action = "list", url, tab_id, tab_ids, title }) {
     if (action === "list") return (await chrome.tabs.query({})).map(describeTab);
-    if (action === "open") { const t = await chrome.tabs.create({ url: url || "about:blank" }); await loaded(t.id); return describeTab(await chrome.tabs.get(t.id)); }
-    if (action === "switch") { const t = await chrome.tabs.update(tab_id, { active: true }); await chrome.windows.update(t.windowId, { focused: true }); return describeTab(t); }
+    if (action === "open") { const t = await chrome.tabs.create({ url: url || "about:blank" }); await bringForward(t); await loaded(t.id); return describeTab(await chrome.tabs.get(t.id)); }
+    if (action === "switch") { const t = await chrome.tabs.get(tab_id); await bringForward(t); return describeTab(await chrome.tabs.get(tab_id)); }
     if (action === "close") { await chrome.tabs.remove(tab_ids || tab_id); return "closed"; }
     if (action === "group") {
       const group = await chrome.tabs.group({ tabIds: tab_ids });
@@ -131,6 +138,7 @@ const TOOLS = {
     else if (action === "back") await chrome.tabs.goBack(tab.id);
     else if (action === "forward") await chrome.tabs.goForward(tab.id);
     else if (action === "reload") await chrome.tabs.reload(tab.id);
+    await bringForward(tab);
     await new Promise(r => setTimeout(r, 300));
     await loaded(tab.id);
     return describeTab(await chrome.tabs.get(tab.id));
@@ -222,7 +230,10 @@ function readPage(mode) {
     if (!el.dataset.novaRef) el.dataset.novaRef = String(next++);
     const role = el.getAttribute("role") || (el.tagName === "A" ? "link" : el.tagName === "INPUT" ? `input:${el.type}` : el.tagName.toLowerCase());
     // card numbers and one-time codes the user typed stay out of what the AI reads, like passwords
-    const secret = el.type === "password" || /cc-|one-time-code/.test(el.getAttribute("autocomplete") || "");
+    // (by its name too, like Nova's typing rule: checkout pages often leave out autocomplete)
+    const secret = el.type === "password" || /cc-|one-time-code/.test(el.getAttribute("autocomplete") || "") ||
+      /pass|card|cvv|cvc|otp|one.?time|\bpin\b|\bssn\b|iban/i.test(`${el.name} ${el.id} ${el.getAttribute("placeholder") || ""}`) ||
+      /^\D*(?:\d[ -]?){13,19}\D*$/.test(el.value || "");
     const value = (el.tagName === "INPUT" || el.tagName === "TEXTAREA") && !secret && el.value ? ` = "${el.value.slice(0, 60)}"` : "";
     lines.push(`[${el.dataset.novaRef}] ${role} "${name(el)}"${value}`);
     if (lines.length >= 500) { lines.push("… (more on the page; scroll and read again)"); break; }

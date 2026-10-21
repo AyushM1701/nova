@@ -19,7 +19,7 @@ BG, EDGE = (17, 17, 21, 246), (255, 255, 255, 30)
 TEXT, BODY, DIM, FAINT = (244, 244, 246), (214, 214, 222), (160, 160, 172), (122, 122, 134)
 ACCENT, AMBER, RED, TRACK = (124, 92, 255), (255, 186, 60), (255, 122, 122), (44, 44, 52)
 ICON = {"thinking": ACCENT, "speaking": TEXT, "approval": AMBER, "error": RED, "info": ACCENT, "reply": ACCENT}
-HINT = {"thinking": "Esc to stop", "speaking": "Esc to stop", "approval": "or say “allow” / “deny”"}
+HINT = {"speaking": "Esc to stop", "approval": "or say “allow” / “deny”"}
 FONTS = {"regular": ("segoeui.ttf", "/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc"),
          "semibold": ("seguisb.ttf", "segoeui.ttf", "/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc"),
          "mono": ("consola.ttf", "/System/Library/Fonts/Menlo.ttc", "/System/Library/Fonts/Monaco.ttf")}
@@ -134,6 +134,8 @@ class Card(Layered):
         x0 = m + PAD * s
         d.text((x0 + 26 * s, m + PAD * s + 12 * s), title, font=self.f_title, fill=TEXT, anchor="lm")
         hint = HINT.get(self.kind)
+        if self.kind == "thinking":  # Esc doesn't stop a request at work (it may be meant for another app)
+            hint = f"{self.hotkey} to stop" if self.hotkey else None
         if hint:
             d.text((W - m - PAD * s, m + PAD * s + 12 * s), hint, font=self.f_small, fill=FAINT, anchor="rm")
         y = m + y

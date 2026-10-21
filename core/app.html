@@ -5,14 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nova</title>
 <style>
+/* the source of Nova's colour tokens: core/phone.html and the browser panel copy them, and tests.py checks they match */
 :root {
   --bg: #f6f6f8; --side: #eeeef2; --surface: #ffffff; --raised: #f1f1f5; --sunk: #e8e8ee;
   --line: rgba(20, 20, 32, .09); --line-strong: rgba(20, 20, 32, .16);
-  --text: #16161a; --muted: #5b5b66; --faint: #8a8a95;
+  --text: #16161a; --muted: #5b5b66; --faint: #6a6a74;
   --accent: #6a4cf5; --accent-hover: #5b3ce8; --accent-ink: #ffffff; --accent-soft: rgba(106, 76, 245, .10);
   --accent-text: #5a3ce0;
-  --amber: #a86400; --amber-soft: rgba(255, 186, 60, .16); --amber-line: rgba(204, 132, 0, .45);
-  --ok: #148a5b; --danger: #c93a3a; --danger-soft: rgba(201, 58, 58, .09);
+  --amber: #8f5500; --amber-soft: rgba(255, 186, 60, .16); --amber-line: rgba(204, 132, 0, .45);
+  --ok: #117a50; --danger: #c93a3a; --danger-soft: rgba(201, 58, 58, .09);
   --pill: #16161a; --pill-ink: #ffffff;
   --shadow: 0 1px 2px rgba(20, 20, 32, .06), 0 8px 24px rgba(20, 20, 32, .06);
   --focus: 0 0 0 3px rgba(106, 76, 245, .35);
@@ -43,10 +44,15 @@ body {
 ::selection { background: var(--accent-soft); color: var(--text); }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
-:focus-visible { outline: none; box-shadow: var(--focus); border-radius: 8px; }
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
-::-webkit-scrollbar-track { background: transparent; }
+/* the transparent outline is invisible normally; Windows contrast themes drop box-shadow and paint it instead */
+:focus-visible { outline: 2px solid transparent; box-shadow: var(--focus); border-radius: 8px; }
+/* Windows only: on a Mac, styling the scrollbar would replace its overlay scrollbars that fade away */
+html:not(.mac) ::-webkit-scrollbar { width: 10px; height: 10px; }
+html:not(.mac) ::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
+html:not(.mac) ::-webkit-scrollbar-track { background: transparent; }
+html.mac :is(button, .engine) { cursor: default; }  /* Mac controls keep the arrow; the pointing hand is for links */
+/* the app's chrome isn't text to select; messages, history and settings text still are */
+:is(.side, button, .engine, .tabs, .seg, kbd) { -webkit-user-select: none; user-select: none; }
 svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 kbd {
   display: inline-flex; align-items: center; min-width: 1.9em; justify-content: center; padding: 1px 7px;
@@ -57,6 +63,7 @@ kbd {
 .mono { font-family: "Cascadia Code", "SF Mono", Consolas, ui-monospace, monospace; font-size: 12.5px; }
 .num { font-variant-numeric: tabular-nums; }
 [hidden] { display: none !important; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* ---------- shell ---------- */
 .app { display: grid; grid-template-columns: 232px 1fr; height: 100vh; }
@@ -116,13 +123,14 @@ p { margin: 0; }
   color: var(--text); min-width: 0; transition: border-color .15s, box-shadow .15s;
 }
 .input::placeholder { color: var(--faint); }
-.input:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
+.input:focus { outline: 2px solid transparent; border-color: var(--accent); box-shadow: var(--focus); }
 select.input { padding-right: 30px; appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
 .input.short { width: 92px; }
 .seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--sunk); border: 1px solid var(--line); gap: 2px; }
 .seg button { border: 0; background: none; padding: 5px 12px; border-radius: 7px; color: var(--muted); font-weight: 550; font-size: 13px; }
 .seg button[aria-checked="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
 .seg.full { display: flex; } .seg.full button { flex: 1; }
+#modeSeg svg { display: none; width: 17px; height: 17px; }
 .switch { position: relative; width: 38px; height: 22px; border-radius: 22px; border: 0; background: var(--line-strong); flex: none; transition: background .18s; padding: 0; }
 .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .18s cubic-bezier(.2,.8,.2,1); }
 .switch[aria-checked="true"] { background: var(--accent); }
@@ -204,7 +212,7 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
 .md p { margin: 0 0 10px; } .md p:last-child { margin-bottom: 0; }
 .md ul, .md ol { margin: 0 0 10px; padding-left: 20px; }
 .md li { margin: 3px 0; }
-.md code { font-family: "Cascadia Code", "SF Mono", Consolas, monospace; font-size: 12.5px; background: var(--raised); padding: 1px 5px; border-radius: 5px; }
+.md code { font-family: "Cascadia Code", "SF Mono", Consolas, ui-monospace, monospace; font-size: 12.5px; background: var(--raised); padding: 1px 5px; border-radius: 5px; }
 .md pre { background: var(--sunk); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow-x: auto; margin: 0 0 10px; }
 .md pre code { background: none; padding: 0; }
 .md strong { font-weight: 650; }
@@ -232,8 +240,8 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
 .ask.resolved .t { color: var(--muted); }
 .composer-wrap { padding: 12px 28px 18px; }
 .composer { max-width: 720px; margin: 0 auto; display: flex; align-items: flex-end; gap: 6px; padding: 6px 6px 6px 18px; border-radius: 24px; border: 1px solid var(--line-strong); background: var(--surface); box-shadow: var(--shadow); transition: border-color .15s, box-shadow .15s; }
-.composer:focus-within { border-color: color-mix(in srgb, var(--accent) 70%, transparent); box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow); }
-.composer textarea:focus-visible { box-shadow: none; }
+.composer:focus-within { outline: 2px solid transparent; border-color: color-mix(in srgb, var(--accent) 70%, transparent); box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow); }
+.composer textarea:focus-visible { box-shadow: none; outline: none; }  /* the composer around it shows focus */
 .composer textarea { flex: 1; border: 0; background: none; resize: none; outline: none; padding: 8px 0; max-height: 180px; line-height: 1.45; }
 .composer textarea::placeholder { color: var(--faint); }
 .round { width: 36px; height: 36px; border-radius: 50%; border: 0; display: grid; place-items: center; flex: none; background: var(--raised); color: var(--muted); transition: background .15s, color .15s; }
@@ -313,16 +321,39 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
 
 @media (max-width: 960px) {
   .app { grid-template-columns: 72px 1fr; }
-  .brand span, nav button span, .live > div, .side-foot { display: none; }
+  .side-foot .label { display: none; }
+  /* labels and Nova's status leave the screen but stay readable to screen readers; title shows names on hover */
+  .brand span, nav button span, .side-foot button span, .live > div { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .live { justify-content: center; padding: 8px 4px; }
   .live canvas { width: 52px; }
   nav button { justify-content: center; }
+  .side-foot { align-items: center; }
+  #modeSeg { flex-direction: column; align-self: stretch; }
+  #modeSeg button { display: grid; place-items: center; padding: 7px 0; }
+  #modeSeg svg { display: block; }
+  #pauseBtn { width: 36px; padding: 0; }
   .page { padding: 32px 28px 56px; }
   .try { grid-template-columns: 1fr; }
 }
+/* Windows contrast themes replace every background, so on/off and "chosen" need system colours of their own */
+@media (forced-colors: active) {
+  .switch { border: 1px solid ButtonText; }
+  .switch::after { background: ButtonText; box-shadow: none; }
+  .switch[aria-checked="true"] { background: Highlight; border-color: Highlight; }
+  .switch[aria-checked="true"]::after { background: HighlightText; }
+  .seg button[aria-checked="true"] { background: Highlight; color: HighlightText; }
+  .tabs button { border-bottom-color: Canvas; }
+  .tabs button[aria-selected="true"] { border-bottom-color: Highlight; }
+  nav button[aria-current="page"] { outline: 2px solid Highlight; outline-offset: -2px; }
+  .engine[aria-checked="true"] { border-color: Highlight; outline: 1px solid Highlight; }
+  .engine[aria-checked="true"] .radio::after { background: Highlight; }
+  .dot, nav .badge, .progress i { forced-color-adjust: none; }  /* status colours carry meaning; keep them */
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  .dots i, .skel { animation: breathe 1.6s ease-in-out infinite !important; }  /* still says "busy", without movement */
 }
+@keyframes breathe { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
 </style>
 </head>
 <body>
@@ -334,20 +365,20 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
       <div><b id="liveTitle">Connecting…</b><span id="liveSub">&nbsp;</span></div>
     </div>
     <nav aria-label="Sections">
-      <button data-page="home"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9v11h14V9"/></svg><span>Home</span></button>
-      <button data-page="chat"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg><span>Chat</span><i class="badge" id="chatBadge" hidden></i></button>
-      <button data-page="history"><svg class="i" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5v4.5H8"/><path d="M12 7.5V12l3 2"/></svg><span>History</span></button>
-      <button data-page="dictionary"><svg class="i" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 2-2h12v15H7a2 2 0 0 0-2 2z"/><path d="M5 20a2 2 0 0 0 2 1h12"/><path d="M9 7.5h6"/></svg><span>Dictionary</span></button>
-      <button data-page="memory"><svg class="i" viewBox="0 0 24 24"><path d="M12 3a7 7 0 0 0-7 7c0 2.4 1.2 4.2 3 5.4V20h8v-4.6c1.8-1.2 3-3 3-5.4a7 7 0 0 0-7-7z"/><path d="M10 20v1.5h4V20"/><circle cx="12" cy="10" r="1.6"/></svg><span>Memory</span></button>
-      <button data-page="settings"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg><span>Settings</span></button>
+      <button data-page="home" title="Home"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9v11h14V9"/></svg><span>Home</span></button>
+      <button data-page="chat" title="Chat"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg><span>Chat</span><i class="badge" id="chatBadge" hidden></i></button>
+      <button data-page="history" title="History"><svg class="i" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5v4.5H8"/><path d="M12 7.5V12l3 2"/></svg><span>History</span></button>
+      <button data-page="dictionary" title="Dictionary"><svg class="i" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 2-2h12v15H7a2 2 0 0 0-2 2z"/><path d="M5 20a2 2 0 0 0 2 1h12"/><path d="M9 7.5h6"/></svg><span>Dictionary</span></button>
+      <button data-page="memory" title="Memory"><svg class="i" viewBox="0 0 24 24"><path d="M12 3a7 7 0 0 0-7 7c0 2.4 1.2 4.2 3 5.4V20h8v-4.6c1.8-1.2 3-3 3-5.4a7 7 0 0 0-7-7z"/><path d="M10 20v1.5h4V20"/><circle cx="12" cy="10" r="1.6"/></svg><span>Memory</span></button>
+      <button data-page="settings" title="Settings"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg><span>Settings</span></button>
     </nav>
     <div class="side-foot">
       <span class="label">Mode</span>
       <div class="seg full" role="radiogroup" aria-label="Mode" id="modeSeg">
-        <button role="radio" data-mode="assistant">Assistant</button>
-        <button role="radio" data-mode="dictation">Dictation</button>
+        <button role="radio" data-mode="assistant" title="Assistant"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg><span>Assistant</span></button>
+        <button role="radio" data-mode="dictation" title="Dictation"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7V5h16v2M12 5v14M9 19h6"/></svg><span>Dictation</span></button>
       </div>
-      <button class="btn ghost sm" id="pauseBtn"><svg class="i" viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></svg><span>Pause Nova</span></button>
+      <button class="btn ghost sm" id="pauseBtn" title="Pause Nova"><svg class="i" viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></svg><span>Pause Nova</span></button>
     </div>
   </aside>
 
@@ -504,7 +535,7 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
 
       <div data-panel="ai" class="rows" hidden>
         <div class="row" style="display:block"><div class="what"><h2>Brain</h2><p>Nova sends your requests to the AI you choose and signs in with your own account.</p></div>
-          <div class="engines" id="setEngines"></div><div class="log mono" id="setLog" hidden></div></div>
+          <div class="engines" id="setEngines" role="radiogroup" aria-label="Brain"></div><div class="log mono" id="setLog" hidden></div></div>
         <div class="row" style="display:block"><div class="what"><h2>Backup brain</h2><p>When Claude Code or Codex hits its usage limit, Nova can keep going with Google Gemini on a free API key, until your limit resets. Its commands pass the same safety guard. On Google's free tier, your requests may be used to improve Google's products, so leave this off if that matters to you.</p></div>
           <div class="add" id="fbForm" style="max-width:none">
             <input class="input" id="fbKey" type="password" autocomplete="off" placeholder="Paste a free Google AI key" aria-label="Google AI key">
@@ -610,6 +641,7 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="sr" id="say" aria-live="polite"></div>
 
 <script>
 "use strict";
@@ -669,10 +701,31 @@ function toast(text, bad = false) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("on"), bad ? 4200 : 1600);
 }
 function fail(e) { toast(String(e && e.message || e).replace(/^Error:\s*/, ""), true); }
-function prettyKeys(combo) {
-  const mac = S.platform === "mac";
-  const names = { ctrl: "Ctrl", alt: mac ? "Option" : "Alt", cmd: "Cmd", shift: "Shift", windows: "Win", win: "Win", space: "Space", enter: "Enter", tab: "Tab" };
+function prettyKeys(combo) {  // a Mac shows modifiers as the symbols on its keys and in its menus
+  const names = S.platform === "mac"
+    ? { ctrl: "⌃", alt: "⌥", cmd: "⌘", shift: "⇧", space: "Space", enter: "Return", tab: "Tab" }
+    : { ctrl: "Ctrl", alt: "Alt", shift: "Shift", windows: "Win", win: "Win", space: "Space", enter: "Enter", tab: "Tab" };
   return combo.split("+").map(k => names[k] || (k.length <= 3 ? k.toUpperCase() : k[0].toUpperCase() + k.slice(1)));
+}
+function keysText(combo) { return prettyKeys(combo).join(S.platform === "mac" ? "" : "+"); }  // ⌘⇧Space, Ctrl+Alt+Space
+/* the copy is written with Windows words; on a Mac these become the Mac's own */
+const MAC_WORDS = [
+  ["Enter to send, Shift+Enter for a new line", "Return to send, Shift-Return for a new line"],
+  ["Ctrl+Shift+N", "Control-Option-N"],
+  ["when you sign in", "when you log in"], ["at sign in", "at login"],
+  ["the tray (the ^ by the clock) or the menu bar", "the menu bar"],
+  ["allow Python through Windows Firewall on private networks (a Windows prompt asks the first time)",
+   "click Allow when macOS asks whether Python may accept incoming network connections"],
+];
+function local(s) { return S.platform === "mac" ? MAC_WORDS.reduce((t, [win, mac]) => t.replaceAll(win, mac), s) : s; }
+function macify() {
+  document.documentElement.classList.add("mac");
+  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let n; (n = walk.nextNode());) n.data = local(n.data);
+  $$("[aria-label]").forEach(el => el.setAttribute("aria-label", local(el.getAttribute("aria-label"))));
+  document.addEventListener("keydown", e => {  // Cmd+W closes the window, as in every Mac app
+    if (e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "w") { e.preventDefault(); api().close().catch(() => {}); }
+  });
 }
 function keycaps(combo, el) { el.replaceChildren(...prettyKeys(combo).map(k => h("kbd", {}, k))); return el; }
 function hotkey() { return S.cfg.hotkey || S.defaultHotkey; }
@@ -707,6 +760,25 @@ function armed(btn, label, action) {   // two-step confirm for destructive butto
     setTimeout(() => { if (btn.classList.contains("armed")) { btn.classList.remove("armed"); btn.querySelector("span").textContent = btn.dataset.label; } }, 3500);
   });
 }
+/* radio groups and tabs: one Tab stop each (the chosen one), arrows move between the options */
+const OPTION = "[role=radio],[role=tab]";
+function roving() {
+  for (const g of $$("[role=radiogroup],[role=tablist]")) {
+    const items = $$(OPTION, g), on = items.find(b => b.matches("[aria-checked=true],[aria-selected=true]")) || items[0];
+    items.forEach(b => b.tabIndex = b === on ? 0 : -1);
+  }
+}
+new MutationObserver(roving).observe(document.body, { subtree: true, childList: true, attributeFilter: ["aria-checked", "aria-selected"] });
+document.addEventListener("keydown", e => {
+  const g = e.target.closest?.("[role=radiogroup],[role=tablist]"); if (!g || !e.target.matches(OPTION)) return;
+  const items = $$(OPTION, g).filter(b => !b.disabled), i = items.indexOf(e.target), n = items.length;
+  const d = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+  const j = e.key === "Home" ? 0 : e.key === "End" ? n - 1 : d ? (i + d + n) % n : -1;
+  if (j < 0) return;
+  e.preventDefault(); items[j].focus();
+  // cards (AI, permissions) only move focus: passing over "Bypass" must not switch to it; Space or Enter picks
+  if (!items[j].classList.contains("engine")) items[j].click();
+});
 
 /* ---------- the pill: the same shape as the bar at the bottom of the screen ---------- */
 const pills = new Set();
@@ -715,12 +787,16 @@ const PILL = { idle: [.42, .32], paused: [.42, .32], listening: [1, .82], thinki
 function drawPills(t) {
   // the same states as the bar on the desktop (core/bar.py): standby dots, live voice, thinking wave, speech
   const sec = t / 1000;
+  let moving = false;
   for (const p of pills) {
     const c = p.canvas; if (!c.isConnected) { pills.delete(p); continue; }
+    if (!c.offsetParent) { p.last = "hidden"; continue; }  // on a hidden page: nothing to draw
     const ctx = c.getContext("2d"), W = c.width, H = c.height;
     const { state, levels } = p.source();
     const [tw, th] = PILL[state] || PILL.idle;
     p.w += (tw * W - p.w) * .25; p.h += (th * H - p.h) * .25;
+    p.last = state;
+    moving ||= !STILL.has(state) || Math.abs(tw * W - p.w) > .5 || Math.abs(th * H - p.h) > .5;
     ctx.clearRect(0, 0, W, H);
     const x0 = (W - p.w) / 2, y0 = (H - p.h) / 2, r = p.h / 2, lw = Math.max(1.5, H / 32);
     const amber = state === "approval", dim = state === "paused" || state === "gone";
@@ -761,7 +837,14 @@ function drawPills(t) {
       ctx.beginPath(); ctx.arc(cx + (i - 1) * 9 * s, cy - up * 3.2 * s, 2.4 * s, 0, 7); ctx.fill();
     }
   }
-  if (!reduced) requestAnimationFrame(drawPills);
+  if (reduced) return;
+  if (moving) requestAnimationFrame(drawPills); else setTimeout(waitForChange, 200);
+}
+// standby pills are a still picture: stop drawing until a pill changes state or a new one appears
+const STILL = new Set(["idle", "paused", "gone"]);
+function waitForChange() {
+  if ([...pills].some(p => !p.canvas.isConnected || (p.canvas.offsetParent ? p.source().state : "hidden") !== p.last)) requestAnimationFrame(drawPills);
+  else setTimeout(waitForChange, 200);
 }
 const liveSource = () => ({ state: S.gone ? "gone" : S.bar, levels: S.levels });
 const micLevels = new Array(15).fill(0);
@@ -769,7 +852,7 @@ const micSource = () => ({ state: "listening", levels: micLevels });
 
 /* ---------- live status ---------- */
 const PHRASE = {
-  idle: ["Ready", () => `${prettyKeys(hotkey()).join("+")} to talk`],
+  idle: ["Ready", () => `${keysText(hotkey())} to talk`],
   listening: ["Listening", () => "Press again to stop"],
   thinking: ["Thinking", () => S.state.brain || "Working"],
   speaking: ["Talking", () => "Esc to stop"],
@@ -781,6 +864,7 @@ function renderLive() {
   $("#liveTitle").textContent = title; $("#liveSub").textContent = sub();
   $$("#modeSeg button").forEach(b => b.setAttribute("aria-checked", b.dataset.mode === S.state.mode));
   $("#pauseBtn").innerHTML = (S.state.paused ? I.play : I.pause) + `<span>${S.state.paused ? "Resume Nova" : "Pause Nova"}</span>`;
+  $("#pauseBtn").title = S.state.paused ? "Resume Nova" : "Pause Nova";
   $("#chatWith").textContent = S.state.brain ? `with ${S.state.brain}` : "No AI connected";
   $("#gone").hidden = !S.gone;
   const upd = S.state.update || S.updateFound;
@@ -901,7 +985,10 @@ function md(text) {
   const parts = String(text || "").split(/```[\w-]*\n?([\s\S]*?)```/g);
   return parts.map((p, i) => i % 2 ? `<pre><code>${esc(p.replace(/\n$/, ""))}</code></pre>` : blocks(p)).join("");
 }
-function inline(s) { return esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>"); }
+function inline(s) {
+  return esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');  // links, web only
+}
 function blocks(src) {
   let html = "", list = null;
   const close = () => { if (list) { html += `</${list}>`; list = null; } };
@@ -922,7 +1009,7 @@ function emptyChat() {
   if (thread().children.length) return;
   const c = h("canvas", { width: 304, height: 104 });
   pill(c, () => ({ state: "speaking", levels: [] }));
-  const chips = ["Change my shortcut to Ctrl+Shift+N", "What can you do?", "Summarise what's on my screen", "Make your voice slower"];
+  const chips = ["Change my shortcut to Ctrl+Shift+N", "What can you do?", "Summarise what's on my screen", "Make your voice slower"].map(local);
   thread().append(h("div", { class: "chat-empty", id: "chatEmpty" }, c, h("h2", {}, "Ask Nova anything"),
     h("p", { class: "muted" }, "Nova does it on your computer with " + (S.state.brain || "your AI") + ". You can also ask it to change how Nova itself works."),
     h("div", { class: "suggest" }, chips.map(t => h("button", { class: "chip", onclick: () => ask(t) }, t)))));
@@ -958,7 +1045,7 @@ function askMsg(ev) {
     h("div", {}, `It wants to run something that ${ev.reason}:`),
     h("pre", { class: "mono" }, ev.summary),
     h("div", { class: "bar" }, bar),
-    h("div", { class: "btns" }, allow, deny, h("span", { class: "faint small", style: "margin-left:6px" }, `or press ${prettyKeys(hotkey()).join("+")} / Esc`))));
+    h("div", { class: "btns" }, allow, deny, h("span", { class: "faint small", style: "margin-left:6px" }, `or press ${keysText(hotkey())} / Esc`))));
   const tick = () => { if (!el.isConnected || el.classList.contains("resolved")) return; bar.style.transform = `scaleX(${Math.max(0, 1 - (Date.now() - started) / total)})`; requestAnimationFrame(tick); };
   tick(); S.asks.push(el); allow.focus({ preventScroll: true });
 }
@@ -973,6 +1060,7 @@ function renderComposer() {
   btn.innerHTML = busy ? I.stop : I.send; btn.setAttribute("aria-label", busy ? "Stop" : "Send");
   btn.disabled = !busy && !$("#prompt").value.trim();
   $("#micBtn").classList.toggle("live-mic", S.bar === "listening");
+  $("#micBtn").setAttribute("aria-pressed", S.bar === "listening");  // the icon alone shows it's listening
 }
 function ask(text) {
   text = text.trim(); if (!text) return;
@@ -994,25 +1082,43 @@ function seedChat() {
   } else emptyChat();
 }
 
+// before a list editor changes its list, take that list from disk: a word said by voice ("add X to my
+// dictionary") or a routine the AI added while this window was open stays instead of being overwritten
+async function fresh(path) {
+  if (dirty.has(path)) return;  // an edit here is still waiting to be saved: this copy is the newest
+  try {
+    const value = path.split(".").reduce((o, k) => o?.[k], await api().settings()), ks = path.split("."), last = ks.pop();
+    if (value !== undefined) ks.reduce((o, k) => o[k] ??= {}, S.cfg)[last] = value;
+  } catch (e) {}  // Nova's window keeps working on its own copy
+}
 /* ---------- dictionary ---------- */
 function renderWords() {
   const words = get("dictation.dictionary") || [];
-  $("#words").replaceChildren(...words.map((w, i) => h("span", { class: "word" }, w,
-    h("button", { "aria-label": `Remove ${w}`, html: I.x, onclick: () => { words.splice(i, 1); set("dictation.dictionary", words); renderWords(); save(); } }))));
+  $("#words").replaceChildren(...words.map(w => h("span", { class: "word" }, w,
+    h("button", { "aria-label": `Remove ${w}`, html: I.x, onclick: async () => {
+      await fresh("dictation.dictionary"); set("dictation.dictionary", (get("dictation.dictionary") || []).filter(x => x !== w)); renderWords(); save(); } }))));
 }
-$("#wordForm").addEventListener("submit", e => {
+$("#wordForm").addEventListener("submit", async e => {
   e.preventDefault();
-  const v = $("#wordInput").value.trim(), words = get("dictation.dictionary");
+  const v = $("#wordInput").value.trim();
   if (!v) return;
-  if (words.some(w => w.toLowerCase() === v.toLowerCase())) { toast(`“${v}” is already there`); return; }
-  words.push(v); set("dictation.dictionary", words); $("#wordInput").value = ""; renderWords(); save();
+  $("#wordInput").value = "";
+  await fresh("dictation.dictionary");
+  const words = get("dictation.dictionary") || [];
+  if (words.some(w => w.toLowerCase() === v.toLowerCase())) { renderWords(); toast(`“${v}” is already there`); return; }
+  words.push(v); set("dictation.dictionary", words); renderWords(); save();
 });
 function pairsEditor(container, path, leftPh, rightPh) {
   const obj = get(path) || {};
   const rows = Object.entries(obj);
-  const commit = () => {
-    const out = {};
-    for (const r of $$(".pair", container)) { const [a, b] = $$("input", r).map(i => i.value.trim()); if (a && b) out[a] = b; }
+  let shown = new Set(Object.keys(obj));  // the pairs this editor knows about; others on disk are left alone
+  const commit = async () => {
+    const mine = {};
+    for (const r of $$(".pair", container)) { const [a, b] = $$("input", r).map(i => i.value.trim()); if (a && b) mine[a] = b; }
+    await fresh(path);
+    const out = { ...(get(path) || {}) };
+    for (const k of shown) delete out[k];  // removed or renamed here
+    Object.assign(out, mine); shown = new Set(Object.keys(mine));
     set(path, out); save();
   };
   const row = (a = "", b = "") => {
@@ -1034,15 +1140,17 @@ $("#claudeHook").addEventListener("click", async e => {
 $("#addRepl").addEventListener("click", () => addRepl());
 function renderFolders() {
   const folders = get("projects.folders") || [];
-  $("#folders").replaceChildren(...(folders.length ? folders.map((f, i) => {
+  $("#folders").replaceChildren(...(folders.length ? folders.map(f => {
     const rm = h("button", { class: "icon-btn", "aria-label": `Remove ${f}`, title: "Remove", html: I.x });
-    rm.addEventListener("click", () => { folders.splice(i, 1); set("projects.folders", folders); renderFolders(); save(); });
+    rm.addEventListener("click", async () => {
+      await fresh("projects.folders"); set("projects.folders", (get("projects.folders") || []).filter(x => x !== f)); renderFolders(); save(); });
     return h("li", { style: "grid-template-columns: 1fr auto" }, h("div", { class: "body mono" }, f), h("div", { class: "acts", style: "opacity:1" }, rm));
   }) : [h("li", { style: "display:block" }, h("p", { class: "muted" }, "None yet. Add the folder you keep projects in, like D:\\projects."))]));
 }
 $("#addFolder").addEventListener("click", async () => {
   try {
     const f = await api().pick_folder(); if (!f) return;
+    await fresh("projects.folders");
     const folders = get("projects.folders") || [];
     if (folders.some(x => x.toLowerCase() === f.toLowerCase())) return toast("Already in the list");
     folders.push(f); set("projects.folders", folders); renderFolders(); save(true);
@@ -1058,22 +1166,23 @@ function renderMemory() {
     list.replaceChildren(h("li", { style: "display:block" }, h("p", { class: "muted" }, "Nothing yet. Tell Nova something like “remember that my main project is portfolio”, or add it above.")));
     return;
   }
-  list.replaceChildren(...memLines.map((line, i) => {
+  list.replaceChildren(...memLines.map(line => {
     const m = line.match(/^-\s*(\d{4}-\d{2}-\d{2}):\s*(.*)$/);
     const rm = h("button", { class: "icon-btn", "aria-label": "Forget this", title: "Forget this", html: I.x });
-    rm.addEventListener("click", () => { memLines.splice(i, 1); saveMemory("Forgotten"); });
+    rm.addEventListener("click", () => saveMemory("Forgotten", () => { const j = memLines.indexOf(line); if (j >= 0) memLines.splice(j, 1); }));
     return h("li", { style: "grid-template-columns: 96px 1fr auto" }, h("time", { class: "num" }, m ? m[1] : ""),
       h("div", { class: "body" }, h("div", { class: "t" }, m ? m[2] : line.replace(/^-\s*/, ""))), h("div", { class: "acts" }, rm));
   }));
 }
 async function loadMemory() { try { memLines = await api().memory(null); } catch (e) { memLines = []; } renderMemory(); }
-async function saveMemory(msg) { try { memLines = await api().memory(memLines); renderMemory(); toast(msg); } catch (e) { fail(e); } }
+// re-read the file first, so a fact the AI added while this page was open isn't wiped
+async function saveMemory(msg, change) { try { memLines = await api().memory(null); change(); memLines = await api().memory(memLines); renderMemory(); toast(msg); } catch (e) { fail(e); } }
 $("#memForm").addEventListener("submit", e => {
   e.preventDefault();
   const v = $("#memInput").value.trim(); if (!v) return;
-  memLines.push(`- ${new Date().toISOString().slice(0, 10)}: ${v}`); $("#memInput").value = ""; saveMemory("Nova will remember that");
+  $("#memInput").value = ""; saveMemory("Nova will remember that", () => memLines.push(`- ${new Date().toISOString().slice(0, 10)}: ${v}`));
 });
-armed($("#memClear"), "Click again to forget all", () => { memLines = []; saveMemory("Memory cleared"); });
+armed($("#memClear"), "Click again to forget all", () => saveMemory("Memory cleared", () => { memLines = []; }));
 
 /* ---------- settings ---------- */
 function showTab(tab) {
@@ -1086,7 +1195,12 @@ function showTab(tab) {
   if (tab === "phone") loadPhone();
   if (tab === "voice" && $("#voiceSel").options.length <= 1) loadVoices();
 }
-$$("#setTabs button").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+$$("#setTabs button").forEach(b => {
+  const p = $(`[data-panel="${b.dataset.tab}"]`);  // tie each tab to its panel for screen readers
+  b.id = "tab-" + b.dataset.tab; p.id = "panel-" + b.dataset.tab;
+  b.setAttribute("aria-controls", p.id); p.setAttribute("role", "tabpanel"); p.setAttribute("aria-labelledby", b.id);
+  b.addEventListener("click", () => showTab(b.dataset.tab));
+});
 const EDIT = { verbatim: "Exactly what you said, word for word.", light: "Removes “um”s and repeats, applies “no wait” corrections, fixes punctuation.", medium: "Like Light, and also tightens wording and turns spoken lists into bullets." };
 function showValue(path) {
   for (const el of $$(`[data-show="${path}"]`)) { const v = get(path); el.textContent = el.dataset.unit === "s" ? (v / 1000).toFixed(1) + " s" : el.dataset.unit === "x" ? Number(v).toFixed(2) + "×" : v; }
@@ -1131,7 +1245,7 @@ function bindSettings() {
 }
 $("#autostart").addEventListener("click", async e => {
   const btn = e.currentTarget, want = btn.getAttribute("aria-checked") !== "true";
-  try { S.autostart = await api().autostart(want); btn.setAttribute("aria-checked", S.autostart); toast(S.autostart ? "Nova will open when you sign in" : "Nova won't open at sign in"); } catch (err) { fail(err); }
+  try { S.autostart = await api().autostart(want); btn.setAttribute("aria-checked", S.autostart); toast(local(S.autostart ? "Nova will open when you sign in" : "Nova won't open at sign in")); } catch (err) { fail(err); }
 });
 const ACCENT = { a: "American", b: "British" };
 function voiceLabel(id) {   // "bm_george" -> "George, British man"
@@ -1170,7 +1284,7 @@ $("#updateBtn").addEventListener("click", async e => {
 });
 $("#checkUpdate").addEventListener("click", async e => {
   const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Checking…";
-  try { S.updateFound = await api().check_update(); renderLive(); toast(S.updateFound ? `Nova ${S.updateFound} is available: see Home` : `You have the latest version (${S.version})`); if (S.updateFound) go("home"); }
+  try { S.updateFound = await api().check_update(); renderLive(); toast(S.updateFound ? `Nova ${S.updateFound} is available: see Home` : S.updateFound === null ? "Couldn't reach GitHub. Check your connection." : `You have the latest version (${S.version})`); if (S.updateFound) go("home"); }
   catch (err) { fail(err); }
   btn.disabled = false; btn.textContent = "Check now";
 });
@@ -1200,7 +1314,7 @@ function recordHotkey(capsEl, btn, done) {
     if (e.code === "Escape") return finish();
     const combo = comboFrom(e);
     if (combo === null) { const mods = []; if (e.ctrlKey) mods.push("ctrl"); if (e.altKey) mods.push("alt"); if (e.shiftKey) mods.push("shift"); if (e.metaKey) mods.push(S.platform === "mac" ? "cmd" : "windows"); if (mods.length) keycaps(mods.join("+") + "+…", holder); return; }
-    if (combo === "") return toast("Use at least one of Ctrl, Alt, Shift or " + (S.platform === "mac" ? "Cmd" : "Win"), true);
+    if (combo === "") return toast(S.platform === "mac" ? "Use at least one of Command, Option, Control or Shift" : "Use at least one of Ctrl, Alt, Shift or Win", true);
     const why = await api().check_hotkey(combo);
     if (why) { toast(why, true); return; }
     finish(combo); done(combo);
@@ -1235,7 +1349,11 @@ async function loadEngines(box, logEl, onChange) {
         h("span", { class: "radio" }), h("div", {}, h("div", { class: "name" }, name), h("div", { class: "by" }, by)), h("div", { class: "state" }, right));
     }));
   };
-  const choose = id => { set("brain.engine", id); save(true); draw(S.engines); onChange && onChange(); };
+  const choose = id => {
+    const kept = box.contains(document.activeElement);  // the cards are redrawn: keep keyboard focus on the chosen one
+    set("brain.engine", id); save(true); draw(S.engines); onChange && onChange();
+    if (kept) $("[aria-checked=true]", box)?.focus();
+  };
   const install = async (id, btn) => {
     btn.disabled = true; btn.textContent = "Installing…"; logEl.hidden = false; logEl.textContent = "";
     S.installLog = logEl;
@@ -1291,7 +1409,7 @@ const PERMS = [
 function renderPermissions() {
   const now = get("safety.mode") || "auto";
   $("#permModes").replaceChildren(...PERMS.map(([id, name, what]) => {
-    const pick = () => { set("safety.mode", id); save(true); renderPermissions(); };
+    const pick = () => { set("safety.mode", id); save(true); renderPermissions(); $("#permModes [aria-checked=true]").focus(); };
     return h("div", { class: "engine", role: "radio", tabindex: 0, "aria-checked": now === id, onclick: pick,
       onkeydown: e => (e.key === " " || e.key === "Enter") && (e.preventDefault(), pick()) },
       h("span", { class: "radio" }), h("div", {}, h("div", { class: "name" }, name), h("div", { class: "by" }, what)), h("span"));
@@ -1391,8 +1509,8 @@ async function guide(b) {
 
 const STEPS = S_BROWSERS_STEP ? ["welcome", "mic", "brain", "browsers", "keys", "done"] : ["welcome", "mic", "brain", "keys", "done"];
 let onbAt = 0;
-function openOnboarding() { onbAt = 0; $("#onb").hidden = false; renderOnb(); }
-function closeOnboarding() { stopMic(); clearInterval(pollTimer); $("#onb").hidden = true; set("onboarded", true); save(true); go("home"); }
+function openOnboarding() { onbAt = 0; $("#onb").hidden = false; $("#app").inert = true; renderOnb(); }
+function closeOnboarding() { stopMic(); clearInterval(pollTimer); $("#onb").hidden = true; $("#app").inert = false; set("onboarded", true); save(true); go("home"); }
 function renderOnb() {
   const id = STEPS[onbAt], body = $("#onbBody"), next = $("#onbNext");
   $("#onbProgress").replaceChildren(...STEPS.map((_, i) => h("i", { class: i <= onbAt ? "on" : "" })));
@@ -1417,7 +1535,7 @@ function renderOnb() {
     startMic().then(n => name.textContent = `Using “${n}”. Say something; the bars should move as you talk.`)
       .catch(() => name.textContent = "Nova can't find a microphone. Plug one in, or allow microphone access in your privacy settings, then go back and try again.");
   } else if (id === "brain") {
-    const box = h("div", { class: "engines" }), log = h("div", { class: "log mono", hidden: true });
+    const box = h("div", { class: "engines", role: "radiogroup", "aria-label": "Brain" }), log = h("div", { class: "log mono", hidden: true });
     step.append(h("h1", {}, "Choose Nova's brain"), h("p", { class: "lede" }, "Nova uses an AI you already have. You sign in with your own account in your browser; Nova never sees your password."), box, log);
     const update = () => { const st = S.engines && S.engines[S.cfg.brain.engine]; next.textContent = st && st.signed_in ? "Continue" : "Continue without it"; };
     loadEngines(box, log, update); update();
@@ -1437,12 +1555,12 @@ function renderOnb() {
       caps, change,
       h("div", { class: "rows list-rows" }, h("div", { class: "row" }, h("div", { class: "what" }, h("h2", {}, "Also listen for “Hey Nova”"), h("p", {}, "Hands-free. Runs on this computer; nothing is kept unless it hears its name.")), h("div", { class: "how" }, wake))));
   } else if (id === "done") {
-    const auto = h("button", { class: "switch", role: "switch", "aria-checked": !!S.autostart, "aria-label": "Open Nova when you sign in" });
+    const auto = h("button", { class: "switch", role: "switch", "aria-checked": !!S.autostart, "aria-label": local("Open Nova when you sign in") });
     auto.addEventListener("click", async () => { try { S.autostart = await api().autostart(!S.autostart); auto.setAttribute("aria-checked", S.autostart); } catch (e) { fail(e); } });
     const trial = h("div", { class: "callout", id: "trial" }, h("span", { html: I.mic }), h("div", {}, h("h3", {}, "Try it now"),
       h("p", { class: "muted", html: `Press <span class="keys">${prettyKeys(hotkey()).map(k => `<kbd>${esc(k)}</kbd>`).join("")}</span> and say “What time is it?”` })));
     step.append(h("h1", {}, "You're all set"), h("p", { class: "lede" }, "Nova lives in the tray, next to the clock" + (S.platform === "mac" ? " (the menu bar on a Mac)" : " (click the ^ if you don't see it)") + ". Click its icon any time to open this window."),
-      h("div", { class: "rows list-rows" }, h("div", { class: "row" }, h("div", { class: "what" }, h("h2", {}, "Open Nova when you sign in"), h("p", {}, "So it's always ready.")), h("div", { class: "how" }, auto))),
+      h("div", { class: "rows list-rows" }, h("div", { class: "row" }, h("div", { class: "what" }, h("h2", {}, local("Open Nova when you sign in")), h("p", {}, "So it's always ready.")), h("div", { class: "how" }, auto))),
       S.platform === "mac" ? h("div", { class: "callout" }, h("span", { html: I.info }), h("div", {}, h("p", {}, "macOS needs your OK for each of these. Open them one by one, allow “Nova”, then quit Nova from the menu bar and open it again."),
         h("div", { style: "display:flex;flex-wrap:wrap;gap:8px;margin-top:10px" }, [["Microphone", "Privacy_Microphone"], ["Accessibility", "Privacy_Accessibility"], ["Input Monitoring", "Privacy_ListenEvent"], ["Screen Recording", "Privacy_ScreenCapture"]]
           .map(([label, pane]) => h("button", { class: "btn sm", onclick: () => api().open("mac-privacy:" + pane).catch(fail) }, label))))) : null,
@@ -1471,11 +1589,13 @@ const handlers = {
   mic(ev) { micLevels.push(ev.value); micLevels.shift(); },
   heard(ev) {
     S.history.unshift(ev);
-    if (ev.source === "voice" && ev.mode === "assistant") { userMsg(ev.text, true); startWork(); }
+    // spoken, or typed on the phone or in a browser panel (what's typed here is already shown)
+    if (ev.mode === "assistant" && (ev.source === "voice" || (ev.via && ev.via !== "window"))) { userMsg(ev.text, ev.source === "voice"); startWork(); }
     const trial = $("#trial"); if (trial) { trial.classList.add("good"); trial.replaceChildren(h("span", { html: I.check }), h("div", {}, h("h3", {}, "Nova heard you"), h("p", { class: "muted" }, `“${ev.text}”`))); }
   },
   step(ev) { step(ev.text); },
-  reply(ev) { endWork(); novaMsg(ev.reply); S.history.unshift(ev); renderHome(); },
+  // screen readers hear the reply through #say, not every step in the thread
+  reply(ev) { endWork(); novaMsg(ev.reply); $("#say").textContent = String(ev.reply || "").replace(/[`*#_]/g, ""); S.history.unshift(ev); renderHome(); },
   note(ev) { if (S.work || ev.title !== "Cancelled") { endWork(ev.title === "Cancelled" ? "Stopped" : undefined); noteMsg(ev.text); } },
   asking(ev) { askMsg(ev); if (S.page !== "chat") $("#chatBadge").hidden = false; },
   approval(ev) { resolveAsk(ev.allowed, ev.timed_out); S.history.unshift(ev); },
@@ -1491,6 +1611,7 @@ window.nova = { recv(ev) { ev.t ??= Date.now() / 1000; try { (handlers[ev.event]
 async function boot() {
   const b = await api().hello();
   Object.assign(S, { cfg: b.config, defaults: b.defaults, platform: b.platform, autostart: b.autostart, claudeHook: b.claude_hook, defaultHotkey: b.default_hotkey, languages: b.languages, paths: b.paths, gone: !b.connected, version: b.version });
+  if (S.platform === "mac") macify();
   $("#versionNote").textContent = `You have Nova ${b.version}. ` + $("#versionNote").textContent;
   if (b.error) { $("#cfgError").hidden = false; $("#cfgError span").textContent = b.error; }
   pill($("#livePill"), liveSource);

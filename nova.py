@@ -21,8 +21,8 @@ import tkinter as tk
 from multiprocessing.connection import Listener
 from pathlib import Path
 
-from core.config import (CONFIG, DATA, LOG_HOOKS, LOGS, NOTES, ROOT, WORKSPACE, load_config, log, prune_logs,
-                         read_history, save_config, write_private)
+from core.config import (CONFIG, DATA, LOG_HOOKS, LOGS, NOTES, ROOT, WORKSPACE, load_config, log, memory_text,
+                         prune_logs, read_history, save_config, set_path, update_config, write_private)
 
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 if (DATA / "models-ready").exists():  # the speech models are downloaded: never call home again
@@ -142,14 +142,11 @@ class Nova:
         self.web_addr, web_key = local_address("browser"), secrets.token_bytes(32)
         self.web_listener = Listener(self.web_addr, authkey=web_key)
         write_private(DATA / "mcp.json", json.dumps({"mcpServers": {"nova-browser": {
-            "command": str(Path(sys.executable).with_name("python.exe") if os.name == "nt" else sys.executable),
+            "command": str(system.CONSOLE_PYTHON),
             "args": [str(ROOT / "helpers" / "browser_mcp.py")],
             "env": {"NOVA_BROWSER_ADDR": self.web_addr, "NOVA_BROWSER_KEY": web_key.hex()}}}}, indent=2))
         self.gui_python = Path(sys.executable)  # pythonw on Windows: the Nova window opens without a console
-        python = self.gui_python
-        if os.name == "nt":  # pythonw has no stdout, and the hook must answer on stdout
-            python = python.with_name("python.exe")
-        self.hook = system.hook_command(python, ROOT / "guard" / "guard.py")
+        self.hook = system.hook_command(system.CONSOLE_PYTHON, ROOT / "guard" / "guard.py")
         self.settings = self.write_claude_settings()
         self.brain = make_brain(self.cfg, str(WORKSPACE), self.env, self.settings, self.hook)
         LOG_HOOKS.append(self.outbox.put)
@@ -239,7 +236,7 @@ class Nova:
                 self.ui(self.push_state)
                 self.ui(lambda: self.card.show("Update available", f"Nova {found} is out. Open Nova and click "
                                                "Update to get it.", hide_after=10))
-            time.sleep(24 * 3600)
+            time.sleep(3600 if found is None else 24 * 3600)  # offline (often right after login): try again soon
 
     def start_tray(self):
         engine = lambda name: pystray.MenuItem(
@@ -406,7 +403,7 @@ class Nova:
         try:
             work()
         except Exception as e:
-            log("error", error=repr(e))
+            log("error", error=repr(e), request=True)  # a waiting Siri request ends on this error, not on others
             message = friendly(e)
             self.ui(lambda: self.card.show("Something went wrong", message, hide_after=8, kind="error"))
         finally:
@@ -436,9 +433,11 @@ class Nova:
             self.ui(lambda: self.card.show("\"Hey Nova\" stopped listening", message, hide_after=8, kind="error"))
 
     def on_esc(self):
+        """Esc in any app: deny an approval, or stop Nova listening or talking. A request still at work isn't stopped
+        by an Esc meant for another app (closing a popup in your editor); the shortcut, the card or Stop does that."""
         if self.pending:
             self.answer(False)
-        elif self.phase != "idle":
+        elif self.bar.state in ("listening", "speaking"):
             self.abort()
 
     def abort(self):
@@ -473,16 +472,22 @@ class Nova:
     def set_engine(self, name):
         if self.phase != "idle":
             return self.card.show("Busy", "Switch brains when Nova has finished.", hide_after=2)
-        self.cfg["brain"]["engine"] = name
-        save_config(self.cfg)
+        self.save_setting("brain.engine", name)
         self.brain = make_brain(self.cfg, str(WORKSPACE), self.env, self.settings, self.hook)
         self.icon.update_menu()
         self.push_state()
         self.card.show("Brain", f"Nova now uses {self.brain.name}.", hide_after=2)
 
+    def save_setting(self, path, value):
+        """Change one setting now and on disk, without undoing what the window saved since Nova last read it."""
+        set_path(self.cfg, path, value)
+        try:
+            update_config({path: value})
+        except ValueError:  # config.json is broken: it's set aside and Nova's copy saved, as before
+            save_config(self.cfg)
+
     def set_permissions(self, mode):
-        self.cfg["safety"]["mode"] = mode
-        save_config(self.cfg)  # the watcher applies it; the window's picker follows
+        self.save_setting("safety.mode", mode)  # the watcher applies it; the window's picker follows
         self.icon.update_menu()
         self.card.show(f"Permissions: {PERMISSIONS[mode][0]}", PERMISSIONS[mode][1], hide_after=4)
 
@@ -539,8 +544,9 @@ class Nova:
         """Activity for the open Nova window, sent off the UI thread so a stuck window can't freeze Nova."""
         while True:
             event = self.outbox.get()
-            self.web.broadcast(event)  # the browser panels and paired phones show the same live conversation
-            self.phone.broadcast(event)
+            if event.get("event") != "level":  # the browser panels and paired phones show the same live conversation
+                self.web.broadcast(event)
+                self.phone.broadcast(event)
             for conn in list(self.clients):
                 try:
                     conn.send(event)
@@ -551,7 +557,7 @@ class Nova:
     def on_app(self, msg):
         op = msg.get("op")
         if op == "ask" and msg.get("text", "").strip():
-            self.typed(msg["text"].strip()[:4000])
+            self.typed(msg["text"].strip()[:4000], "window")
         elif op == "approve":
             self.answer(bool(msg.get("ok")))
         elif op == "cancel" and (self.phase != "idle" or self.pending):
@@ -575,8 +581,9 @@ class Nova:
             threading.Thread(target=tts.speak, args=("Hi, I'm Nova. This is how I'll sound when I answer you.", v,
                                                      self.stop_tts), daemon=True).start()
 
-    def typed(self, text):
-        """A request typed in the Nova window: same brain and guard, answered in the window instead of aloud."""
+    def typed(self, text, via):
+        """A request typed in the Nova window, on the phone or in a browser panel (`via`): same brain and guard,
+        answered on screen instead of aloud."""
         if self.paused or self.phase != "idle" or self.pending:
             why = "Nova is paused. Resume it to send requests." if self.paused else "Nova is busy with another request."
             return self.outbox.put({"event": "note", "title": "Not sent", "text": why})
@@ -584,7 +591,7 @@ class Nova:
         self.show_bar("thinking")
 
         def work():
-            log("heard", mode="assistant", text=text, source="chat")
+            log("heard", mode="assistant", text=text, source="chat", via=via)  # each page shows the others' requests
             if not self.command(text, typed=True):
                 self.assist(text)
         self.spawn(work, "busy")
@@ -626,12 +633,6 @@ class Nova:
         if mode == "assistant" and self.cfg["voice"]["conversation"] and not self.cancel.is_set():
             self.followup = True  # listen again once this answer is done
 
-    def memory_text(self):
-        try:
-            return (NOTES / "memory.md").read_text(encoding="utf-8").strip()[-4000:] or "(nothing yet)"
-        except OSError:
-            return "(nothing yet)"
-
     def vocabulary(self):
         """Words Whisper should expect: the dictionary, plus the browsers Nova uses ("Opera GX", not "Oprah GX")."""
         return self.cfg["dictation"]["dictionary"] + [web.BROWSERS[b][0] for b in self.cfg["browser"]["enabled"]
@@ -647,7 +648,7 @@ class Nova:
         now = time.monotonic()
         if now - self.level_t > 0.06:  # the window's waveform needs ~15 updates a second, not 33
             self.level_t = now
-            self.outbox.put({"event": "level", "value": value})
+            self.outbox.put({"event": "level", "value": value})  # for the window only (see send_events)
 
     def say(self, title, spoken, body=""):
         if not self.voice:
@@ -724,10 +725,9 @@ class Nova:
         m = re.fullmatch(r"add (.+?) to (?:my )?(?:dictionary|vocabulary)", text.strip(" .!"), re.I)
         if m:
             word = m.group(1).strip(" \"'.,")
-            words = self.cfg["dictation"]["dictionary"]
+            words = load_config()[0]["dictation"]["dictionary"]  # from disk: keeps words just added in the window
             if word.lower() not in (w.lower() for w in words):
-                words.append(word)
-                save_config(self.cfg)
+                self.save_setting("dictation.dictionary", words + [word])
             self.note("Dictionary", f"Added {word}.")
             return True
         if self.mode != "assistant" and not typed:
@@ -874,10 +874,12 @@ class Nova:
 
     def pick_region(self):
         """Ask the user to drag a box around what they mean. Returns it, or None if they press Esc."""
-        done, box = threading.Event(), []
+        done, box, close = threading.Event(), [], []
         self.ui(self.card.hide)
-        self.ui(lambda: region.select(self.root, lambda r: (box.append(r), done.set())))
-        done.wait(60)
+        self.ui(lambda: close.append(region.select(self.root, lambda r: (box.append(r), done.set()))))
+        if not done.wait(60):  # no answer: take the dimmed overlay away before the screenshot
+            self.ui(lambda: close and close[0]())
+            done.wait(2)
         time.sleep(0.15)  # let the dimmed overlay disappear before the screenshot
         return box[0] if box else None
 
@@ -969,7 +971,7 @@ class Nova:
         if (not self.brain or self.brain.limited) and fallback.key():  # out of quota: the backup brain takes over
             self.on_step(f"{main} is at its usage limit, so the backup brain (Gemini) is answering")
             shown, spoken, ask = fallback.run(prompt, self.cfg, self.ask, self.on_step, main=main,
-                                              memory=self.memory_text(), mode=mode)
+                                              memory=memory_text(), mode=mode, cancel=self.cancel)
             main = "Gemini (backup)"
             if self.cancel.is_set():
                 return
@@ -1001,14 +1003,20 @@ class Nova:
                 pass
 
     def ask(self, req):
+        # the guard stops waiting `confirm_timeout_s` after it asked, so a request that waited behind another
+        # card gets only the time it has left; showing it longer would turn a late "Allow" into a silent no
+        deadline = time.monotonic() + self.cfg["safety"]["confirm_timeout_s"]
         with self.approval_lock:
+            timeout = deadline - time.monotonic()
+            if timeout < 1:
+                log("approval", request=req, allowed=False, timed_out=True)
+                return False
             done, box = threading.Event(), [None]
             self.pending, self.asking = (done, box), req["summary"]
             who = self.brain.name if self.brain else "The AI"
-            timeout = self.cfg["safety"]["confirm_timeout_s"]
             body = f"{who} wants to run something that {req['reason']}:"
             self.outbox.put({"event": "asking", "who": who, "reason": req["reason"], "summary": req["summary"],
-                             "timeout": timeout})
+                             "timeout": round(timeout)})
             self.ui(lambda: self.card.show("Needs your OK", body, buttons=True, detail=req["summary"]))
             self.ui(lambda: self.show_bar("approval"))
             if self.voice:
@@ -1067,6 +1075,11 @@ class Nova:
                 try:
                     result = self.web.run_tool(bid, tool, args, self.ask, self.env.get("NOVA_MODE", "auto"))
                     log("browser", browser=bid, tool=tool, args=json.dumps(args)[:300], ok=True)
+                    if tool == "navigate" or (tool == "tabs" and args.get("action") in ("open", "switch")):
+                        try:  # what you asked to see comes to the front (Windows may not let the browser do it itself)
+                            system.raise_app(web.exe(bid))
+                        except Exception as e:
+                            log("error", error=f"bring browser forward: {e!r}")
                     conn.send({"ok": True, "result": result})
                 except Exception as e:
                     log("browser", browser=bid, tool=tool, args=json.dumps(args)[:300], ok=False, error=str(e))
@@ -1075,16 +1088,16 @@ class Nova:
                 pass
 
     def on_panel(self, bid, msg):
-        self.on_remote(msg, lambda reply: self.web.send(bid, reply))
+        self.on_remote(msg, lambda reply: self.web.send(bid, reply), via="browser")
 
-    def on_remote(self, msg, reply):
+    def on_remote(self, msg, reply, via="phone"):
         """The browser panel or the phone page: type a request, press the mic, answer an approval, stop, or load
         the history. `reply` answers only the one that asked."""
         op = msg.get("op")
         if op == "connected":  # a browser or phone connected or went away: the window's status updates
             self.ui(self.push_state)
         elif op == "ask" and str(msg.get("text", "")).strip():
-            self.ui(lambda: self.typed(str(msg["text"]).strip()[:4000]))
+            self.ui(lambda: self.typed(str(msg["text"]).strip()[:4000], via))
         elif op == "approve":
             self.ui(lambda: self.answer(bool(msg.get("ok"))))
         elif op == "cancel":
@@ -1096,6 +1109,61 @@ class Nova:
             reply({"type": "history", "items": items})
         elif op == "state":
             reply({"type": "event", "event": self.state()})
+        elif op == "clip":
+            self.clip_from_phone(msg, reply)
+        elif op == "dictate" and str(msg.get("text", "")).strip():
+            self.ui(lambda: self.dictate_from_phone(str(msg["text"])[:20_000], reply))
+
+    def dictate_from_phone(self, text, reply):
+        """Words dictated on the phone, typed into the app in front on this computer, cleaned up like any
+        dictation ("make this more formal" on selected text works too)."""
+        if self.paused or self.phase != "idle" or self.pending:
+            why = "Nova is paused." if self.paused else "Nova is busy with another request."
+            return reply({"type": "dictate-done", "ok": False, "error": f"{why} Try again in a moment."})
+        self.voice = False  # nothing spoken or shown on the computer's card: the text itself is the result
+        target = system.foreground()
+
+        def work():
+            self.target = target
+            log("heard", mode="dictation", text=text, source="phone")
+            try:
+                self.dictate(text)
+            except Exception as e:  # the phone hears about it too, not just the computer's log
+                reply({"type": "dictate-done", "ok": False, "error": friendly(e)})
+                raise
+            where = system.window_title(target) or "the app in front"
+            reply({"type": "dictate-done", "ok": True, "text": f"Typed into {where[:60]}."})
+        self.spawn(work, "busy")
+
+    def clip_from_phone(self, msg, reply):
+        """Something from the phone (text, an image or a file) put on this computer's clipboard: press Ctrl+V."""
+        kind = msg.get("kind")
+        try:
+            if kind == "text":
+                text = str(msg.get("text", ""))[:200_000]
+                if not text.strip():
+                    raise ValueError("There's nothing to send.")
+                clipboard.set_text(text)
+                self.clips.add(text)  # "paste what I copied on my phone" works too
+                what = f"{len(text.split())} words of text" if len(text) > 60 else f"“{text.strip()}”"
+            elif kind in ("image", "file"):
+                path = phone.save_upload(msg.get("data", ""), msg.get("name", ""))
+                try:
+                    clipboard.copy_file(path, image=kind == "image")
+                except RuntimeError:  # a picture Windows can't read (HEIC): it still pastes as a file
+                    if kind != "image":
+                        raise
+                    clipboard.copy_file(path)
+                what = f"the {'picture' if kind == 'image' else 'file'} {path.name}"
+            else:
+                raise ValueError("Nova doesn't know that kind of item.")
+        except Exception as e:
+            log("error", error=f"from phone: {e!r}")
+            return reply({"type": "clip-done", "ok": False, "error": str(e)})
+        log("phone_clip", kind=kind)
+        reply({"type": "clip-done", "ok": True, "text": f"Copied {what} to your computer. Paste it with "
+                                                        f"{'Cmd' if system.IS_MAC else 'Ctrl'}+V."})
+        self.ui(lambda: self.card.show("From your phone", f"Copied {what}. Paste it anywhere.", hide_after=5))
 
     def repair_browsers(self):
         """At startup: make sure every browser Nova is set up for still loads the extension (browser updates
@@ -1111,7 +1179,7 @@ class Nova:
 
     def set_browser(self, bid, on):
         """ "add Vivaldi" / "stop using Brave": set up or remove Nova in that browser."""
-        b = self.cfg["browser"]
+        b = load_config()[0]["browser"]  # from disk, like the window's browser page
         name = web.BROWSERS[bid][0]
         if on and not web.exe(bid):
             return self.note("Browsers", f"I can't find {name} on this computer.")
@@ -1120,10 +1188,9 @@ class Nova:
             report = web.install(bid, self.web_token) if on else web.uninstall(bid)
         except Exception as e:
             return self.note("Browsers", f"Couldn't change {name}: {e}")
-        b["enabled"] = enabled
+        self.save_setting("browser.enabled", enabled)
         if b["default"] not in enabled and enabled:
-            b["default"] = enabled[0]
-        save_config(self.cfg)
+            self.save_setting("browser.default", enabled[0])
         log("browser_setup", browser=bid, on=on, report=report)
         if not on:
             return self.note("Browsers", f"Nova is no longer set up for {name}.")

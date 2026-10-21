@@ -73,16 +73,20 @@ def run_command(command, ask, home=str(ROOT), mode="accept_edits"):
     if tier == "confirm" and not ask({"tool": "Bash", "summary": command[:400], "reason": why}):
         return "The user declined this command. Don't try another way; ask them what they'd like."
     args = ["bash", "-lc", command] if IS_MAC else ["powershell", "-NoProfile", "-Command", command]
+    workspace = ROOT / "workspace"  # where Claude and Codex run too, so the guard's "..\data" rule applies alike
+    workspace.mkdir(exist_ok=True)
     try:
         r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
-                           creationflags=NO_WINDOW)
+                           cwd=workspace, creationflags=NO_WINDOW)
     except subprocess.TimeoutExpired:
         return "The command was still running after 60 seconds, so Nova stopped waiting."
     return f"exit code {r.returncode}\n{(r.stdout + r.stderr).strip()[-4000:]}"
 
 
-def run(prompt, cfg, ask, on_step, main="Claude Code", memory="(nothing yet)", post=_post, mode="accept_edits"):
-    """One request: (text to show, line to speak, question to ask back or None)."""
+def run(prompt, cfg, ask, on_step, main="Claude Code", memory="(nothing yet)", post=_post, mode="accept_edits",
+        cancel=None):
+    """One request: (text to show, line to speak, question to ask back or None). Stops once `cancel` is set."""
+    stopped = ("Cancelled.", "Okay, stopped.", None)
     from core.brain import OS_HINT, PLAN_HINT, split_say
     api_key, model = key(), cfg["brain"]["fallback_model"]
     parts = [{"text": prompt}]
@@ -98,6 +102,8 @@ def run(prompt, cfg, ask, on_step, main="Claude Code", memory="(nothing yet)", p
                 "the user's computer and get its output.",
                 "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}]}]}
     for _ in range(8):
+        if cancel and cancel.is_set():
+            return stopped
         try:
             for wait in (2, 5, 0):  # 500/503: Google is briefly overloaded, so try twice more before giving up
                 try:
@@ -121,12 +127,11 @@ def run(prompt, cfg, ask, on_step, main="Claude Code", memory="(nothing yet)", p
         calls = [p["functionCall"] for p in content.get("parts", []) if "functionCall" in p]
         if not calls:
             text = "\n".join(p.get("text", "") for p in content.get("parts", [])).strip()
-            shown, say = split_say(text or "The backup brain had no answer.")
-            is_ask = lambda l: l.strip().upper().startswith("ASK:")
-            question = next((l.strip()[4:].strip() for l in shown.splitlines() if is_ask(l)), None)
-            return "\n".join(l for l in shown.splitlines() if not is_ask(l)).strip(), say, question
+            return split_say(text or "The backup brain had no answer.")
         answers = []
         for call in calls:
+            if cancel and cancel.is_set():  # Esc / Stop: the remaining commands don't run
+                return stopped
             command = str((call.get("args") or {}).get("command", ""))
             on_step(f"Running: {command[:90]}")
             answers.append({"functionResponse": {"name": call.get("name", "run_command"),

@@ -37,8 +37,11 @@ TOOLS = [
     ("screenshot", "See the visible part of a tab as an image.", {"tab_id": {"type": "integer"}}, []),
     ("download", "Download a file to the browser's downloads folder.", {
         "url": {"type": "string"}, "filename": {"type": "string"}}, ["url"]),
-    ("script", "Last resort: run JavaScript in the page (through the debugger) when the other tools can't do "
-               "it. Returns the expression's value.", {"code": {"type": "string"}, "tab_id": {"type": "integer"}},
+    ("script", "Last resort: run JavaScript in the page (through the debugger). The user must approve every "
+               "script, so never use it to click, play, open or check something: read(mode=outline) and click a "
+               "[ref], or read / screenshot to see the result. Only after read can't do it; Nova refuses a script "
+               "on a page you haven't read yet. Returns the expression's value.",
+     {"code": {"type": "string"}, "tab_id": {"type": "integer"}},
      ["code"]),
 ]
 

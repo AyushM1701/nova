@@ -16,6 +16,14 @@ LOG_HOOKS = []  # Nova forwards every log entry to its open app window
 KEEP_LOG_DAYS = 30
 
 
+def memory_text():
+    """The end of Nova's long-term memory (notes/memory.md), as both brains see it."""
+    try:
+        return (NOTES / "memory.md").read_text(encoding="utf-8").strip()[-4000:] or "(nothing yet)"
+    except OSError:
+        return "(nothing yet)"
+
+
 def write_private(path, text):
     """Write a key or token file only this user can read (macOS; shortcut: Windows relies on the folder's ACL)."""
     path.write_text(text, encoding="utf-8")
@@ -90,6 +98,25 @@ def load_config():
         return merged(defaults(), user_config()), None
     except ValueError as e:
         return defaults(), f"config.json has a mistake ({e}); using the default settings until it is fixed."
+
+
+def set_path(cfg, path, value):
+    """cfg["a"]["b"] = value for the path "a.b"."""
+    *parents, last = path.split(".")
+    for key in parents:
+        cfg = cfg.setdefault(key, {})
+    cfg[last] = value
+
+
+def update_config(changes):
+    """Apply {"dotted.path": value} on top of the settings on disk now, so changes Nova, the window or the AI
+    made since this caller read them survive. Raises ValueError if config.json is broken."""
+    cfg, error = load_config()
+    if error:
+        raise ValueError(error)
+    for path, value in changes.items():
+        set_path(cfg, path, value)
+    save_config(cfg)
 
 
 def save_config(cfg):

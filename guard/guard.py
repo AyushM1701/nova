@@ -13,16 +13,35 @@ from multiprocessing.connection import Client
 
 UNTIL_END = r"[^;|&\n]*"  # rest of the current command segment
 SECRETS = (r"login data|logins\.json|key4\.db|web data|cookies\.sqlite|[\\/]network[\\/]cookies|local state"
-           r"|\.ssh[\\/]id_|library/keychains|cookies\.binarycookies|fallback\.key|browser-token|events\.key"
-           # other tools' saved logins: cloud, git, package registries, and the AI CLIs themselves
-           r"|\.aws[\\/]credentials|\.git-credentials|\.netrc\b|\.npmrc|\.pypirc|\.docker[\\/]config\.json"
-           r"|\.kube[\\/]config|gh[\\/]hosts\.yml|\.claude[\\/]\.credentials|\.codex[\\/]auth\.json|\.gnupg")
+           r"|library/keychains|cookies\.binarycookies"
+           # browser profiles (Chrome, Edge, Brave: "User Data"; Firefox: "Profiles") hold saved passwords
+           r"|user data[\\/]|firefox[\\/]profiles"
+           # whole key folders, so "cat ~/.ssh/*" or a Grep of the folder can't get round a file name (a named .pub is fine)
+           r"|(?:^|[\\/\s\"'=:])\.(?:ssh(?![\\/][\w.-]+\.pub\b)|aws|kube|docker|gnupg)\b"
+           # ...and the key files by name, wherever a wildcard put them ("~\*\id_ed25519", "~\*\credentials")
+           r"|\bid_(?:rsa|ecdsa|ed25519|dsa)\b(?!\.pub)|[\\/*]credentials(?:$|[\s\"'*;|)])"
+           # Nova's own keys, and the browser extension's copy of its token (%LOCALAPPDATA%\Nova\browser\...)
+           r"|fallback\.key|browser-token|events\.key|phone-token|(?:appdata[\\/]local|localappdata%?)[\\/]nova\b"
+           # other tools' saved logins: git, package registries, and the AI CLIs themselves
+           r"|\.git-credentials|\.netrc\b|\.npmrc|\.pypirc|gh[\\/]hosts\.yml|\.claude[\\/]\.credentials"
+           r"|\.codex[\\/]auth\.json")
+NOVA_DATA = "reads Nova's own keys"
+# the home folder, all users' folders or a whole drive: a search through one of these goes into .ssh, .aws and the
+# browser profiles too, which the rules above can only see when they are named
+WIDE = (r"(?:~|\$home|\$env:userprofile|%userprofile%|[a-z]:(?:[\\/]users(?:[\\/][^\\/\s\"';|&,)]+)?)?"
+        r"|/(?:users|home)(?:/[^/\s\"';|&,)]+)?|/)[\\/]?\*?(?=$|[\s\"';|&,)])")
+RECURSIVE = (r"\b(?:rg|ag|find|tree)\b|\b(?:grep|ls)\b[^;|&\n]*\s-(?:-recursive\b|[a-z]*r)|-recurse\b|\s-r\b"
+             r"|\s/s\b")
+WIDE_WHY = "searches your whole home folder or drive, where your keys are"
+NOVA_SEARCH_WHY = "searches Nova's own folder, where Nova's keys are"
 
 BLOCK = [
     (r"\bformat(\.com)?\s+[a-z]:|\bdiskpart\b|\bbcdedit\b|\bcipher\s+/w|\bvssadmin\s+delete|\bwbadmin\s+delete"
      r"|clear-disk|initialize-disk|format-volume", "wipes a disk or the boot configuration"),
-    (r"\b(rm|del|erase|rd|rmdir|remove-item|ri)\b" + UNTIL_END +
-     r"(\s[\"']?[a-z]:[\\/]?[\"']?(\s|$|\*)|\s/(\s|$|\*)|\s~[\\/]?(\s|$)|\\windows\b|system32|program files|programdata"
+    # ...also through .NET or COM ([IO.Directory]::Delete("C:\Windows", $true), $fso.DeleteFolder($HOME))
+    (r"(\b(rm|del|erase|rd|rmdir|remove-item|ri)\b|(\.|::)delete\w*)" + UNTIL_END +
+     r"([\s(,][\"']?[a-z]:[\\/]?[\"']?(\s|$|\*|\)|,)|\s/(\s|$|\*)|[\s(,]~[\\/]?(\s|$|\)|,)"
+     r"|[\s(,][\"']?\$(home|env:userprofile)[\\/]?[\"']?(\s|$|\)|,)|\\windows\b|system32|program files|programdata"
      r"|\$env:(windir|systemroot|programfiles)|%(windir|systemroot)%"
      r"|\s/(system|library|applications|users|usr|bin|sbin|etc|private|volumes)/?[\"']?(\s|$|\*))",
      "deletes system folders or a whole drive"),
@@ -45,14 +64,16 @@ BLOCK = [
 ]
 
 CONFIRM = [
-    (r"\b(rm|del|erase|rd|rmdir|remove-item|ri|move-item|mi|mv|move|ren|rename-item|clear-content|clc|shred|unlink)\b"
+    (r"\b(rm|del|erase|rd|rmdir|remove-item|ri|move-item|mi|mv|move|ren|rename-item|clear-content|clc|shred|unlink"
+     r"|clear-recyclebin|rimraf|truncate)\b"
      r"|\s-(delete|exec|execdir)\b", "deletes or moves files"),
     (r"\bgit\s+(push|reset\s+--hard|clean|rebase|checkout\s+(--|\.)|restore|branch\s+-d|stash\s+(drop|clear)"
      r"|filter-branch|commit\s+--amend)", "rewrites or publishes git history"),
     (r"\b(vercel|netlify|firebase\s+deploy|npm\s+publish|docker\s+push|kubectl|terraform\s+apply"
      r"|gh\s+(pr|release|repo|issue)\s+(create|merge|delete|close|comment))\b", "deploys or publishes"),
     (r"\b(pip3?|uv|pipx|npm|pnpm|yarn|winget|choco|scoop|cargo|gem|go|brew|port)\s+(install|i|add|uninstall|remove|upgrade"
-     r"|update|un|rm)\b|\b(install-module|install-package|add-appxpackage|msiexec)\b", "installs or removes software"),
+     r"|update|un|rm)\b|\b(install-module|install-package|add-appxpackage|msiexec)\b|\buninstall-\w+",
+     "installs or removes software"),
     (r"\b(stop-process|spps|taskkill|kill|pkill|killall)\b|\.kill\s*\(", "closes a program"),
     (r"\bsudo\b|administrator privileges", "runs as administrator"),
     (r"\b(launchctl|pmset|networksetup|scutil|chmod|chown|chflags|xattr)\b|\bdefaults\s+(write|delete)\b",
@@ -74,8 +95,9 @@ CONFIRM = [
     (r"\s-enc(odedcommand)?\b|frombase64string", "runs an encoded command"),
     (r"&\s*[\$\"']|(^|[;|&\s])\.\s+\$|\binvoke-expression\b|\biex\b|\binvoke-command\b|\bicm\b|\beval\b",
      "runs a dynamically built command"),
-    (r"\.(delete|kill|moveto|copyto|terminate|invoke|run|exec|create|stop|start|close|clear|write\w*|set\w*|rmtree|unlink"
-     r"|remove\w*|deletesubkey\w*|download\w*|upload\w*)\s*\(",
+    # [Type]::Delete( too, and names with any ending (.DeleteFolder, .CopyFile); start, stop and run stay exact
+    (r"(\.|::)(delete\w*|kill|move\w*|copy\w*|terminate\w*|invoke|run|exec\w*|create\w*|stop|start|close|clear\w*"
+     r"|write\w*|set\w*|rmtree|unlink|remove\w*|download\w*|upload\w*)\s*\(",
      "calls a method that changes things"),
     (r"\b(start-process|start|saps)\s+[\"']?(powershell|pwsh|cmd|wscript|cscript|mshta|regsvr32|python|py|node|bash"
      r"|wsl)\b|-verb\s+runas", "starts a shell or an elevated process"),
@@ -161,8 +183,9 @@ def with_mode(tier, why, mode, unfamiliar=None):
     return tier, why
 
 
-def classify_command(cmd, home=None, mode="accept_edits"):
-    tier, why = _command(cmd, home)
+def classify_command(cmd, home=None, mode="accept_edits", cwd=None):
+    """`cwd`: the folder the command runs in, as the CLI reports it (a Set-Location into a project sticks)."""
+    tier, why = _command(cmd, home, cwd)
     if mode == "plan" and tier == "allow" and re.search(CHANGES, cmd.lower()):
         return "block", PLAN
     if mode == "manual" and tier == "allow" and re.search(EDITS, cmd.lower()):
@@ -172,16 +195,50 @@ def classify_command(cmd, home=None, mode="accept_edits"):
     return with_mode(tier, why, mode)
 
 
-def _command(cmd, home=None):
+def _command(cmd, home=None, cwd=None):
     c = cmd.lower()
     # Nova's own clipboard helper, only from Nova's folder (a same-named script elsewhere is not trusted)
     helper = home and (r"(-file\s+|(ba|z)?sh\s+)?" + re.escape(home.lower().replace("\\", "/") + "/helpers/clipboard.")
                        + r"(ps1|sh)(\s|$)")
     # a commit message is prose, not commands (only when bash can't expand anything inside it)
     c = re.sub(r"(git\s+commit\b" + UNTIL_END + r"?-m\s*)('[^']*'|\"[^\"$`]*\")", r"\1''", c)
+    # searches that run a program on each file, checked before search text is set aside below (on `cmd`: case
+    # matters, git grep's -o is harmless)
+    if re.search(r"\brg\b[^;|&\n]*\s--pre\b|\bgit\s+grep\b[^;|&\n]*\s(?:-(?!-)[a-zA-Z]*O|--open-files-in-pager)", cmd):
+        return "confirm", "runs a program on every file it searches"
+    # a search pattern is text to look for, never a file or a command ("rg 'def .*\(' src", "sls -pattern 'a.*\.'"),
+    # so it can't trip the secret or wildcard rules; a pattern with $ or ` in it could run code, so it stays
+    word = r"(?:'[^']*'|\"[^\"$`]*\"|[^\s'\"|;&$`()<>]+)"
+    c = re.sub(r"\b(grep|rg)((?:\s+-(?!f\b|-file\b)[\w-]+(?:=\S+)?)*)\s+" + word, r"\1\2 x", c)  # -f: a file
+    c = re.sub(r"\b(findstr)((?:\s+/[\w:]+)*)\s+" + word, r"\1\2 x", c)  # findstr's switches start with /
+    c = re.sub(r"\b(select-string|sls)\s+('[^']*'|\"[^\"$`]*\")", r"\1 x", c)  # its first, unnamed argument
+    c = re.sub(r"(\s-{1,2}(?:\w*pattern\w*|grep))(?:=|\s+)" + word, r"\1 x", c)  # -Pattern, --testPathPattern
+    if home and re.search(re.escape(home.lower().replace("\\", "/").rstrip("/")) + r"/data\b", c.replace("\\", "/")):
+        return "block", NOVA_DATA
+    # shortcut: "..\data" is Nova's data folder only from Nova's workspace (where the AI runs), so ask, don't block
+    if re.search(r"(^|[\s\"'=(])\.\.[\\/]data\b", c):
+        return "confirm", "may read Nova's own keys, which are in ..\\data from Nova's workspace"
     for pattern, why in BLOCK:
         if re.search(pattern, c):
             return "block", why
+    if re.search(RECURSIVE, c) and re.search(r"(?:^|[\s\"'=(,])" + WIDE, c):  # "grep -r . ~", "rg --hidden x C:\"
+        return "confirm", WIDE_WHY
+    # ...and through Nova's own folder or one above it, which hold data\ with Nova's keys ("grep -r . ..": from
+    # Nova's workspace, where the AI runs, ".." is Nova's folder); grep ignores .gitignore, so data\ isn't skipped
+    if home and re.search(RECURSIVE, c):
+        parts = home.lower().replace("\\", "/").rstrip("/").split("/")
+        above = [r"[\\/]".join(map(re.escape, parts[:n])) for n in range(2, len(parts) + 1)] + [r"\.\."]
+        if re.search(r"(?:^|[\s\"'=(,])(?:" + "|".join(above) + r")[\\/]?\*?(?=$|[\s\"';|&,)])", c):
+            return "confirm", NOVA_SEARCH_WHY
+    # ...and with no folder named, from where it runs: "Set-Location ~" in one call, "rg --hidden x ." in the next
+    if cwd and re.search(RECURSIVE, c):
+        if _wide(cwd):
+            return "confirm", WIDE_WHY
+        if home and _under(os.path.join(home, "data"), os.path.realpath(cwd)):
+            return "confirm", NOVA_SEARCH_WHY
+    # a wildcard in a folder name ("~\*\id_ed25519", "~/.ss?/*") can reach a secret folder the rules can't name
+    if re.search(r"[*?][^\s\\/\"'*?]*[\\/]", re.sub(r"https?://\S+", "", c)):
+        return "confirm", "uses a wildcard in a folder name, which could reach secret files"
     for pattern, why in CONFIRM:
         if re.search(pattern, c):
             return "confirm", why
@@ -190,16 +247,20 @@ def _command(cmd, home=None):
     # an escaped \| is regex alternation inside a grep pattern ("ask\|follow"), not a pipe to another command
     # a quoted web address is one value: its "&" and "?" aren't command separators ("...?view=cm&to=x")
     urls = re.sub(r"(['\"])https?://[^'\"\s`$]*\1", " url ", c.replace("\\|", " "))
-    # quoted text that is only data: a pure helper's argument ([uri]::EscapeDataString('a b')) or a search pattern
-    data = r"(?:'[^']*'|\"[^\"$`]*\")"
-    urls = re.sub(r"(\]::\w+\s*)\(\s*" + data + r"\s*\)", r"\1()", urls)
-    urls = re.sub(r"\b(grep|rg|findstr|select-string|sls)((?:\s+-[\w-]+)*)\s+" + data, r"\1\2 x", urls)
+    # quoted text that is only data: a pure helper's argument ([uri]::EscapeDataString('a b'))
+    urls = re.sub(r"(\]::\w+\s*)\(\s*(?:'[^']*'|\"[^\"$`]*\")\s*\)", r"\1()", urls)
     flat = re.sub(r"[\"']", " ", re.sub(SHELL_WRAPPER, ";", urls))
     for seg in re.split(SEPARATORS, flat):
         seg = re.sub(r"^\\?\$[\w:]+\s*=\s*", "", seg.strip())  # "\$x=" is $x= escaped for bash
         if not any(re.match(p, seg) for p in ALLOW) and not (helper and re.match(helper, seg.replace("\\", "/"))):
             return "confirm", f"isn't on the known-safe list ({seg[:60]})"
     return "allow", "known safe command"
+
+
+def _wide(folder):
+    """The home folder, a folder holding it (the Users folder) or a whole drive."""
+    full = os.path.realpath(os.path.expanduser(folder))
+    return bool(re.match(WIDE, full.lower())) or _under(os.path.expanduser("~"), full)
 
 
 def _under(path, root):
@@ -229,12 +290,21 @@ def classify_patch(patch, cwd, roots, home, notes, mode="accept_edits"):
 def classify(tool, inp, cwd, roots, home, notes, mode="accept_edits"):
     if tool in ("Bash", "PowerShell"):
         command = inp.get("command", "")
-        return classify_command(" ".join(command) if isinstance(command, list) else command, home, mode)
+        return classify_command(" ".join(command) if isinstance(command, list) else command, home, mode, cwd)
     if tool == "apply_patch":
         return classify_patch(inp.get("command", "") or inp.get("patch", ""), cwd, roots, home, notes, mode)
     path = inp.get("file_path") or inp.get("notebook_path") or inp.get("path") or ""
-    if re.search(SECRETS, f"{path} {inp.get('pattern', '')} {inp.get('glob', '')}".lower()):
+    where = f"{path} {inp.get('pattern', '') if tool == 'Glob' else ''} {inp.get('glob', '')}"  # Grep's pattern is text
+    if re.search(SECRETS, where.lower()):
         return "block", "reads browser or SSH secrets"
+    if home and path and _under(os.path.realpath(os.path.join(cwd, os.path.expandvars(path))), os.path.join(home, "data")):
+        return "block", NOVA_DATA
+    if tool in ("Grep", "grep_files") and path:  # a search tool always goes through every folder below its path
+        full = os.path.realpath(os.path.join(cwd, os.path.expandvars(os.path.expanduser(path))))
+        if _wide(full):
+            return with_mode("confirm", WIDE_WHY, mode, unfamiliar=False)
+        if home and _under(os.path.join(home, "data"), full):  # it obeys .gitignore only in a git repo, not a ZIP install
+            return with_mode("confirm", NOVA_SEARCH_WHY, mode, unfamiliar=False)
     if tool in READ_ONLY_TOOLS:
         return "allow", "read only"
     if "nova-browser" in tool or "nova_browser" in tool:  # Nova applies its own rules to the real page element

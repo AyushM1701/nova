@@ -5,11 +5,28 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nova</title>
 <style>
-:root { --bg: #111114; --surface: #18181d; --raised: #1f1f25; --line: rgba(255,255,255,.08); --text: #f2f2f4; --muted: #a3a3ad;
-        --faint: #80808b; --accent: #7357ff; --accent-soft: rgba(124,92,255,.16); --amber: #ffba3c; --ok: #3ecf8e; color-scheme: dark; }
+/* the same tokens as core/app.html; tests.py fails if they drift */
+:root {
+  --bg: #f6f6f8; --surface: #ffffff; --raised: #f1f1f5; --line: rgba(20, 20, 32, .09);
+  --text: #16161a; --muted: #5b5b66; --faint: #6a6a74;
+  --accent: #6a4cf5; --accent-ink: #ffffff; --accent-soft: rgba(106, 76, 245, .10);
+  --amber: #8f5500; --amber-soft: rgba(255, 186, 60, .16); --amber-line: rgba(204, 132, 0, .45);
+  --ok: #117a50;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111114; --surface: #18181d; --raised: #1f1f25; --line: rgba(255, 255, 255, .07);
+    --text: #f2f2f4; --muted: #a3a3ad; --faint: #80808b;
+    --accent: #7357ff; --accent-ink: #ffffff; --accent-soft: rgba(124, 92, 255, .16);
+    --amber: #ffba3c; --amber-soft: rgba(255, 186, 60, .10); --amber-line: rgba(255, 186, 60, .42);
+    --ok: #3ecf8e;
+    color-scheme: dark;
+  }
+}
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
-body { background: var(--bg); color: var(--text); font: 13.5px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+body { background: var(--bg); color: var(--text); font: 13.5px/1.5 "Segoe UI Variable Text", "Segoe UI", -apple-system, system-ui, sans-serif;
        display: flex; flex-direction: column; min-width: 340px; min-height: 480px; }
 header { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 header svg { width: 20px; height: 20px; }
@@ -22,13 +39,13 @@ main { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: 
 .user { align-self: flex-end; max-width: 85%; background: var(--accent-soft); padding: 7px 11px; border-radius: 14px 14px 4px 14px; }
 .nova { color: var(--text); }
 .note, .step { color: var(--faint); font-size: 12px; }
-.step { font-family: "Cascadia Code", Consolas, monospace; border-left: 1px solid var(--line); padding-left: 10px; }
-.ask { border: 1px solid rgba(255,186,60,.42); background: rgba(255,186,60,.1); border-radius: 12px; padding: 11px 12px; display: flex; flex-direction: column; gap: 8px; }
+.step { font-family: "Cascadia Code", Consolas, ui-monospace, Menlo, monospace; border-left: 1px solid var(--line); padding-left: 10px; }
+.ask { border: 1px solid var(--amber-line); background: var(--amber-soft); border-radius: 12px; padding: 11px 12px; display: flex; flex-direction: column; gap: 8px; }
 .ask b { color: var(--amber); }
-.ask pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px "Cascadia Code", Consolas, monospace; background: var(--surface); padding: 8px 10px; border-radius: 8px; }
+.ask pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px "Cascadia Code", Consolas, ui-monospace, Menlo, monospace; background: var(--surface); padding: 8px 10px; border-radius: 8px; }
 .ask .btns { display: flex; gap: 8px; }
 button { font: inherit; color: inherit; cursor: pointer; border: 0; border-radius: 9px; padding: 6px 12px; background: var(--raised); }
-button.primary { background: var(--accent); color: #fff; }
+button.primary { background: var(--accent); color: var(--accent-ink); }
 button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .empty { margin: auto; text-align: center; color: var(--muted); max-width: 260px; }
 footer { padding: 10px 12px 14px; border-top: 1px solid var(--line); display: flex; gap: 6px; align-items: flex-end; }

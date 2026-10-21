@@ -18,9 +18,13 @@ POLITE = r"(?:(?:hey |ok |okay )?(?:nova )?(?:please |can you |could you |would 
 TAIL = r"(?: for me)?(?: please)?(?: now)?"
 AMOUNT = r"(?: (?:a bit|a little|a little bit|slightly|a lot|way up|way down|more|some|by \d{1,3}(?: percent)?))?"
 UNITS = {"second": 1, "sec": 1, "minute": 60, "min": 60, "hour": 3600, "hr": 3600}
-WORDS = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
-         "nine": 9, "ten": 10, "fifteen": 15, "twenty": 20, "thirty": 30, "forty": 40, "forty five": 45,
-         "fifty": 50, "sixty": 60, "ninety": 90, "half an": 0.5}
+_ONES = "one two three four five six seven eight nine".split()
+_TEENS = "ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split()
+_TENS = "twenty thirty forty fifty sixty seventy eighty ninety".split()
+# one to ninety-nine in words ("twenty five": the hyphen was already turned into a space)
+WORDS = {"a": 1, "an": 1, "half an": 0.5, **{w: n for n, w in enumerate(_ONES, 1)},
+         **{w: n for n, w in enumerate(_TEENS, 10)},
+         **{f"{t} {o}".strip(): 20 + 10 * i + j for i, t in enumerate(_TENS) for j, o in enumerate([""] + _ONES)}}
 
 
 def _amount(text):

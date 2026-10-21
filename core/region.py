@@ -4,7 +4,8 @@ import tkinter as tk
 
 def select(root, on_done):
     """Dim the main screen and let the user drag a box. on_done((left, top, right, bottom)) in screen pixels,
-    or on_done(None) for Esc or a click without a drag. Runs on the Tk thread."""
+    or on_done(None) for Esc or a click without a drag. Runs on the Tk thread. Returns a function that closes it
+    unanswered (on_done(None)), for when the caller stops waiting."""
     # shortcut: main screen only; span every monitor (virtual screen size) if users with several ask for it
     w, h = root.winfo_screenwidth(), root.winfo_screenheight()
     win = tk.Toplevel(root)
@@ -19,8 +20,9 @@ def select(root, on_done):
     box, start = canvas.create_rectangle(0, 0, 0, 0, outline="#a995ff", width=3), [None]
 
     def finish(result):
-        win.destroy()
-        on_done(result)
+        if win.winfo_exists():  # once only: Esc, a click or the caller's timeout, whichever comes first
+            win.destroy()
+            on_done(result)
 
     def press(e):
         start[0] = (e.x_root, e.y_root)
@@ -41,3 +43,4 @@ def select(root, on_done):
     canvas.bind("<ButtonRelease-1>", release)
     win.bind("<Escape>", lambda _: finish(None))
     win.after(30, win.focus_force)  # Esc needs keyboard focus
+    return lambda: finish(None)

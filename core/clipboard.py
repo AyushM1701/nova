@@ -3,8 +3,10 @@ and remember recently copied text so "paste what I copied earlier" works. That h
 (never on disk) and skips anything that looks like a password, key or token."""
 import collections
 import re
+import subprocess
 import sys
 import time
+from pathlib import Path
 
 if sys.platform == "darwin":
     from AppKit import NSPasteboard, NSPasteboardItem, NSPasteboardTypeString
@@ -41,6 +43,21 @@ if sys.platform == "darwin":
 
 else:
     from core._clipboard_win import change_count, get_text, restore, set_text, snapshot  # noqa: F401
+
+def copy_file(path, image=False):
+    """Put a file on the clipboard (paste it in Explorer, Finder, chat or mail), or with image=True its picture,
+    through the same helper the AI uses (helpers/clipboard.*)."""
+    helpers = Path(__file__).resolve().parents[1] / "helpers"
+    if sys.platform == "darwin":
+        args = ["/bin/sh", str(helpers / "clipboard.sh"), str(path)]
+    else:
+        args = ["powershell", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", str(helpers / "clipboard.ps1"),
+                str(path)]
+    r = subprocess.run(args + (["-Image"] if image else []), capture_output=True, text=True, timeout=60,
+                       creationflags=0 if sys.platform == "darwin" else 0x08000000)
+    if r.returncode:
+        raise RuntimeError((r.stderr or r.stdout).strip()[-300:] or "the clipboard helper failed")
+
 
 SECRET_RE = re.compile(
     r"password|passwd|passcode|\bpin\b|secret|token|api[_ -]?key|bearer\s|-----BEGIN|\b(?:sk|pk|rk)[-_][\w-]{16,}"
