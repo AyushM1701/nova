@@ -3,6 +3,7 @@ Run: python tests.py
 """
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -343,6 +344,15 @@ for want, cmds in COMMANDS.items():
         assert got == want, f"guard {cmd!r}: got {got} ({why}), want {want}"
 
 roots, home, notes = [r"D:\code\portfolio"], r"D:\projects\NOVA", r"D:\projects\NOVA\workspace\notes"
+
+
+def native(text):
+    """The file checks below in this computer's path style: on a Mac a backslash isn't a folder separator,
+    so D:\\code\\x becomes /d/code/x there."""
+    if os.name == "nt":
+        return text
+    return re.sub(r"\b([A-Za-z]):\\([^\n\"]*)", lambda m: f"/{m.group(1).lower()}/" + m.group(2).replace("\\", "/"),
+                  text)
 HELPER = [  # Nova's clipboard helper is allowed only from Nova's own folder
     ('powershell -NoProfile -STA -File "D:/projects/NOVA/helpers/clipboard.ps1" -Path "C:\\Users\\me\\resume.pdf"', "allow"),
     (r'powershell -NoProfile -STA -File "D:\projects\NOVA\helpers\clipboard.ps1" -Path "C:\pics\cat.png" -Image', "allow"),
@@ -362,7 +372,8 @@ CODEX = [  # Codex sends shell commands as "Bash" (sometimes as an argv list) an
     ("mcp__github__create_issue", {}, "confirm"),
 ]
 for tool, inp, want in CODEX:
-    got, why = classify(tool, inp, r"D:\code\portfolio", roots, home, notes)
+    inp = {k: native(v) if isinstance(v, str) else v for k, v in inp.items()}
+    got, why = classify(tool, inp, native(r"D:\code\portfolio"), [native(r) for r in roots], native(home), native(notes))
     assert got == want, f"guard codex {tool} {inp}: got {got} ({why}), want {want}"
 for cmd, want in HELPER:
     h = "/Users/me/nova" if "/Users/me" in cmd else home
@@ -383,7 +394,8 @@ FILES = [
     ("Task", "", "confirm"),
 ]
 for tool, path, want in FILES:
-    got, why = classify(tool, {"file_path": path}, r"D:\code\portfolio", roots, home, notes)
+    got, why = classify(tool, {"file_path": native(path)}, native(r"D:\code\portfolio"), [native(r) for r in roots],
+                        native(home), native(notes))
     assert got == want, f"guard {tool} {path}: got {got} ({why}), want {want}"
 
 n_cmd = sum(map(len, COMMANDS.values())) + sum(map(len, MAC_COMMANDS.values())) + len(HELPER) + len(CODEX)
