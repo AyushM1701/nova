@@ -215,6 +215,7 @@ textarea:focus { outline: none; border-color: var(--accent); }
   <div class="row"><button class="btn" id="closeSheet">Done</button></div>
 </div></div>
 
+<!-- md.js -->
 <script>
 "use strict";
 // the pairing key arrives in the #fragment of the link from Nova's Settings (never sent to a server by the browser);
@@ -251,24 +252,6 @@ addEventListener("resize", fit); addEventListener("orientationchange", () => set
 
 /* ---------- small things ---------- */
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-function inline(s) {
-  return esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')  // links, web only
-    .replace(/(^|[^*\w])\*([^*\s][^*]*)\*(?!\w)/g, "$1<em>$2</em>");
-}
-function md(text) {  // the replies' markdown, escaped first: bold, code, lists and paragraphs
-  return String(text || "").split(/```[\w-]*\n?([\s\S]*?)```/g).map((part, i) => {
-    if (i % 2) return `<pre><code>${esc(part.replace(/\n$/, ""))}</code></pre>`;
-    return part.split(/\n{2,}/).map(para => {
-      const lines = para.split("\n").filter(l => l.trim());
-      if (!lines.length) return "";
-      if (lines.every(l => /^\s*[-*•]\s+/.test(l))) return `<ul>${lines.map(l => `<li>${inline(l.replace(/^\s*[-*•]\s+/, ""))}</li>`).join("")}</ul>`;
-      if (lines.every(l => /^\s*\d+[.)]\s+/.test(l))) return `<ol>${lines.map(l => `<li>${inline(l.replace(/^\s*\d+[.)]\s+/, ""))}</li>`).join("")}</ol>`;
-      return `<p>${lines.map(inline).join("<br>")}</p>`;
-    }).join("");
-  }).join("");
-}
 function nearEnd() { return log.scrollHeight - log.scrollTop - log.clientHeight < 120; }
 function add(node) {
   log.querySelector(".empty")?.remove();
@@ -301,6 +284,7 @@ function connect() {
   clearTimeout(retry);
   if (ws || unpaired) return;
   if (!key) { status("Not paired", "bad"); emptyState("Pair this phone", "On your computer, open Nova → Settings → Phone and scan the QR code with this phone's camera."); return; }
+  lastSeen = Date.now();  // "stuck opening" counts from this attempt, not the last connection
   const sock = ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
   sock.onopen = () => {
     wait = 1000; lastSeen = Date.now();
@@ -372,7 +356,7 @@ function askCard(ev) {
   box.append(el("b", null, `${ev.who} needs your OK`), el("div", null, `It wants to run something that ${ev.reason}:`), el("pre", null, ev.summary));
   const track = el("div", "bar"); track.append(bar);
   const btns = el("div", "btns"), allow = el("button", "btn primary", "Allow"), deny = el("button", "btn", "Deny");
-  allow.onclick = () => post({ op: "approve", ok: true }); deny.onclick = () => post({ op: "approve", ok: false });
+  allow.onclick = () => post({ op: "approve", ok: true, id: ev.id }); deny.onclick = () => post({ op: "approve", ok: false, id: ev.id });
   btns.append(deny, allow); box.append(track, btns);
   let live = true;
   const tick = () => { if (!live) return; bar.style.transform = `scaleX(${Math.max(0, 1 - (Date.now() - started) / (ev.timeout * 1000))})`; requestAnimationFrame(tick); };

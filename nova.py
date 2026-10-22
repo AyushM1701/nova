@@ -109,7 +109,7 @@ class Nova:
         DATA.mkdir(parents=True, exist_ok=True)
         write_private(DATA / "events.key", self.events_key)
         self.stop_rec, self.cancel, self.stop_tts = threading.Event(), threading.Event(), threading.Event()
-        self.approval_lock = threading.Lock()
+        self.approval_lock, self.asking_id = threading.Lock(), 0
         self.app_proc, self.wake_thread, self.level_t = None, None, 0.0
         if system.IS_MAC:  # opened from Nova.app, PATH lacks Homebrew, npm and ~/.local/bin, where the CLIs live
             system.refresh_path()
@@ -325,7 +325,8 @@ class Nova:
             self.brain.cfg = cfg
         self.web.enabled = list(cfg["browser"]["enabled"])
         if cfg["phone"] != old["phone"]:
-            self.phone.enable(cfg["phone"]["enabled"])
+            # turned on just now: the network you're on is the one Phone trusts
+            self.phone.enable(cfg["phone"]["enabled"], here=cfg["phone"]["enabled"] and not old["phone"]["enabled"])
         if cfg["safety"] != old["safety"]:
             self.env["NOVA_TIMEOUT"] = str(cfg["safety"]["confirm_timeout_s"])
             self.settings = self.write_claude_settings()
@@ -359,7 +360,7 @@ class Nova:
         return {"event": "state", "phase": self.phase, "mode": self.mode, "paused": self.paused,
                 "pending": bool(self.pending), "brain": self.brain.name if self.brain else None,
                 "engine": self.cfg["brain"]["engine"], "stt": self.stt.device if self.stt else None,
-                "browsers": list(self.web.conns),
+                "browsers": list(self.web.conns) + sorted(self.web.ready),
                 "hotkey": self.pretty(), "wake_word": self.cfg["wake_word"], "update": self.update,
                 "phones": len(self.phone.clients), "phone_error": self.phone.error}
 
@@ -450,7 +451,11 @@ class Nova:
         self.card.show("Cancelled", hide_after=2)
         self.outbox.put({"event": "note", "title": "Cancelled", "text": "Cancelled."})
 
-    def answer(self, ok):
+    def answer(self, ok, card=None):
+        """`card`: the id of the card a click answered (the window, phone or browser panel); a late click on a card
+        that was already answered must not answer the next one. Keys and voice answer the card on screen."""
+        if card is not None and card != self.asking_id:
+            return
         if self.pending:
             done, box = self.pending
             box[0] = ok
@@ -559,7 +564,7 @@ class Nova:
         if op == "ask" and msg.get("text", "").strip():
             self.typed(msg["text"].strip()[:4000], "window")
         elif op == "approve":
-            self.answer(bool(msg.get("ok")))
+            self.answer(bool(msg.get("ok")), msg.get("id", -1))
         elif op == "cancel" and (self.phase != "idle" or self.pending):
             self.abort()
         elif op == "listen" and not self.pending:  # the shortcut means "allow" during an approval; the mic never does
@@ -1012,10 +1017,11 @@ class Nova:
                 log("approval", request=req, allowed=False, timed_out=True)
                 return False
             done, box = threading.Event(), [None]
+            self.asking_id += 1
             self.pending, self.asking = (done, box), req["summary"]
             who = self.brain.name if self.brain else "The AI"
             body = f"{who} wants to run something that {req['reason']}:"
-            self.outbox.put({"event": "asking", "who": who, "reason": req["reason"], "summary": req["summary"],
+            self.outbox.put({"event": "asking", "id": self.asking_id, "who": who, "reason": req["reason"], "summary": req["summary"],
                              "timeout": round(timeout)})
             self.ui(lambda: self.card.show("Needs your OK", body, buttons=True, detail=req["summary"]))
             self.ui(lambda: self.show_bar("approval"))
@@ -1099,7 +1105,7 @@ class Nova:
         elif op == "ask" and str(msg.get("text", "")).strip():
             self.ui(lambda: self.typed(str(msg["text"]).strip()[:4000], via))
         elif op == "approve":
-            self.ui(lambda: self.answer(bool(msg.get("ok"))))
+            self.ui(lambda: self.answer(bool(msg.get("ok")), msg.get("id", -1)))
         elif op == "cancel":
             self.ui(lambda: (self.phase != "idle" or self.pending) and self.abort())
         elif op == "listen":
@@ -1168,8 +1174,6 @@ class Nova:
     def repair_browsers(self):
         """At startup: make sure every browser Nova is set up for still loads the extension (browser updates
         can reset shortcuts) and has the current extension files; a connected one reloads if they changed."""
-        if os.name != "nt":
-            return
         for bid in self.cfg["browser"]["enabled"]:
             try:
                 if web.exe(bid) and web.install(bid, self.web_token)["files_changed"]:
@@ -1195,7 +1199,7 @@ class Nova:
         if not on:
             return self.note("Browsers", f"Nova is no longer set up for {name}.")
         after = " Restart it once so the extension loads." if web.running(bid) and not self.web.connected(bid) else ""
-        if web.BROWSERS[bid][3] == "guided":
+        if web.BROWSERS[bid][3] != "flag":
             after = f" {name} needs a one-time step: open Nova's Settings → Browsers."
         self.note("Browsers", f"Nova is set up for {name}.{after}")
 

@@ -663,6 +663,7 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="sr" id="say" aria-live="polite"></div>
 
+<!-- md.js -->
 <script>
 "use strict";
 // macOS 12's WebKit (Safari 15) has no canvas roundRect; without it every pill stops drawing
@@ -671,7 +672,7 @@ if (!CanvasRenderingContext2D.prototype.roundRect) CanvasRenderingContext2D.prot
   this.moveTo(x + r, y); this.arcTo(x + w, y, x + w, y + h, r); this.arcTo(x + w, y + h, x, y + h, r);
   this.arcTo(x, y + h, x, y, r); this.arcTo(x, y, x + w, y, r); this.closePath();
 };
-const S_BROWSERS_STEP = /Windows/.test(navigator.userAgent);  // browser control is Windows-only for now
+const S_BROWSERS_STEP = /Windows|Mac/.test(navigator.userAgent);  // browser control: Windows and macOS
 const I = {
   arrow: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
   copy: '<svg class="i" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg>',
@@ -704,7 +705,6 @@ function h(tag, attrs = {}, ...kids) {
   for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
   return el;
 }
-const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const api = () => window.pywebview.api;
 const S = {
   cfg: null, defaults: null, platform: "win", state: {}, bar: "idle", levels: new Array(15).fill(0), mic: 0,
@@ -1004,28 +1004,6 @@ armed($("#clearHist"), "Click again to delete", () => api().clear_history().then
 async function loadHistory() { try { S.history = await api().history(); } catch (e) { S.history = []; } renderHome(); if (S.page === "history") renderHistory(); }
 
 /* ---------- chat ---------- */
-function md(text) {
-  const parts = String(text || "").split(/```[\w-]*\n?([\s\S]*?)```/g);
-  return parts.map((p, i) => i % 2 ? `<pre><code>${esc(p.replace(/\n$/, ""))}</code></pre>` : blocks(p)).join("");
-}
-function inline(s) {
-  return esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');  // links, web only
-}
-function blocks(src) {
-  let html = "", list = null;
-  const close = () => { if (list) { html += `</${list}>`; list = null; } };
-  for (const para of src.split(/\n{2,}/)) {
-    const lines = para.split("\n").filter(l => l.trim());
-    if (!lines.length) continue;
-    const ul = lines.every(l => /^\s*[-*•]\s+/.test(l)), ol = lines.every(l => /^\s*\d+[.)]\s+/.test(l));
-    if (ul || ol) {
-      const tag = ul ? "ul" : "ol"; if (list !== tag) { close(); html += `<${tag}>`; list = tag; }
-      html += lines.map(l => `<li>${inline(l.replace(/^\s*([-*•]|\d+[.)])\s+/, ""))}</li>`).join("");
-    } else { close(); html += `<p>${lines.map(inline).join("<br>")}</p>`; }
-  }
-  close(); return html;
-}
 const thread = () => $("#threadInner");
 function scrollThread() { const t = $("#thread"); requestAnimationFrame(() => t.scrollTop = t.scrollHeight); }
 function emptyChat() {
@@ -1061,8 +1039,8 @@ function endWork(label) {
 function askMsg(ev) {
   endWork();  // steps after the answer start a fresh group below the request
   const bar = h("i"), started = Date.now(), total = ev.timeout * 1000;
-  const allow = h("button", { class: "btn primary sm", onclick: () => send("approve", { ok: true }) }, "Allow");
-  const deny = h("button", { class: "btn sm", onclick: () => send("approve", { ok: false }) }, "Deny");
+  const allow = h("button", { class: "btn primary sm", onclick: () => send("approve", { ok: true, id: ev.id }) }, "Allow");
+  const deny = h("button", { class: "btn sm", onclick: () => send("approve", { ok: false, id: ev.id }) }, "Deny");
   const el = addMsg(h("div", { class: "ask", role: "alert" },
     h("div", { class: "t", html: I.shield + `<span>${esc(ev.who)} needs your OK</span>` }),
     h("div", {}, `It wants to run something that ${ev.reason}:`),
@@ -1464,7 +1442,7 @@ $("#phoneSwitch").addEventListener("click", () => setTimeout(loadPhone, 1500)); 
 armed($("#phoneForget"), "Click again to forget", async () => { try { drawPhone(await api().phone_forget()); toast("Paired phones forgotten"); } catch (e) { fail(e); } });
 
 /* ---------- browsers ---------- */
-const METHOD = { flag: "Set up automatically", guided: "Needs a one-time step" };
+const METHOD = { flag: "Set up automatically", guided: "Needs a one-time step", applescript: "Asks before every click or typing" };
 let browserBox = null;
 async function loadBrowsers(box, logEl, onboarding) {
   browserBox = { box, logEl, onboarding };
@@ -1485,8 +1463,8 @@ function drawBrowsers() {
     const sw = h("button", { class: "switch", role: "switch", "aria-checked": on, "aria-label": `Use ${b.name}` });
     sw.addEventListener("click", ev => { ev.stopPropagation(); toggleBrowser(b, !on); });
     let status;
-    if (live.includes(b.id)) status = h("span", { class: "tag ok", html: I.check + "<span>Connected</span>" });
-    else if (info.enabled.includes(b.id) && b.method === "guided") status = h("button", { class: "btn sm primary", onclick: () => guide(b) }, "Finish setup");
+    if (live.includes(b.id) || b.ready) status = h("span", { class: "tag ok", html: I.check + "<span>Connected</span>" });
+    else if (info.enabled.includes(b.id) && b.method !== "flag") status = h("button", { class: "btn sm primary", onclick: () => guide(b) }, "Finish setup");
     else if (info.enabled.includes(b.id) && b.running) status = h("button", { class: "btn sm primary", onclick: () => restartBrowser(b) }, "Restart to connect");
     else if (info.enabled.includes(b.id)) status = h("span", { class: "tag" }, "Connects when it opens");
     else status = h("span", { class: "tag" }, METHOD[b.method]);
@@ -1526,7 +1504,18 @@ async function guide(b) {
   try {
     const where = await api().browser_guide(b.id);
     const log = browserBox.logEl; log.hidden = false;
-    log.textContent = `${b.name} only loads extensions you add yourself. On the page that just opened:\n1. Turn on “Developer mode” (top right).\n2. Click “Load unpacked” and choose this folder (already copied, paste it into the folder box):\n   ${where}\nNova shows “Connected” as soon as it works. Updates are automatic after that.`;
+    if (b.method === "applescript") {  // Safari: no extension, one setting in Safari itself
+      b.ready = where === true;
+      log.hidden = b.ready;
+      log.textContent = b.ready ? "" : `Nova can read, scroll, click and type in Safari, and asks you before every click or typing (it can't press keys or take screenshots there). To let it in, in Safari:
+1. Safari › Settings › Advanced: tick “Show features for web developers” (on Safari 16: “Show Develop menu in menu bar”).
+2. Settings › Developer (on Safari 16: the Develop menu): tick “Allow JavaScript from Apple Events”, and confirm with your password or Touch ID.
+3. If macOS asks whether Nova may control Safari, click OK.
+Then click “Finish setup” again.`;
+      if (b.ready) toast("Safari is ready");
+      return drawBrowsers();
+    }
+    log.textContent = `${b.name} only loads extensions you add yourself. On the page that just opened:\n1. Turn on “Developer mode” (top right).\n2. Click “Load unpacked” and choose this folder (already copied, ${S.platform === "mac" ? "press Cmd+Shift+G in the folder window and paste it" : "paste it into the folder box"}):\n   ${where}\nNova shows “Connected” as soon as it works. Updates are automatic after that.`;
   } catch (e) { fail(e); }
 }
 

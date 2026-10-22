@@ -4,17 +4,20 @@ conversation as the Nova window, a box to type in (or dictate with the phone key
 Off until you turn it on in Settings → Phone. Only a phone that opened the pairing link (the QR code there) has the
 key; anything else on the network gets the page but can't connect. The key travels in the link's #fragment, which
 browsers never send to a server, and then only in the first message of the connection.
+
+That message isn't encrypted on Wi-Fi, so Phone listens on the home network only on the network it was turned on in
+(known by its router). On any other Wi-Fi (a café, a hotel) only Tailscale, which is encrypted, still works.
 """
 import asyncio
 import base64
 import io
 import json
-import os
 import re
 import secrets
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 import urllib.parse
@@ -23,7 +26,7 @@ from pathlib import Path
 from websockets.datastructures import Headers
 from websockets.http11 import Response
 
-from core.config import DATA, WORKSPACE, write_private
+from core.config import DATA, NO_WINDOW, WORKSPACE, write_private
 
 PORT = 47823
 SIRI_WAIT_S = 50
@@ -33,6 +36,10 @@ TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/heic": "heic", "image/h
          "image/webp": "webp", "application/pdf": "pdf", "text/plain": "txt"}
 PAGE = Path(__file__).with_name("phone.html")
 TOKEN = DATA / "phone-token"
+NETWORK = DATA / "phone-network"  # the router of the network Phone was turned on in
+CHECK_S = 30  # how often Phone checks which network this computer is on
+PAUSED = ("Phone is paused on this Wi-Fi: it isn't the network you turned Phone on in, and anyone on it could "
+          "read the pairing key. Tailscale still works. To use Phone here, turn it off and on again.")
 # the page only talks to the Nova that served it; nothing loads from the internet
 CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
        "connect-src 'self' ws: wss:; frame-ancestors 'none'")
@@ -55,11 +62,46 @@ def addresses():
             found.append(s.getsockname()[0])
     except OSError:
         pass
-    for ip in _tailscale_ips():
-        a, b = map(int, ip.split(".")[:2])
-        if a == 100 and 64 <= b <= 127 and ip not in found:
-            found.append(ip)
-    return found
+    return found + [ip for ip in _tailscale_ips() if _tailscale(ip) and ip not in found]
+
+
+def _tailscale(ip):
+    a, b = map(int, ip.split(".")[:2])
+    return a == 100 and 64 <= b <= 127
+
+
+def router():
+    """The network this computer is on, known by its router's hardware address ('' if it can't be told)."""
+    try:
+        if sys.platform == "darwin":
+            gateway = re.search(r"gateway: (\S+)", subprocess.run(["route", "-n", "get", "default"],
+                                capture_output=True, text=True, timeout=5).stdout).group(1)
+            return re.search(r" at ([0-9a-f:]+)", subprocess.run(["arp", "-n", gateway], capture_output=True,
+                             text=True, timeout=5).stdout).group(1)
+        out = subprocess.run(["powershell", "-NoProfile", "-Command",
+                              "$r = Get-NetRoute -DestinationPrefix 0.0.0.0/0 | Sort-Object RouteMetric | "
+                              "Select-Object -First 1; (Get-NetNeighbor -IPAddress $r.NextHop -InterfaceIndex "
+                              "$r.ifIndex).LinkLayerAddress"], capture_output=True, text=True, timeout=10,
+                             creationflags=NO_WINDOW).stdout.split()
+        return out[0].lower() if out else ""
+    except (OSError, AttributeError, subprocess.SubprocessError):
+        return ""
+
+
+def hosts():
+    """Where Phone listens, and why it's paused ('' if it isn't): everywhere on the network it was turned on in,
+    else only on Tailscale."""
+    now = router()
+    try:
+        home = NETWORK.read_text(encoding="utf-8").strip()
+    except OSError:
+        home = ""
+    if not home and now:  # Phone was on before Nova knew networks: this one is home
+        NETWORK.write_text(now, encoding="utf-8")
+        home = now
+    if not home or now == home:  # shortcut: no router found either time (wired with no ARP entry), trust it
+        return ["0.0.0.0"], ""
+    return [ip for ip in _tailscale_ips() if _tailscale(ip)] or ["127.0.0.1"], PAUSED
 
 
 def _tailscale_ips():
@@ -71,7 +113,7 @@ def _tailscale_ips():
     if exe:
         try:
             out = subprocess.run([exe, "ip", "-4"], capture_output=True, text=True, timeout=5,
-                                 creationflags=0x08000000 if os.name == "nt" else 0).stdout.split()
+                                 creationflags=NO_WINDOW).stdout.split()
             if out:
                 return out
         except (OSError, subprocess.TimeoutExpired):
@@ -103,6 +145,12 @@ def save_upload(data_url, name="", folder=DROP, keep=30):
     return path
 
 
+def page(path):
+    """An HTML page (this phone page, or the Nova window) with the shared reply formatter, core/md.js, put in."""
+    md = Path(__file__).with_name("md.js").read_text(encoding="utf-8")
+    return path.read_text(encoding="utf-8").replace("<!-- md.js -->", f"<script>{md}</script>", 1)
+
+
 def links():
     return [f"http://{ip}:{PORT}/#{token()}" for ip in addresses()]
 
@@ -119,28 +167,52 @@ class Phone:
 
     def __init__(self, on_msg):
         self.on_msg, self.clients, self.server, self.error = on_msg, set(), None, ""
+        self.on, self.hosts, self.watching = False, None, False
+        self.lock = asyncio.Lock()
         self.waiters = []  # Siri requests waiting for Nova's answer
         self.loop = asyncio.new_event_loop()
         threading.Thread(target=self.loop.run_forever, daemon=True).start()
 
-    def enable(self, on):
-        """Listen on the network (Settings → Phone on), or stop and drop every phone."""
+    def enable(self, on, here=False):
+        """Listen on the network (Settings → Phone on), or stop and drop every phone. `here`: the user just turned
+        Phone on, so this network is the one to trust."""
+        if on and here:
+            DATA.mkdir(parents=True, exist_ok=True)
+            NETWORK.write_text(router(), encoding="utf-8")
         asyncio.run_coroutine_threadsafe(self._enable(bool(on)), self.loop)
 
     async def _enable(self, on):
+        self.on = on
+        await self._listen()
+        if on and not self.watching:  # moved to another Wi-Fi (or back home): listen where it's safe
+            self.watching = True
+            while self.on:
+                await asyncio.sleep(CHECK_S)
+                if self.on:
+                    await self._listen()
+            self.watching = False
+
+    async def _listen(self):
+        async with self.lock:  # the network check and a Settings toggle never start two servers
+            await self._relisten()
+
+    async def _relisten(self):
         from websockets.asyncio.server import serve
-        if on and not self.server:
-            try:
-                # room for a 25 MB photo or file from the phone (sent base64-encoded, a third bigger)
-                self.server = await serve(self._client, "0.0.0.0", PORT, process_request=self._http,
-                                          max_size=MAX_UPLOAD * 4 // 3 + 2 ** 16)
-                self.error = ""
-            except OSError as e:  # the port is taken: Settings shows why
-                self.error = f"Port {PORT} is in use by another program ({e.strerror})."
-        elif not on and self.server:
+        where, why = await self.loop.run_in_executor(None, hosts) if self.on else (None, "")
+        if where == self.hosts and (self.server or not self.on):
+            return
+        if self.server:
             self.server.close()
             await self.server.wait_closed()
             self.server = None
+        self.hosts, self.error = where, why
+        if self.on:
+            try:
+                # room for a 25 MB photo or file from the phone (sent base64-encoded, a third bigger)
+                self.server = await serve(self._client, where, PORT, process_request=self._http,
+                                          max_size=MAX_UPLOAD * 4 // 3 + 2 ** 16)
+            except OSError as e:  # the port is taken: Settings shows why
+                self.error = f"Port {PORT} is in use by another program ({e.strerror})."
 
     def _http(self, connection, request):
         path, _, query = request.path.partition("?")
@@ -149,13 +221,15 @@ class Phone:
         if path == "/ask":  # Siri: "Hey Siri, ask Nova" (a Shortcut opens this link and speaks what comes back)
             return self._ask(connection, urllib.parse.parse_qs(query))
         if path in ("/", "/index.html"):
-            body, kind = PAGE.read_bytes(), "text/html; charset=utf-8"
+            body, kind = page(PAGE).encode("utf-8"), "text/html; charset=utf-8"
         elif path in ("/icon.png", "/apple-touch-icon.png"):
             body, kind = _icon(), "image/png"
         else:
             return connection.respond(404, "Not found\n")
-        return Response(200, "OK", Headers([("Content-Type", kind), ("Content-Length", str(len(body))),
-                                            ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"),
+        # websockets hangs up after every plain HTTP response; without saying so, Safari keeps the socket and its
+        # reload goes down the dead one ("the network connection was lost")
+        return Response(200, "OK", Headers([("Connection", "close"), ("Content-Type", kind),
+                                            ("Content-Length", str(len(body))), ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"),
                                             ("Referrer-Policy", "no-referrer"), ("Content-Security-Policy", CSP)]), body)
 
     async def _ask(self, connection, query):

@@ -20,8 +20,10 @@ SECRETS = (r"login data|logins\.json|key4\.db|web data|cookies\.sqlite|[\\/]netw
            r"|(?:^|[\\/\s\"'=:])\.(?:ssh(?![\\/][\w.-]+\.pub\b)|aws|kube|docker|gnupg)\b"
            # ...and the key files by name, wherever a wildcard put them ("~\*\id_ed25519", "~\*\credentials")
            r"|\bid_(?:rsa|ecdsa|ed25519|dsa)\b(?!\.pub)|[\\/*]credentials(?:$|[\s\"'*;|)])"
-           # Nova's own keys, and the browser extension's copy of its token (%LOCALAPPDATA%\Nova\browser\...)
-           r"|fallback\.key|browser-token|events\.key|phone-token|(?:appdata[\\/]local|localappdata%?)[\\/]nova\b"
+           # Nova's own keys, and the browser extension's copy of its token (%LOCALAPPDATA%\Nova\browser\..., and
+           # ~/Library/Application Support/Nova/browser/... on a Mac)
+           r"|fallback\.key|browser-token|events\.key|phone-token"
+           r"|(?:appdata[\\/]local|localappdata%?|application support)[\\/]nova\b"
            # other tools' saved logins: git, package registries, and the AI CLIs themselves
            r"|\.git-credentials|\.netrc\b|\.npmrc|\.pypirc|gh[\\/]hosts\.yml|\.claude[\\/]\.credentials"
            r"|\.codex[\\/]auth\.json")
@@ -34,12 +36,13 @@ RECURSIVE = (r"\b(?:rg|ag|find|tree)\b|\b(?:grep|ls)\b[^;|&\n]*\s-(?:-recursive\
              r"|\s/s\b")
 WIDE_WHY = "searches your whole home folder or drive, where your keys are"
 NOVA_SEARCH_WHY = "searches Nova's own folder, where Nova's keys are"
+DELETE = r"(\b(rm|del|erase|rd|rmdir|remove-item|ri)\b|(\.|::)delete\w*)"
 
 BLOCK = [
     (r"\bformat(\.com)?\s+[a-z]:|\bdiskpart\b|\bbcdedit\b|\bcipher\s+/w|\bvssadmin\s+delete|\bwbadmin\s+delete"
      r"|clear-disk|initialize-disk|format-volume", "wipes a disk or the boot configuration"),
     # ...also through .NET or COM ([IO.Directory]::Delete("C:\Windows", $true), $fso.DeleteFolder($HOME))
-    (r"(\b(rm|del|erase|rd|rmdir|remove-item|ri)\b|(\.|::)delete\w*)" + UNTIL_END +
+    (DELETE + UNTIL_END +
      r"([\s(,][\"']?[a-z]:[\\/]?[\"']?(\s|$|\*|\)|,)|\s/(\s|$|\*)|[\s(,]~[\\/]?(\s|$|\)|,)"
      r"|[\s(,][\"']?\$(home|env:userprofile)[\\/]?[\"']?(\s|$|\)|,)|\\windows\b|system32|program files|programdata"
      r"|\$env:(windir|systemroot|programfiles)|%(windir|systemroot)%"
@@ -221,6 +224,11 @@ def _command(cmd, home=None, cwd=None):
     for pattern, why in BLOCK:
         if re.search(pattern, c):
             return "block", why
+    # ...and deleting the home folder, the Users folder or a drive however it's spelled: "$HOME"/*, ${HOME}, ~\*
+    bare = re.sub(r"[\"']", "", re.sub(r"\$\{(\w+)\}", r"$\1", c))
+    if re.search(DELETE + UNTIL_END + r"[\s(,=]" + WIDE, bare) or \
+            re.search(r"\bfind\s+" + WIDE + UNTIL_END + r"\s-delete\b", bare):
+        return "block", "deletes system folders or a whole drive"
     if re.search(RECURSIVE, c) and re.search(r"(?:^|[\s\"'=(,])" + WIDE, c):  # "grep -r . ~", "rg --hidden x C:\"
         return "confirm", WIDE_WHY
     # ...and through Nova's own folder or one above it, which hold data\ with Nova's keys ("grep -r . ..": from

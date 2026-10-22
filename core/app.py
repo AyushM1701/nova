@@ -234,7 +234,7 @@ class Api:
     # ---------- browsers (core/browser.py) ----------
     def browsers(self):
         cfg, _ = load_config()
-        found = web.detect() if os.name == "nt" else []
+        found = web.detect()
         for b in found:
             b["folder"] = str(web.folder(b["id"]))
         return {"found": found, "enabled": cfg["browser"]["enabled"], "default": cfg["browser"]["default"]}
@@ -262,8 +262,15 @@ class Api:
         return True
 
     def browser_guide(self, bid):
-        """Chrome and Edge: open their extensions page and put the folder to load on the clipboard."""
-        page = {"chrome": "chrome://extensions", "edge": "edge://extensions"}.get(bid, "about:blank")
+        """Chrome, Edge and Arc: open their extensions page and put the folder to load on the clipboard.
+        Safari: open it and say whether its "Allow JavaScript from Apple Events" is on yet."""
+        if web.BROWSERS[bid][3] == "applescript":
+            if not web.running(bid):
+                web.launch(bid)
+                time.sleep(3)
+            return web.safari_ready()
+        page = {"chrome": "chrome://extensions", "edge": "edge://extensions",
+                "arc": "arc://extensions"}.get(bid, "about:blank")
         clipboard.set_text(str(web.folder(bid)))
         subprocess.Popen([web.exe(bid), page], creationflags=system.NO_WINDOW)
         return str(web.folder(bid))
@@ -475,7 +482,7 @@ def main():
         except Exception as e:
             log("error", error=f"dock icon: {e!r}")
     api = Api()
-    window = webview.create_window("Nova", html=HTML.read_text(encoding="utf-8"), js_api=api, width=1080, height=740,
+    window = webview.create_window("Nova", html=phone.page(HTML), js_api=api, width=1080, height=740,
                                    min_size=(820, 580), background_color=window_bg())
     api._window = window
     window.events.closed += api.mic_stop

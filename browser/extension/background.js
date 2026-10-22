@@ -3,7 +3,7 @@
 // panel and the toolbar badge in sync. Safety decisions (what needs your OK, what is blocked) are made by Nova.
 "use strict";
 
-const state = { ws: null, cfg: null, bar: "idle", ports: new Set(), doneTimer: null };
+const state = { ws: null, cfg: null, bar: "idle", ports: new Set(), doneTimer: null, retry: null, wait: 1000 };
 
 async function config() {
   if (!state.cfg) state.cfg = await (await fetch(chrome.runtime.getURL("nova.json"))).json();
@@ -11,9 +11,11 @@ async function config() {
 }
 
 async function connect() {
+  clearTimeout(state.retry);
   if (state.ws && state.ws.readyState <= 1) return;
   let cfg;
   try { cfg = await config(); } catch { return; }  // installed without nova.json: nothing to talk to
+  if (state.ws && state.ws.readyState <= 1) return;  // another connect() got here first
   const ws = new WebSocket(`ws://127.0.0.1:${cfg.port}`);
   state.ws = ws;
   ws.onopen = () => {
@@ -21,17 +23,28 @@ async function connect() {
                              version: chrome.runtime.getManifest().version }));
     badge("idle");
   };
-  ws.onmessage = e => { try { onNova(JSON.parse(e.data)); } catch (err) { console.error(err); } };
-  ws.onclose = () => { if (state.ws === ws) state.ws = null; badge("off"); };
+  ws.onmessage = e => {
+    state.wait = 1000;  // Nova answered, so the hello was accepted
+    try { onNova(JSON.parse(e.data)); } catch (err) { console.error(err); }
+  };
+  ws.onclose = () => {
+    if (state.ws !== ws) return;
+    state.ws = null; state.cfg = null;  // re-read nova.json: Nova may have reinstalled us with a new token
+    badge("off");
+    // Nova restarted or isn't running yet: try again soon, backing off to every 5 s
+    state.retry = setTimeout(connect, state.wait); state.wait = Math.min(state.wait * 2, 5000);
+  };
   ws.onerror = () => {};
 }
 
 function send(msg) { if (state.ws && state.ws.readyState === 1) state.ws.send(JSON.stringify(msg)); }
 
-// keep the worker alive and reconnect: an open socket with traffic every 20 s keeps MV3 workers running,
-// and the alarm restarts the connection if the browser stopped the worker anyway
-setInterval(() => send({ type: "ping" }), 20000);
-chrome.alarms.create("nova-reconnect", { periodInMinutes: 0.5 });
+// keep the worker alive: traffic on an open socket every 20 s keeps an MV3 worker running, and while Nova is
+// away an extension API call does the same, so the retries above keep going instead of the worker going idle
+setInterval(() => state.ws && state.ws.readyState === 1 ? send({ type: "ping" }) : chrome.runtime.getPlatformInfo(), 20000);
+// the browser stopped the worker anyway: the alarm wakes it, and waking runs connect() below.
+// Created only once, since creating it again on every wake would push its next run back.
+chrome.alarms.get("nova-reconnect", a => a || chrome.alarms.create("nova-reconnect", { periodInMinutes: 0.5 }));
 chrome.alarms.onAlarm.addListener(connect);
 chrome.runtime.onStartup.addListener(connect);
 chrome.runtime.onInstalled.addListener(() => {
@@ -242,16 +255,21 @@ function readPage(mode) {
   return head + "\n" + lines.join("\n");
 }
 
-function elementInfo(ref) {
-  const el = document.querySelector(`[data-nova-ref="${CSS.escape(ref)}"]`);
+function elementInfo(ref) {  // ref "": the element that has focus
+  const el = ref ? document.querySelector(`[data-nova-ref="${CSS.escape(ref)}"]`) : document.activeElement;
   if (!el) return { error: `No element [${ref}] on this page. Read the page again to get fresh refs.` };
   const label = (el.getAttribute("aria-label") || (el.labels && el.labels[0] && el.labels[0].innerText) || el.innerText ||
     el.value || el.getAttribute("placeholder") || el.getAttribute("name") || el.getAttribute("title") || "").replace(/\s+/g, " ").trim().slice(0, 120);
   const type = (el.getAttribute("type") || "").toLowerCase();
   const isSubmit = (el.tagName === "BUTTON" && (type === "submit" || (!type && !!el.form))) ||
     (el.tagName === "INPUT" && (type === "submit" || type === "image"));
-  return { tag: el.tagName.toLowerCase(), type, role: el.getAttribute("role") || "", name: label,
-           field: [el.getAttribute("name"), el.id, el.getAttribute("placeholder"), el.getAttribute("aria-label")].filter(Boolean).join(" "),
+  // a search box by its markup too, for sites whose box has no "search" in its name or placeholder
+  const search = type === "search" || el.getAttribute("role") === "searchbox" || el.getAttribute("enterkeyhint") === "search" ||
+    el.getAttribute("inputmode") === "search" || !!el.closest("[role=search]") ||
+    /search|results/i.test(el.form ? el.form.getAttribute("action") || "" : "");
+  return { tag: el.tagName.toLowerCase(), type, role: el.getAttribute("role") || "", name: label, search,
+           field: [el.getAttribute("name"), el.id, el.getAttribute("placeholder"), el.getAttribute("aria-label"),
+                   el.getAttribute("data-testid")].filter(Boolean).join(" "),
            autocomplete: (el.getAttribute("autocomplete") || "").toLowerCase(), inForm: !!el.form, isSubmit,
            href: el.href || "", url: location.href, host: location.host };
 }

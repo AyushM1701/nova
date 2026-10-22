@@ -8,6 +8,8 @@ import sys
 import time
 from pathlib import Path
 
+from core.config import NO_WINDOW
+
 if sys.platform == "darwin":
     from AppKit import NSPasteboard, NSPasteboardItem, NSPasteboardTypeString
 
@@ -54,7 +56,7 @@ def copy_file(path, image=False):
         args = ["powershell", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", str(helpers / "clipboard.ps1"),
                 str(path)]
     r = subprocess.run(args + (["-Image"] if image else []), capture_output=True, text=True, timeout=60,
-                       creationflags=0 if sys.platform == "darwin" else 0x08000000)
+                       creationflags=NO_WINDOW)
     if r.returncode:
         raise RuntimeError((r.stderr or r.stdout).strip()[-300:] or "the clipboard helper failed")
 

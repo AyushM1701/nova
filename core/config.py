@@ -14,6 +14,7 @@ LOGS, DATA, WORKSPACE = ROOT / "logs", ROOT / "data", ROOT / "workspace"
 NOTES = WORKSPACE / "notes"
 LOG_HOOKS = []  # Nova forwards every log entry to its open app window
 KEEP_LOG_DAYS = 30
+NO_WINDOW = 0 if os.name != "nt" else 0x08000000  # creationflags for child processes: no console window flashes
 
 
 def memory_text():

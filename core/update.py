@@ -18,7 +18,8 @@ from core.system import NO_WINDOW
 REPO = "AyushM1701/nova"
 VERSION_URL = f"https://raw.githubusercontent.com/{REPO}/main/VERSION"
 ZIP_URL = f"https://github.com/{REPO}/archive/refs/heads/main.zip"
-KEEP = {".git", ".venv", "data", "logs", "workspace", "config.json"}  # this computer's own; never replaced
+KEEP = {".git", ".venv", "data", "logs", "workspace", "config.json", ".update-files"}  # this computer's own
+FILES = ".update-files"  # what the last update wrote, so the next one can remove what a new version dropped
 
 
 def parse(version):
@@ -43,8 +44,9 @@ def newer():
 
 
 def unpack(archive, root=ROOT):
-    """Write GitHub's main.zip over Nova's folder, skipping this computer's own files. Returns the file count."""
-    count = 0
+    """Write GitHub's main.zip over Nova's folder, skipping this computer's own files, and remove the files an
+    earlier update wrote that this version no longer has. Returns the file count."""
+    written = []
     with zipfile.ZipFile(io.BytesIO(archive)) as z:
         for info in z.infolist():
             parts = Path(info.filename).parts[1:]  # drop the "nova-main/" folder
@@ -57,8 +59,17 @@ def unpack(archive, root=ROOT):
             dest.write_bytes(z.read(info))
             if os.name != "nt" and (info.external_attr >> 16) & 0o111:
                 dest.chmod(0o755)  # setup.sh and friends stay runnable
-            count += 1
-    return count
+            written.append("/".join(parts))
+    try:  # only files an update wrote: models, your own files and anything from before this list stay
+        dropped = set((root / FILES).read_text(encoding="utf-8").splitlines()) - set(written)
+    except OSError:
+        dropped = set()
+    for name in dropped:
+        parts = name.split("/")
+        if name and parts[0] not in KEEP and ".." not in parts:
+            root.joinpath(*parts).unlink(missing_ok=True)
+    (root / FILES).write_text("\n".join(written), encoding="utf-8")
+    return len(written)
 
 
 def install():

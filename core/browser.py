@@ -8,23 +8,30 @@ card numbers or one-time codes is blocked. Page text is untrusted data.
 
 Install: the extension is copied to %LOCALAPPDATA%/Nova/browser/<browser> and `--load-extension=<that folder>`
 is added to the browser's user-level shortcuts, taskbar pin, start-at-login entry and link-open command.
+On a Mac the copy lives in ~/Library/Application Support/Nova/browser/<browser>, and Nova starts the browser with
+the flag itself (macOS has no per-app shortcut to edit).
 """
 import asyncio
 import hashlib
 import json
 import os
+import plistlib
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
 
+from core.config import NO_WINDOW
 from guard.guard import PLAN, with_mode
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "browser" / "extension"
-HOME = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Nova" / "browser"
+MAC = sys.platform == "darwin"
+HOME = Path.home() / "Library" / "Application Support" / "Nova" / "browser" if MAC else \
+    Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Nova" / "browser"
 PORT = 47822
 _L, _PF, _PF86 = os.environ.get("LOCALAPPDATA", ""), os.environ.get("ProgramFiles", ""), os.environ.get("ProgramFiles(x86)", "")
 # id: (name, executable candidates, ProgId for links, install method, ticked by default)
@@ -41,8 +48,24 @@ BROWSERS = {
     "chrome": ("Google Chrome", [rf"{_PF}\Google\Chrome\Application\chrome.exe",
                                  rf"{_L}\Google\Chrome\Application\chrome.exe"], "ChromeHTML", "guided", False),
 }
-SPOKEN = {"opera gx": "opera-gx", "operagx": "opera-gx", "oprah gx": "opera-gx", "opera g x": "opera-gx", "brave": "brave", "opera": "opera", "vivaldi": "vivaldi",
-          "edge": "edge", "microsoft edge": "edge", "chrome": "chrome", "google chrome": "chrome"}
+# on a Mac the candidates are app bundles (exe() finds the program inside); no ProgId
+MAC_BROWSERS = {bid: (name, [f"{d}/{app}.app" for d in ("/Applications", Path.home() / "Applications")], None, method,
+                      ticked)
+                for bid, name, app, method, ticked in [
+                    ("opera-gx", "Opera GX", "Opera GX", "flag", True), ("brave", "Brave", "Brave Browser", "flag", True),
+                    ("opera", "Opera", "Opera", "flag", False), ("vivaldi", "Vivaldi", "Vivaldi", "flag", False),
+                    ("edge", "Microsoft Edge", "Microsoft Edge", "guided", False),
+                    ("chrome", "Google Chrome", "Google Chrome", "guided", False),
+                    # Arc: not known to honour --load-extension, so the one-time step that works in any Chromium
+                    ("arc", "Arc", "Arc", "guided", False),
+                    # Safari can't load this extension: read, navigate and tabs only, through AppleScript (below)
+                    ("safari", "Safari", "Safari", "applescript", False)]}
+if MAC:
+    BROWSERS = MAC_BROWSERS
+SPOKEN = {k: v for k, v in {"opera gx": "opera-gx", "operagx": "opera-gx", "oprah gx": "opera-gx", "opera g x": "opera-gx", "brave": "brave", "opera": "opera", "vivaldi": "vivaldi",
+          "edge": "edge", "microsoft edge": "edge", "chrome": "chrome", "google chrome": "chrome", "arc": "arc",
+                            "safari": "safari"}.items()
+          if v in BROWSERS}
 NAMES_RE = "|".join(sorted(map(re.escape, SPOKEN), key=len, reverse=True))
 
 # ---------- safety: what a browser action may do without asking ----------
@@ -58,16 +81,27 @@ CARD_DIGITS = re.compile(r"^\D*(?:\d[ -]?){13,19}\D*$")
 SEARCH = re.compile(r"search|query|\bq\b|find", re.I)
 
 
-def classify(tool, args, element=None, mode="accept_edits"):
+def classify(tool, args, element=None, mode="accept_edits", trusted=True):
     """('allow' | 'confirm' | 'block', why) for one browser action. `element` is what the extension reports
     about the real element on the page (not what the AI says it is). `mode` is the permission mode: Plan only
-    reads, Manual also asks before typing or picking, Bypass never asks; blocked typing stays blocked."""
+    reads, Manual also asks before typing or picking, Bypass never asks; blocked typing stays blocked.
+    `trusted` False: the element report came from the page's own JavaScript (Safari), which the page could fake,
+    so every click, type and pick asks."""
     tier, why = _classify(tool, args, element)
+    # ...except a search: a page faking a search box could only get a search's text submitted to itself
+    if not trusted and tier == "allow" and tool in ("click", "type", "select") and why != "searches":
+        tier, why = "confirm", f"{why} in Safari, where Nova can't check the page element for itself"
     if tier == "allow" and mode == "plan" and tool not in ("tabs", "navigate", "read", "inspect", "scroll", "screenshot"):
         return "block", PLAN
     if tier == "allow" and mode == "manual" and tool in ("type", "select"):
         return "confirm", f"{why} (Manual mode asks before every change)"
     return with_mode(tier, why, mode, unfamiliar=False)
+
+
+def _search_box(el):
+    """The element is a site's search box (YouTube, Spotify, …): submitting what's typed there only searches."""
+    return el.get("type") == "search" or el.get("search") or \
+        bool(SEARCH.search(f'{el.get("field", "")} {el.get("name", "")}'))
 
 
 def _classify(tool, args, element=None):
@@ -80,7 +114,9 @@ def _classify(tool, args, element=None):
         if el.get("type") == "password" or SECRET_AUTOCOMPLETE.search(el.get("autocomplete", "")) or \
                 SECRET_FIELD.search(field) or CARD_DIGITS.match(str(args.get("text", ""))):
             return "block", f"types into a password, card or one-time-code field ({what}); you do that yourself"
-        if args.get("submit") and not (el.get("type") == "search" or SEARCH.search(field)):
+        if _search_box(el):
+            return "allow", "searches"
+        if args.get("submit"):
             return "confirm", f"types into {what} and submits the form"
         return "allow", "types into a field"
     if tool == "click":
@@ -90,6 +126,8 @@ def _classify(tool, args, element=None):
     if tool == "select":
         return "allow", "picks from a dropdown"
     if tool == "press":
+        if args.get("key") in ("Enter", "\r", "\n") and el.get("tag") in ("input", "textarea") and _search_box(el):
+            return "allow", "searches"  # Enter in the focused search box (Nova checked which element has focus)
         if args.get("key") in ("Enter", "Space", " ", "\r", "\n"):  # on a focused button these click it
             return "confirm", f"presses {args['key']!r}, which may submit a form or click a button"
         return "allow", "presses a key"
@@ -102,8 +140,9 @@ def _classify(tool, args, element=None):
 
 # ---------- install ----------
 def extension_id(folder):
-    """Chromium's ID for an unpacked extension: SHA-256 of its folder path (UTF-16), first 32 hex digits as a-p."""
-    digest = hashlib.sha256(str(folder).encode("utf-16-le")).hexdigest()[:32]
+    """Chromium's ID for an unpacked extension: SHA-256 of its folder path, first 32 hex digits as a-p."""
+    # the path's bytes as Chromium stores them: UTF-16 on Windows, UTF-8 elsewhere
+    digest = hashlib.sha256(str(folder).encode("utf-8" if MAC else "utf-16-le")).hexdigest()[:32]
     return "".join(chr(ord("a") + int(c, 16)) for c in digest)
 
 
@@ -111,8 +150,18 @@ def folder(bid):
     return HOME / bid
 
 
+def app_binary(app):
+    """The program inside a macOS app bundle, named by its Info.plist (None if it isn't a usable app)."""
+    try:
+        name = plistlib.loads((Path(app) / "Contents" / "Info.plist").read_bytes())["CFBundleExecutable"]
+    except (OSError, ValueError, KeyError):
+        return None
+    return str(Path(app) / "Contents" / "MacOS" / name)
+
+
 def exe(bid):
-    return next((p for p in BROWSERS[bid][1] if p and Path(p).exists()), None)
+    paths = (app_binary(p) for p in BROWSERS[bid][1]) if MAC else BROWSERS[bid][1]
+    return next((p for p in paths if p and Path(p).exists()), None)
 
 
 def detect():
@@ -121,7 +170,8 @@ def detect():
     for bid, (name, _, _, method, ticked) in BROWSERS.items():
         path = exe(bid)
         if path:
-            out.append({"id": bid, "name": name, "method": method, "default_ticked": ticked, "running": running(bid)})
+            out.append({"id": bid, "name": name, "method": method, "default_ticked": ticked, "running": running(bid),
+                        "ready": method == "applescript" and safari_ready()})
     return out
 
 
@@ -129,9 +179,17 @@ def running(bid):
     path = exe(bid)
     if not path:
         return False
-    r = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {Path(path).name}", "/NH"], capture_output=True, text=True,
-                       creationflags=0x08000000)
-    return Path(path).name.lower() in r.stdout.lower()
+    if MAC:  # the main program only: helpers live elsewhere in the bundle
+        return subprocess.run(["pgrep", "-f", path], capture_output=True).returncode == 0
+    return bool(_pids(path))
+
+
+def _pids(path):
+    """Windows: the processes running this exact program (Opera and Opera GX are both opera.exe)."""
+    r = subprocess.run(["powershell", "-NoProfile", "-Command", "(Get-Process -Name $env:NOVA_NAME -ErrorAction "
+                        "SilentlyContinue | Where-Object Path -eq $env:NOVA_EXE).Id"], capture_output=True, text=True,
+                       env=dict(os.environ, NOVA_NAME=Path(path).stem, NOVA_EXE=str(path)), creationflags=NO_WINDOW)
+    return r.stdout.split()
 
 
 def with_flag(command, ext, on=True):
@@ -184,14 +242,16 @@ $out -join "`n"
 
 def set_flag(bid, on):
     """Add (or remove) --load-extension everywhere this browser starts from. Returns {changed, skipped}."""
-    import winreg
     path, ext = exe(bid), str(folder(bid))
     report = {"changed": [], "skipped": []}
-    if not path:
+    # shortcut: on a Mac only a launch by Nova (launch/restart/ensure) carries the flag; a Dock launch doesn't, until
+    # Nova restarts it. Upgrade if users hit that often (e.g. a small launcher app that adds the flag).
+    if not path or MAC:
         return report
+    import winreg
     r = subprocess.run(["powershell", "-NoProfile", "-Command", LNK_SCRIPT], capture_output=True, text=True,
                        env=dict(os.environ, NOVA_JOB=json.dumps({"exe": path, "ext": ext, "on": on})),
-                       creationflags=0x08000000)
+                       creationflags=NO_WINDOW)
     for line in r.stdout.splitlines():
         kind, _, where = line.partition("|")
         if kind in report:  # "skipped" is a shortcut only an administrator may change
@@ -243,6 +303,8 @@ def set_flag(bid, on):
 
 
 def install(bid, token):
+    if BROWSERS[bid][3] == "applescript":  # nothing to copy: Nova talks to Safari directly
+        return {"files_changed": False, "changed": [], "skipped": []}
     changed = install_files(bid, token)
     report = set_flag(bid, True) if BROWSERS[bid][3] == "flag" else {"changed": [], "skipped": []}
     return {"files_changed": changed, **report}
@@ -256,23 +318,183 @@ def uninstall(bid):
 
 def launch(bid):
     path = exe(bid)
-    if path:
-        subprocess.Popen([path, f"--load-extension={folder(bid)}"], creationflags=0x08000000)
+    if path and BROWSERS[bid][3] == "applescript":
+        subprocess.Popen(["open", "-a", str(Path(path).parents[2])])
+    elif path:
+        subprocess.Popen([path, f"--load-extension={folder(bid)}"], creationflags=NO_WINDOW, start_new_session=MAC)
 
 
 def restart(bid):
     """Close the browser (it restores its tabs) and start it again with the extension."""
     path = exe(bid)
     if path:
-        subprocess.run(["taskkill", "/IM", Path(path).name], capture_output=True, creationflags=0x08000000)
+        pids = [] if MAC else [arg for pid in _pids(path) for arg in ("/PID", pid)]  # this browser's own processes
+        subprocess.run(["osascript", "-e", f'quit app "{Path(path).parents[2].stem}"'] if MAC else
+                       ["taskkill", *pids], capture_output=True, creationflags=NO_WINDOW)
         for _ in range(40):
             if not running(bid):
                 break
             time.sleep(0.25)
         else:
-            subprocess.run(["taskkill", "/F", "/IM", Path(path).name], capture_output=True, creationflags=0x08000000)
+            subprocess.run(["pkill", "-9", "-f", path] if MAC else ["taskkill", "/F", *pids], capture_output=True,
+                           creationflags=NO_WINDOW)
             time.sleep(1)
         launch(bid)
+
+
+# ---------- Safari (macOS): the extension's page functions through AppleScript ----------
+# Safari can't run this extension (it needs an Xcode-built, signed app and has no chrome.debugger), so Nova drives
+# it with AppleScript and runs the extension's own page functions with `do JavaScript`. Those run in the page's
+# world, where the page could fake what an element is, so clicks, typing and picks always ask (see classify).
+# Pressing keys and scripts need chrome.debugger, and screenshots captureVisibleTab: those stay off.
+SAFARI_STEPS = ("Safari isn't letting Nova in yet. In Safari: Settings › Advanced, tick “Show features for web "
+                "developers” (on Safari 16: “Show Develop menu in menu bar”); then tick “Allow JavaScript from Apple "
+                "Events” in Settings › Developer (on Safari 16: the Develop menu) and confirm with your password or "
+                "Touch ID. If macOS asks whether Nova may control Safari, click OK.")
+SAFARI_ONLY = ("Nova can't press keys, take screenshots, download or run scripts in Safari. Use read, click, type, "
+               "select or scroll, or tell the user to do that step themselves or use another browser set up in Nova.")
+# tool → the extension's function that does it inside the page (background.js), and its arguments
+PAGE = {"read": ("readPage", lambda a, ref: [a.get("mode", "outline")]),
+        "inspect": ("elementInfo", lambda a, ref: [ref]), "click": ("clickElement", lambda a, ref: [ref]),
+        "type": ("typeInto", lambda a, ref: [ref, str(a.get("text", "")), bool(a.get("submit"))]),
+        "select": ("selectOption", lambda a, ref: [ref, str(a.get("value", ""))]),
+        "scroll": ("scrollPage", lambda a, ref: [a.get("direction", "down"), ref])}
+SAFARI_TABS = '''set sep to tab
+set out to {}
+tell application "Safari"
+  repeat with w in (every window where its document is not missing value)
+    try
+      set wid to id of w
+      set ct to index of current tab of w
+      repeat with t in tabs of w
+        set end of out to (wid as text) & sep & (index of t as text) & sep & ((index of t = ct) as text) & sep & ¬
+          (URL of t as text) & sep & (name of t as text)
+      end repeat
+    end try
+  end repeat
+end tell
+set AppleScript's text item delimiters to linefeed
+return out as text'''
+
+# a new tab, in the front browser window (a new window if there's none); about:blank, not the Start Page, so
+# JavaScript runs in it right away
+SAFARI_OPEN = '''on run argv
+tell application "Safari"
+  activate
+  set wins to every window where its document is not missing value
+  if (count of wins) = 0 then
+    make new document with properties {URL:(item 1 of argv)}
+    set w to item 1 of (every window where its document is not missing value)
+  else
+    set w to item 1 of wins
+    tell w to set current tab to (make new tab with properties {URL:(item 1 of argv)})
+  end if
+  return ((id of w) as text) & " " & (index of current tab of w as text)
+end tell
+end run'''
+
+
+def _osa(script, *args):
+    r = subprocess.run(["osascript", "-e", script, *map(str, args)], capture_output=True, text=True, timeout=30)
+    if r.returncode:
+        err = r.stderr.strip()
+        if "Apple Events" in err or "-1743" in err:  # the Develop setting is off, or macOS's Automation prompt was denied
+            raise RuntimeError(SAFARI_STEPS)
+        raise RuntimeError(err or "Safari didn't answer")
+    return r.stdout.rstrip("\n")
+
+
+def _safari_tab(tab_id):
+    """AppleScript for one tab. Nova's tab id is the window's id × 1000 + the tab's position in it."""
+    return f"tab {int(tab_id) % 1000} of window id {int(tab_id) // 1000}" if tab_id else "front document"
+
+
+def _safari_js(where, code):
+    return _osa(f'on run argv\ntell application "Safari" to do JavaScript (item 1 of argv) in {where}\nend run', code)
+
+
+def _web_address(url):
+    if not re.match(r"https?://|about:blank$", url or "", re.I):  # no javascript: or file: through "navigate"
+        raise RuntimeError(f"Safari: Nova only opens http(s) addresses, not {str(url)[:80]!r}.")
+    return url
+
+
+def safari_tabs():
+    tabs = []
+    for line in filter(None, _osa(SAFARI_TABS).split("\n")):
+        wid, idx, active, url, title = (line.split("\t", 4) + [""] * 5)[:5]
+        url = "" if url == "missing value" else url  # a Start Page tab has no address
+        tabs.append({"id": int(wid) * 1000 + int(idx), "title": title, "url": url, "active": active == "true",
+                     "window": int(wid)})
+    return tabs
+
+
+def safari_ready():
+    """Safari is open and runs JavaScript from Nova (its "Allow JavaScript from Apple Events" is on)."""
+    try:
+        return running("safari") and _safari_js("front document", "1") == "1"
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def safari_call(tool, args):
+    """One browser tool in Safari, in the same shape the extension answers with."""
+    where = _safari_tab(args.get("tab_id"))
+
+    def settle(where):
+        time.sleep(0.3)
+        for _ in range(60):  # up to 15 s, like the extension
+            try:
+                if _safari_js(where, "document.readyState") == "complete":
+                    break
+            except RuntimeError:
+                pass
+            time.sleep(0.25)
+        return json.loads(_safari_js(where, "JSON.stringify({title: document.title, url: location.href})"))
+
+    if tool in PAGE:
+        name, make = PAGE[tool]
+        source = (SOURCE / "background.js").read_text(encoding="utf-8")
+        fn = re.search(rf"^function {name}\(.*?^\}}\r?$", source, re.S | re.M).group(0)
+        ref = None if args.get("ref") is None else str(args["ref"])
+        params = ", ".join(json.dumps(x) for x in make(args, ref))
+        result = json.loads(_safari_js(where, f"JSON.stringify(({fn})({params}))"))
+        if isinstance(result, dict) and result.get("error"):
+            raise RuntimeError(result["error"])
+        if tool == "click":  # it may have opened another page
+            settle(where)
+        return result
+    if tool == "navigate":
+        action = args.get("action", "go")
+        if action == "go":
+            _osa(f'on run argv\ntell application "Safari" to set URL of {where} to (item 1 of argv)\nend run',
+                 _web_address(args.get("url")))
+        elif action in ("back", "forward", "reload"):
+            _safari_js(where, {"back": "history.back()", "forward": "history.forward()",
+                               "reload": "location.reload()"}[action])
+        else:
+            raise RuntimeError(f"Unknown navigate action {action}")
+        return {"id": args.get("tab_id"), **settle(where)}
+    if tool == "tabs":
+        action = args.get("action", "list")
+        if action == "list":
+            return safari_tabs()
+        if action == "open":
+            wid, idx = _osa(SAFARI_OPEN, _web_address(args.get("url") or "about:blank")).split()
+            tab_id = int(wid) * 1000 + int(idx)
+            return {"id": tab_id, **settle(_safari_tab(tab_id))}
+        if action == "switch":
+            tab_id = int(args["tab_id"])
+            _osa(f'tell application "Safari"\nactivate\nset current tab of window id {tab_id // 1000} to '
+                 f'{_safari_tab(tab_id)}\nset index of window id {tab_id // 1000} to 1\nend tell')
+            return {"id": tab_id, **settle(_safari_tab(tab_id))}
+        if action == "close":
+            ids = args.get("tab_ids") or [args["tab_id"]]
+            for tab_id in sorted(map(int, ids), reverse=True):  # the last first, so the others keep their positions
+                _osa(f'tell application "Safari" to close {_safari_tab(tab_id)}')
+            return "closed"
+        raise RuntimeError(f"Safari can't {action} tabs.")
+    raise RuntimeError(SAFARI_ONLY)
 
 
 # ---------- the live connection ----------
@@ -282,7 +504,8 @@ class Bridge:
     def __init__(self, token, enabled, on_panel):
         self.token, self.enabled, self.on_panel = token, list(enabled), on_panel
         self.conns, self.pending, self.next_id = {}, {}, 0
-        self.page_read = False  # the AI read the page since it last changed (see run_tool)
+        self.ready = set()  # browsers Nova drives without the extension (Safari) that answered last time
+        self.read_pages = set()  # (browser, tab) the AI read since it last changed a page there (see run_tool)
         self.loop = asyncio.new_event_loop()
         threading.Thread(target=self._run, daemon=True).start()
 
@@ -329,9 +552,18 @@ class Bridge:
                 threading.Thread(target=self.on_panel, args=(bid, {"op": "connected"}), daemon=True).start()
 
     def connected(self, bid):
-        return bid in self.conns
+        return bid in self.conns or bid in self.ready
 
     def call(self, bid, tool, args, timeout=60):
+        if BROWSERS[bid][3] == "applescript":
+            try:
+                result = safari_call(tool, args)
+            except RuntimeError as e:
+                if str(e) == SAFARI_STEPS:
+                    self.ready.discard(bid)
+                raise
+            self.ready.add(bid)
+            return result
         async def go():
             self.next_id += 1
             cid, future = self.next_id, self.loop.create_future()
@@ -355,12 +587,24 @@ class Bridge:
         for bid in list(self.conns):
             self.send(bid, {"type": "event", "event": event})
 
-    def ensure(self, bid, wait_s=25):
+    def ensure(self, bid, wait_s=35):
         """Connected to this browser's extension, starting the browser if it's closed."""
+        # 35 s: a browser that put the extension to sleep wakes it within one 30 s alarm
+        if bid in self.ready and not running(bid):  # Safari was quit: open it and check it again below
+            self.ready.discard(bid)
         if self.connected(bid):
             return
         if bid not in self.enabled:
             raise RuntimeError(f"Nova isn't set up for {BROWSERS[bid][0]}. Turn it on in Nova's Settings → Browsers.")
+        if BROWSERS[bid][3] == "applescript":
+            if not running(bid):
+                launch(bid)
+            for _ in range(40):  # Safari opens its window within a few seconds
+                if safari_ready():
+                    self.ready.add(bid)
+                    return
+                time.sleep(0.25)
+            raise RuntimeError(SAFARI_STEPS)
         if not running(bid):  # an open browser ignores the flag, so only a closed one is started
             launch(bid)
         for _ in range(int(wait_s * 4)):
@@ -375,12 +619,17 @@ class Bridge:
         self.ensure(bid)
         element = self.call(bid, "inspect", {"ref": args["ref"], "tab_id": args.get("tab_id")}) \
             if tool in ("click", "type", "select") and args.get("ref") is not None else None
-        verdict, why = classify(tool, args, element, mode)
+        if tool == "press" and args.get("key") in ("Enter", "\r", "\n") and BROWSERS[bid][3] != "applescript":
+            try:  # the element that has focus, which decides what Enter does
+                element = self.call(bid, "inspect", {"ref": "", "tab_id": args.get("tab_id")})
+            except RuntimeError:
+                element = None
+        verdict, why = classify(tool, args, element, mode, trusted=BROWSERS[bid][3] != "applescript")
         if verdict == "block" and why == PLAN:
             raise PermissionError(PLAN)
         if verdict == "block":
             raise PermissionError(f"Blocked by Nova: this {why}. Don't try another way; tell the user.")
-        if verdict == "confirm" and tool == "script" and not self.page_read:
+        if verdict == "confirm" and tool == "script" and (bid, args.get("tab_id")) not in self.read_pages:
             # a script needs the user's OK every time, and is usually a shortcut past read + click: send the AI
             # there first instead of interrupting the user
             raise PermissionError("Read the page first (read with mode=outline), then use click, type, select or "
@@ -393,7 +642,8 @@ class Bridge:
                 raise PermissionError(f"The user didn't allow this ({why}). Don't try another way; ask them.")
         result = self.call(bid, tool, args)
         if tool == "read":
-            self.page_read = True
-        elif tool not in ("screenshot", "scroll", "inspect") and args.get("action") != "list":  # may show another page
-            self.page_read = False
+            self.read_pages.add((bid, args.get("tab_id")))
+        elif tool not in ("screenshot", "scroll", "inspect") and args.get("action") != "list":
+            # may show another page, in that tab or (a click opening a tab) another: every tab of it reads again
+            self.read_pages = {page for page in self.read_pages if page[0] != bid}
         return result

@@ -35,8 +35,8 @@ port.onMessage.addListener(msg => {
     const box = add(el("div", "ask"));
     box.append(el("b", null, `${ev.who} needs your OK`), el("div", null, `It wants to run something that ${ev.reason}:`), el("pre", null, ev.summary));
     const btns = el("div", "btns"), allow = el("button", "primary", "Allow"), deny = el("button", null, "Deny");
-    allow.onclick = () => port.postMessage({ op: "approve", ok: true });
-    deny.onclick = () => port.postMessage({ op: "approve", ok: false });
+    allow.onclick = () => port.postMessage({ op: "approve", ok: true, id: ev.id });
+    deny.onclick = () => port.postMessage({ op: "approve", ok: false, id: ev.id });
     btns.append(allow, deny); box.append(btns); asks.push(box);
   } else if (ev.event === "approval") {
     const box = asks.shift();

@@ -23,8 +23,9 @@ TOOLS = [
         "mode": {"type": "string", "enum": ["outline", "text"]}, "tab_id": {"type": "integer"}}, []),
     ("click", "Click the element with this [ref] from read(outline).", {
         "ref": {"type": "string"}, "tab_id": {"type": "integer"}}, ["ref"]),
-    ("type", "Type text into the field with this [ref]; submit=true presses Enter / submits its form. Nova "
-             "never types passwords, card numbers or one-time codes: ask the user to do that.", {
+    ("type", "Type text into the field with this [ref]; submit=true presses Enter / submits its form. Searching "
+             "a site (type into its search box with submit=true) doesn't need the user's OK. Nova never types passwords, card numbers or "
+             "one-time codes: ask the user to do that.", {
         "ref": {"type": "string"}, "text": {"type": "string"}, "submit": {"type": "boolean"},
         "tab_id": {"type": "integer"}}, ["ref", "text"]),
     ("select", "Pick an option (by its text or value) in the dropdown with this [ref].", {

@@ -30,7 +30,7 @@ else:
              "mute": "volume mute", "volume_up": "volume up", "volume_down": "volume down"}
 
 DEFAULT_HOTKEY = "cmd+shift+space" if IS_MAC else "ctrl+alt+space"
-NO_WINDOW = 0 if IS_MAC else subprocess.CREATE_NO_WINDOW  # creationflags for child processes
+from core.config import NO_WINDOW  # noqa: E402,F401  (callers import it from here too)
 # Nova runs under pythonw on Windows, which has no stdout; hooks and helpers must answer on stdout
 CONSOLE_PYTHON = Path(sys.executable).with_name("python.exe") if os.name == "nt" else Path(sys.executable)
 

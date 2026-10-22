@@ -6,3 +6,4 @@ config.json
 data/
 logs/
 workspace/
+.update-files
