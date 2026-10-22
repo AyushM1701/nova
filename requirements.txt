@@ -9,5 +9,9 @@ pyaudiowpatch; sys_platform == "win32"
 websockets>=13,<18
 qrcode>=7
 keyboard; sys_platform == "win32"
+uiautomation>=2,<3; sys_platform == "win32"
 pynput; sys_platform == "darwin"
 pyobjc-framework-Cocoa; sys_platform == "darwin"
+pyobjc-framework-ApplicationServices; sys_platform == "darwin"
+icalendar>=6,<7
+recurring-ical-events>=3,<4

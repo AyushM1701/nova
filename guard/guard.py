@@ -22,7 +22,7 @@ SECRETS = (r"login data|logins\.json|key4\.db|web data|cookies\.sqlite|[\\/]netw
            r"|\bid_(?:rsa|ecdsa|ed25519|dsa)\b(?!\.pub)|[\\/*]credentials(?:$|[\s\"'*;|)])"
            # Nova's own keys, and the browser extension's copy of its token (%LOCALAPPDATA%\Nova\browser\..., and
            # ~/Library/Application Support/Nova/browser/... on a Mac)
-           r"|fallback\.key|browser-token|events\.key|phone-token"
+           r"|fallback\.key|deepgram\.key|stt-\w+\.key|calendar\.key|browser-token|events\.key|phone-token"
            r"|(?:appdata[\\/]local|localappdata%?|application support)[\\/]nova\b"
            # other tools' saved logins: git, package registries, and the AI CLIs themselves
            r"|\.git-credentials|\.netrc\b|\.npmrc|\.pypirc|gh[\\/]hosts\.yml|\.claude[\\/]\.credentials"

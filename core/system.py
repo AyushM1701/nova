@@ -4,6 +4,7 @@ import plistlib
 import shlex
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +16,7 @@ if IS_MAC:
     from pynput import keyboard as pk
 
     _keys = pk.Controller()
+    MAC_HOLD = {pk.Key.ctrl_r: "right ctrl", pk.Key.alt_r: "right alt", pk.Key.shift_r: "right shift"}
     MEDIA = {"play_pause": pk.Key.media_play_pause, "next": pk.Key.media_next, "previous": pk.Key.media_previous,
              "mute": pk.Key.media_volume_mute, "volume_up": pk.Key.media_volume_up,
              "volume_down": pk.Key.media_volume_down}
@@ -70,6 +72,61 @@ class Hotkeys:
                 keyboard.remove_hotkey(h)
 
 
+HOLD_KEYS = ("right ctrl", "right alt", "right shift")
+HOLD_DELAY_S = 0.25  # a quick tap, or the key used in a combo, never starts listening
+
+
+class HoldKey:
+    """Hold-to-talk on one modifier key on its own: hold it a moment and Nova listens, let go and it stops.
+    Pressed together with another key (Right Ctrl+C) it stays an ordinary shortcut: the key is never swallowed."""
+
+    def __init__(self, key, on_start, on_stop):
+        self.key, self.on_start, self.on_stop = key.lower(), on_start, on_stop
+        self.held = self.started = False
+        self.timer, self.lock = None, threading.Lock()
+        if IS_MAC:
+            name = lambda k: MAC_HOLD.get(k, str(k))
+            self.listener = pk.Listener(on_press=lambda k: self.event(name(k), True),
+                                        on_release=lambda k: self.event(name(k), False))
+            self.listener.start()
+        else:
+            self.hook = keyboard.hook(lambda e: self.event(e.name, e.event_type == "down"))
+
+    def event(self, name, down):
+        name = (name or "").lower()
+        with self.lock:
+            if name != self.key and not (self.key == "right alt" and name == "alt gr"):  # AltGr on many layouts
+                if down and self.held and not self.started:  # a combo: leave it to the app
+                    self.held = False
+                    self.timer and self.timer.cancel()
+                return
+            if down:
+                if not self.held:  # held keys repeat their key-down
+                    self.held, self.started = True, False
+                    self.timer = threading.Timer(HOLD_DELAY_S, self.fire)
+                    self.timer.start()
+                return
+            self.held = False
+            self.timer and self.timer.cancel()
+            stop, self.started = self.started, False
+        if stop:
+            self.on_stop()
+
+    def fire(self):
+        with self.lock:
+            if not self.held:
+                return
+            self.started = True
+        self.on_start()
+
+    def stop(self):
+        self.timer and self.timer.cancel()
+        if IS_MAC:
+            self.listener.stop()
+        else:
+            keyboard.unhook(self.hook)
+
+
 def pretty_hotkey(combo):
     """'ctrl+alt+space' -> 'Ctrl+Alt+Space', for showing the shortcut to people."""
     names = {"ctrl": "Ctrl", "alt": "Option" if IS_MAC else "Alt", "cmd": "Cmd", "shift": "Shift",
@@ -107,8 +164,8 @@ def focus(target):
         return
     if IS_MAC:
         target.activateWithOptions_(2)  # NSApplicationActivateIgnoringOtherApps
-    else:
-        user32.SetForegroundWindow(target)
+    elif user32.GetForegroundWindow() != target:  # focus moved while Nova listened or thought
+        bring_front(target)
 
 
 def paste():
@@ -153,8 +210,12 @@ def raise_app(exe):
     hwnd = found[0]
     if user32.IsIconic(hwnd):
         user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+    return bring_front(hwnd)
+
+
+def bring_front(hwnd):
     # Windows lets only the app in front hand the front to another; sharing its input for a moment allows it
-    here, front = kernel32.GetCurrentThreadId(), user32.GetWindowThreadProcessId(user32.GetForegroundWindow(), None)
+    here, front = ctypes.windll.kernel32.GetCurrentThreadId(), user32.GetWindowThreadProcessId(user32.GetForegroundWindow(), None)
     attached = front and front != here and user32.AttachThreadInput(here, front, True)
     try:
         user32.BringWindowToTop(hwnd)
@@ -186,13 +247,18 @@ def window_rect(target):
 
 
 def screenshot(path, box=None):
-    """Save the screen, or just `box` (screen pixels), as a PNG. macOS asks for Screen Recording permission
+    """Save every screen, or just `box` (screen pixels), as a PNG. macOS asks for Screen Recording permission
     the first time."""
     from PIL import ImageGrab
-    img = ImageGrab.grab()  # shortcut: main screen only; capture the target window's monitor if users ask
+    if IS_MAC:
+        img = ImageGrab.grab()  # shortcut: main display only on macOS; screencapture -D per display if asked
+        k, left, top = img.width / screen_width(), 0, 0  # Retina Macs grab twice the pixels Tk reports
+    else:  # all monitors, so a window on the second screen is captured too; boxes are virtual-screen pixels
+        img = ImageGrab.grab(all_screens=True)
+        k, left, top = 1, user32.GetSystemMetrics(76), user32.GetSystemMetrics(77)  # SM_X/YVIRTUALSCREEN
     if box:
-        k = img.width / screen_width()  # Retina Macs grab twice the pixels Tk reports
-        img = img.crop(tuple(max(0, int(v * k)) for v in box))
+        img = img.crop((max(0, int((box[0] - left) * k)), max(0, int((box[1] - top) * k)),  # maximized windows
+                        min(img.width, int((box[2] - left) * k)), min(img.height, int((box[3] - top) * k))))  # overhang
     img.save(path)
     return path
 

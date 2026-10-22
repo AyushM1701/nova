@@ -21,7 +21,7 @@ from pathlib import Path
 import webview
 
 from core import browser as web
-from core import clipboard, fallback, phone, system, tts, update
+from core import calendar_ics, clipboard, cloud_stt, deepgram, fallback, meetings, models, phone, system, tts, update
 from core.brain import find_cli, too_broad
 from core.config import (CONFIG, DATA, LOGS, NOTES, ROOT, defaults, load_config, log, read_history, save_config,
                          update_config, write_private)
@@ -230,6 +230,106 @@ class Api:
     def open_key_page(self):
         system.open_url("https://aistudio.google.com/apikey")
         return True
+
+    # ---------- speech engines: cloud keys (core/cloud_stt.py, core/deepgram.py) and models (core/models.py) ----------
+    def stt_key_status(self, provider):
+        return {"set": bool(cloud_stt.key(provider))}
+
+    def stt_key_save(self, provider, key):
+        """Check the key with the provider first; only a working key is saved."""
+        key, cfg = str(key).strip(), load_config()[0]
+        if provider not in (*cloud_stt.PROVIDERS, "deepgram"):
+            raise ValueError("unknown speech service")
+        if not key:
+            raise RuntimeError("Paste a key first.")
+        problem = deepgram.check(key) if provider == "deepgram" else cloud_stt.check(
+            provider, key, cfg["voice"]["custom_stt_url"] if provider == "custom" else "")
+        if problem:
+            raise RuntimeError(problem)
+        cloud_stt.key_file(provider).parent.mkdir(parents=True, exist_ok=True)
+        write_private(cloud_stt.key_file(provider), key)
+        return True
+
+    def stt_key_remove(self, provider):
+        if provider in (*cloud_stt.PROVIDERS, "deepgram"):
+            cloud_stt.key_file(provider).unlink(missing_ok=True)
+        return True
+
+    def open_stt_key_page(self, provider):
+        page = "https://console.deepgram.com/signup" if provider == "deepgram" else cloud_stt.PROVIDERS[provider][2]
+        if page:
+            system.open_url(page)
+        return True
+
+    def model_status(self):
+        return {name: {"installed": models.installed(name), "size": d[3]} for name, d in models.DOWNLOADS.items()}
+
+    def download_model(self, name):
+        """Fetch an on-device model; progress arrives as {event: 'install'} lines."""
+        if name not in models.DOWNLOADS:
+            raise ValueError("unknown model")
+        if self._run([sys.executable, "-m", "core.models", "download", name], cwd=ROOT) != 0:
+            raise RuntimeError("The download didn't finish. Check your internet connection and try again.")
+        return models.installed(name)
+
+    # ---------- meetings (core/meetings.py; Nova writes them, the window reads them) ----------
+    def meetings_list(self, folder="", query=""):
+        found = meetings.search(query, folder or None) if query.strip() else [
+            meetings.summary(m) for m in meetings.all_meetings() if not folder or m["folder"] == folder]
+        folders = sorted({m["folder"] for m in meetings.all_meetings()} | {load_config()[0]["meetings"]["folder"]})
+        return {"meetings": found, "folders": folders, "actions": {**meetings.ACTIONS,
+                                                                    **load_config()[0]["meetings"]["actions"]}}
+
+    def meeting_get(self, mid):
+        return meetings.load(mid)
+
+    def open_meeting_note(self, mid):
+        m = meetings.load(mid)
+        if not m.get("note"):
+            raise RuntimeError("The note is written once the meeting is transcribed.")
+        system.open_path(NOTES / m["note"])
+        return True
+
+    def pick_audio(self):
+        """Ask for audio or video files to transcribe; returns their paths ([] if cancelled)."""
+        kinds = ("Audio and video (*.mp3;*.wav;*.m4a;*.webm;*.ogg;*.flac;*.aac;*.opus;*.mp4;*.mov;*.mkv)",
+                 "All files (*.*)")
+        picked = self._window.create_file_dialog(webview.FileDialog.OPEN, allow_multiple=True, file_types=kinds)
+        return [str(p) for p in picked or []]
+
+    def calendar_status(self):
+        return {"set": bool(calendar_ics.url())}
+
+    def calendar_save(self, address):
+        """Check that the address is a calendar first; only a working one is saved."""
+        address = str(address).strip()
+        try:
+            calendar_ics.fetch(address)
+        except ValueError as e:
+            raise RuntimeError(str(e)) from None
+        except Exception:
+            raise RuntimeError("Couldn't read a calendar at that address. Copy the secret iCal (ICS) address "
+                               "again.") from None
+        calendar_ics.KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        write_private(calendar_ics.KEY_FILE, address)
+        return True
+
+    def calendar_remove(self):
+        calendar_ics.KEY_FILE.unlink(missing_ok=True)
+        return True
+
+    def upcoming(self):
+        """Today's and tomorrow's calendar meetings still to come (or happening now)."""
+        import datetime as dt
+        if not calendar_ics.url():
+            return []
+        now = dt.datetime.now()
+        try:
+            found = calendar_ics.events(now - dt.timedelta(hours=2), now + dt.timedelta(days=2))
+        except Exception as e:
+            raise RuntimeError(f"Couldn't read your calendar: {e}") from None
+        return [{"title": e["title"], "start": e["start"].timestamp(), "end": e["end"].timestamp()}
+                for e in found if e["end"] > now][:8]
 
     # ---------- browsers (core/browser.py) ----------
     def browsers(self):

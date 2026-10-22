@@ -1,5 +1,5 @@
 // The replies' markdown, shared by the Nova window (app.html) and the phone page (phone.html): phone.page() puts this
-// file at each page's md.js marker. Escaped first, then only bold, italics, code, web links, lists and paragraphs.
+// file at each page's md.js marker. Escaped first, then only headings, bold, italics, code, web links, lists and paragraphs.
 "use strict";
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 function inline(s) {
@@ -10,9 +10,11 @@ function inline(s) {
 function blocks(src) {  // a list split by blank lines stays one list, so "1. … 2. …" keeps counting
   let html = "", list = null;
   const close = () => { if (list) { html += `</${list}>`; list = null; } };
-  for (const para of src.split(/\n{2,}/)) {
+  for (const para of src.replace(/^#{1,6}\s+.+$/gm, "\n\n$&\n\n").split(/\n{2,}/)) {  // a heading is its own block
     const lines = para.split("\n").filter(l => l.trim());
     if (!lines.length) continue;
+    const head = lines.length === 1 && lines[0].match(/^(#{1,6})\s+(.+)$/);
+    if (head) { close(); const tag = head[1].length <= 2 ? "h3" : "h4"; html += `<${tag}>${inline(head[2])}</${tag}>`; continue; }
     const ul = lines.every(l => /^\s*[-*•]\s+/.test(l)), ol = lines.every(l => /^\s*\d+[.)]\s+/.test(l));
     if (ul || ol) {
       const tag = ul ? "ul" : "ol"; if (list !== tag) { close(); html += `<${tag}>`; list = tag; }

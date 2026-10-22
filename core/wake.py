@@ -62,7 +62,25 @@ def approval(text):
     return None
 
 
-INTERRUPTIONS = {"stop", "wait", "no", "nova", "cancel", "hold", "enough", "okay", "ok", "quiet", "pause"}
+INTERRUPTIONS = {"stop", "wait", "no", "nova", "cancel", "hold", "enough", "okay", "ok", "quiet", "pause", "hang",
+                 "sorry", "excuse", "shut", "hey", "never", "listen", "actually", "sec", "second"}
+# what Whisper writes for a cough, a door or a fan: never a reason to stop talking
+NOISE_PHRASES = {"thank you", "thanks", "you", "bye", "bye bye", "thank you for watching", "thanks for watching",
+                 "thank you very much", "okay bye", "so", "uh", "um", "hmm", "mm", "oh"}
+FOLLOWS = 0.6  # sound this much in step (unrelated voices measured up to 0.45; speakers into the mic, over 0.9) with the computer's own audio came out of its speakers
+
+
+def interrupts(heard, spoken, played="", follows=0.0):
+    """Did the user really talk over Nova? `heard` is what the mic picked up, `spoken` what Nova was saying,
+    `played` what the computer played meanwhile (Nova's voice, a video, a call), `follows` how closely the mic's
+    loudness followed the computer's (loopback.follows). Only a person's own words stop Nova: not noise, not an
+    echo, not a video. Short leftovers ("That's it.") need a stop word ("stop", "wait", "Nova…")."""
+    words = re.findall(r"[a-z0-9']+", heard.lower())
+    if not words or " ".join(words) in NOISE_PHRASES:
+        return False
+    if is_echo(heard, spoken) or (played.strip() and is_echo(heard, played)) or follows >= FOLLOWS:
+        return False
+    return len(words) >= 3 or any(w in INTERRUPTIONS for w in words)
 
 
 def is_echo(heard, spoken):

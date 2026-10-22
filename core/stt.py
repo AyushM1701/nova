@@ -18,6 +18,8 @@ if os.name == "nt":
 
 from faster_whisper import WhisperModel  # noqa: E402
 
+from core.cleanup import drop_outro, is_prompt_echo  # noqa: E402
+
 
 # softer speech passes (default threshold 0.5), and 300 ms of padding keeps the first and last words whole
 VAD = {"threshold": 0.35, "speech_pad_ms": 300}
@@ -53,18 +55,43 @@ class STT:
                                            vad_parameters=VAD, beam_size=1, condition_on_previous_text=False)
         return " ".join(s.text.strip() for s in segments).strip()
 
-    def transcribe(self, audio, language="auto", vocabulary=()):
+    def segments(self, audio, language="auto", vocabulary=(), on_progress=None):
+        """A long recording (a meeting, an audio file) as [{start, end, text}] with times in seconds. Uses the
+        accurate model when it's loaded; on_progress(fraction) as it goes."""
+        prompt = ("Vocabulary: " + ", ".join(vocabulary) + ".") if vocabulary else None
+        model = self.accurate or self.fast
+        found, info = model.transcribe(audio, language=None if language == "auto" else language, initial_prompt=prompt,
+                                       vad_filter=True, vad_parameters=VAD, beam_size=1,
+                                       condition_on_previous_text=False)
+        out, total = [], max(1.0, len(audio) / 16000)
+        for s in found:
+            text = drop_outro(s.text.strip())
+            if text:
+                out.append({"start": round(s.start, 2), "end": round(s.end, 2), "text": text})
+            if on_progress:
+                on_progress(min(1.0, s.end / total))
+        return out
+
+    def transcribe(self, audio, language="auto", vocabulary=(), server=None, task="transcribe"):
+        """What was said. `server` (whisper.cpp, Parakeet, a cloud service) decodes instead of faster-whisper when
+        given. task="translate" writes English whatever language was spoken (Whisper's own translation)."""
         prompt = ("Vocabulary: " + ", ".join(vocabulary) + ".") if vocabulary else None
         lang = None if language == "auto" else language
 
-        def run(model):
+        def run(model, vad=True):
             # greedy decoding keeps English words in Latin letters inside Hinglish speech
-            segments, info = model.transcribe(audio, language=lang, initial_prompt=prompt, vad_filter=True,
-                                              vad_parameters=VAD,
+            segments, info = model.transcribe(audio, language=lang, task=task, initial_prompt=prompt, vad_filter=vad,
+                                              vad_parameters=VAD if vad else None,
                                               beam_size=1, condition_on_previous_text=False)
             return " ".join(s.text.strip() for s in segments).strip(), info.language
 
+        if server:
+            return drop_outro(server.transcribe(audio, lang, prompt))
         text, detected = run(self.fast)
-        if detected != "en" and self.accurate:  # CPU only; while it is still loading, keep the fast result
-            text, _ = run(self.accurate)
-        return text
+        # Whisper's small model translates poorly too: the accurate one takes any non-English speech
+        model = self.accurate if detected != "en" and self.accurate else self.fast  # CPU only, once it's loaded
+        if model is not self.fast:
+            text, _ = run(model)
+        if is_prompt_echo(text, prompt):  # the voice filter cut the speech: decode everything once more
+            text = run(model, vad=False)[0] or text
+        return drop_outro(text)

@@ -936,4 +936,215 @@ for page, own in (("core/phone.html", {"raised", "line", "accent-soft", "amber-s
         drift = {k: (v, want.get(k)) for k, v in got.items() if k not in own and want.get(k) != v}
         assert not drift, f"{page} colour tokens differ from core/app.html: {drift}"
 
+# speech engines: Whisper's habits on silence, the whisper.cpp request, Deepgram's settings
+from core.cleanup import drop_outro, is_prompt_echo  # noqa: E402
+from core import deepgram, whisper_cpp  # noqa: E402
+for raw, want in [("Send it today. Thanks for watching!", "Send it today."), ("Thank you for watching.", ""),
+                  ("Ship it. Please subscribe to my channel. Thank you so much for watching!", "Ship it."),
+                  ("Thanks for watching the kids, see you Friday.", "Thanks for watching the kids, see you Friday."),
+                  ("Продолжение следует...", ""), ("Thank you.", "Thank you.")]:
+    assert drop_outro(raw) == want, f"outro {raw!r}: got {drop_outro(raw)!r}"
+PROMPT = "Vocabulary: Nova, Claude Code, Codex."
+assert is_prompt_echo("Vocabulary: Nova, Claude Code, Codex.", PROMPT)
+assert is_prompt_echo("Claude Code.", PROMPT)
+assert not is_prompt_echo("Open Claude Code please.", PROMPT) and not is_prompt_echo("", PROMPT)
+assert not is_prompt_echo("Nova", None)
+q = dict(__import__("urllib.parse").parse.parse_qsl(deepgram.query("auto", ["Nova"], "nova-3")))
+assert q["language"] == "multi" and "keyterm" not in q and q["sample_rate"] == "16000"
+assert "keyterm=Nova" in deepgram.query("en", ["Nova"], "")
+import numpy as np  # noqa: E402
+assert len(deepgram.pcm(np.zeros(480, dtype=np.float32))) == 960
+body, kind = whisper_cpp.multipart({"language": "auto", **whisper_cpp.DECODER}, "speech.wav", whisper_cpp.wav(np.zeros(160)))
+assert kind.endswith(kind.split("=")[1]) and b'name="entropy_thold"\r\n\r\n2.8' in body and body.count(b"RIFF") == 1
+
+# hold-to-talk: a tap or a combo never starts listening; holding does, and letting go stops it
+import time  # noqa: E402
+from core import system  # noqa: E402
+calls = []
+hold = object.__new__(system.HoldKey)  # the state machine alone, without a real keyboard hook
+hold.key, hold.on_start, hold.on_stop = "right ctrl", lambda: calls.append("start"), lambda: calls.append("stop")
+hold.held = hold.started = False
+hold.timer, hold.lock = None, __import__("threading").Lock()
+hold.event("Right Ctrl", True); hold.event("Right Ctrl", False); time.sleep(system.HOLD_DELAY_S + 0.1)  # noqa: E702
+assert calls == [], f"tap: {calls}"
+hold.event("right ctrl", True); hold.event("c", True); time.sleep(system.HOLD_DELAY_S + 0.1)  # noqa: E702
+hold.event("c", False); hold.event("right ctrl", False)  # noqa: E702
+assert calls == [], f"combo: {calls}"
+hold.event("right ctrl", True); time.sleep(system.HOLD_DELAY_S + 0.1)  # noqa: E702
+hold.event("right ctrl", True); hold.event("x", True)  # noqa: E702  (key repeat, and typing while listening)
+hold.event("right ctrl", False)
+assert calls == ["start", "stop"], f"hold: {calls}"
+
+# recording: a held recording ignores pauses; a mic sending nothing is reported instead of hanging
+from core import audio  # noqa: E402
+
+
+class FakeMic:
+    def __init__(self, blocks):
+        self.blocks = blocks
+
+    def acquire(self):
+        q = __import__("queue").Queue()
+        for b in self.blocks:
+            q.put(b)
+        return q
+
+    def release(self, broken=False):
+        self.broken = broken
+
+
+loud, quiet = np.full(480, 0.05, dtype=np.float32), np.zeros(480, dtype=np.float32)
+stop = __import__("threading").Event()
+audio.MIC = FakeMic([quiet] * 10 + [loud] * 5 + [quiet] * 100)  # 3 s of pause after speech
+got = audio.record(1000, 4, stop)
+assert got is not None and len(got) < 115 * 480, "a pause should end a normal recording"
+audio.MIC = FakeMic([quiet] * 10 + [loud] * 5 + [quiet] * 100 + [loud] * 5)
+streamed = []
+got = audio.record(None, 5, stop, on_block=streamed.append)
+assert len(got) == 120 * 480 and len(streamed) == 120, "a held recording keeps going through pauses"
+audio.MIC = FakeMic([])
+try:
+    audio.record(1000, 4, stop)
+    raise AssertionError("a silent device should raise")
+except RuntimeError:
+    assert audio.MIC.broken
+
+# the dictionary learns fixes, not rewrites or sentence capitals
+from core import learn  # noqa: E402
+assert learn.corrections("We deploy on cooper netties with grpc today.",
+                         "Hi. We deploy on Kubernetes with gRPC today. Thanks") == ["Kubernetes", "gRPC"]
+assert learn.corrections("ask priya about the launch", "ask Priya about the launch") == ["Priya"]
+assert learn.corrections("the plan works. the team agrees.", "The plan works. The team agrees.") == []
+assert learn.corrections("Meet at the cafe at five.", "Meet at the office at six.") == []  # a rewrite, not a fix
+assert learn.corrections("I think we should ship it.", "Something else entirely in this field.") == []
+reads = iter([("f1", "Note: send it to doctor smyth today."), ("f1", "Note: send it to doctor Smith today."),
+              ("f2", "another field")])
+got = []
+learn.watch("send it to doctor smyth today.", ["Nova"], got.extend, read=lambda: next(reads), sleep=lambda s: None)
+assert got == ["Smith"], f"learn.watch: {got}"  # read until focus moved to another field
+
+# meetings: speaker labels, the store, search, the note and what the AI is given
+from core import calendar_ics, cloud_stt, diarize, meetings  # noqa: E402
+segs = [{"start": 0, "end": 4, "text": "a"}, {"start": 5, "end": 9, "text": "b"}, {"start": 10, "end": 12, "text": "c"}]
+turns = [(0, 4.5, 0), (4.5, 9.5, 1), (9.5, 12, 0)]
+loud = [(0.05, 0.0)] * 9 + [(0.01, 0.05)] * 10 + [(0.05, 0.0)] * 6  # the computer is quiet while speaker 0 talks
+assert [s["speaker"] for s in diarize.label(segs, turns, loud)] == ["You", "Speaker 1", "You"]
+assert [s["speaker"] for s in diarize.label([dict(s) for s in segs], turns)] == ["Speaker 1", "Speaker 2", "Speaker 1"]
+with tempfile.TemporaryDirectory() as tmp:
+    meetings.STORE, meetings.NOTES = Path(tmp) / "meetings", Path(tmp) / "notes"
+    m = meetings.new("Pricing sync", "Product")
+    m.update(status="done", duration=125, notes="ask about annual plan",
+             transcript=[{"start": 3, "end": 6, "text": "Annual plan gets two months free.", "speaker": "Speaker 1"}],
+             minutes="## Decisions\n- Annual plan: two months free")
+    note = meetings.export_note(m)
+    meetings.save(m)
+    assert note.exists() and "[00:03] Speaker 1: Annual plan" in note.read_text(encoding="utf-8")
+    assert [x["id"] for x in meetings.search("annual free")] == [m["id"]] and not meetings.search("zebra")
+    assert meetings.search("annual", "Other") == []
+    m["title"] = "Pricing sync v2"
+    meetings.export_note(m)
+    meetings.save(m)  # as Nova's meeting_update does
+    assert not note.exists() and len(list((Path(tmp) / "notes").rglob("*.md"))) == 1  # renamed, not duplicated
+    ctx = meetings.chat_context([m], "what did we decide?")
+    assert "<question>what did we decide?</question>" in ctx and "two months free" in ctx
+    meetings.delete(m["id"])
+    assert not meetings.all_meetings() and not list((Path(tmp) / "notes").rglob("*.md"))
+    try:
+        meetings.file("../../config")
+        raise AssertionError("a meeting id can't leave the meetings folder")
+    except ValueError:
+        pass
+
+# calendar: recurring events expand; all-day events aren't meetings
+import datetime as dt  # noqa: E402
+import icalendar  # noqa: E402
+ICS = """BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:1\r\nSUMMARY:Standup\r\nDTSTART:20261019T093000\r
+DTEND:20261019T094500\r\nRRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:2\r
+SUMMARY:Holiday\r\nDTSTART;VALUE=DATE:20261022\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"""
+cal = icalendar.Calendar.from_ical(ICS)
+day = calendar_ics.events(dt.datetime(2026, 10, 22), dt.datetime(2026, 10, 23), cal)
+assert [(e["title"], e["start"].hour, e["start"].minute) for e in day] == [("Standup", 9, 30)], day
+assert calendar_ics.now_event(dt.datetime(2026, 10, 22, 9, 27), cal)["title"] == "Standup"  # 3 min early counts
+assert calendar_ics.now_event(dt.datetime(2026, 10, 24, 9, 35), cal) is None  # Saturday
+
+# cloud speech: a key is required except for your own server
+try:
+    cloud_stt.Cloud("groq", "")
+    raise AssertionError("Groq without a key should say so")
+except RuntimeError:
+    pass
+assert cloud_stt.Cloud("custom", "", url="http://localhost:8000/v1/audio/transcriptions").model == "whisper-1"
+
+# what the computer played: kept as audio until asked, then transcribed, including the words still buffering
+from core import loopback  # noqa: E402
+
+
+class FakeSTT:
+    calls = 0
+
+    def transcribe(self, audio):
+        FakeSTT.calls += 1
+        return f"heard {len(audio)}"
+
+
+mem = loopback.SystemAudio(FakeSTT(), keep_s=600)
+with mem.lock:
+    mem.buf = [np.full(1600, 0.1, dtype=np.float32)] * 3  # 0.3 s of sound, not chunked yet
+    mem._cut(2)
+    mem._cut(1)
+    mem.buf = [np.zeros(1600, dtype=np.float32)]  # silence is never kept
+assert len(mem.chunks) == 2 and FakeSTT.calls == 0  # nothing transcribed until someone asks
+lines = mem.transcript().splitlines()
+assert lines == ["[0 min ago] heard 3200", "[0 min ago] heard 1600"] and FakeSTT.calls == 2, lines
+mem.transcript()
+assert FakeSTT.calls == 2 and all(c[1] is None for c in mem.chunks)  # transcribed once; the audio is let go
+
+mem = loopback.SystemAudio(FakeSTT(), keep_s=600)
+fake_blocks = iter([np.full(1600, 0.1, np.float32), "mute", np.full(1600, 0.1, np.float32), "unmute",
+                    np.full(1600, 0.2, np.float32)])
+
+
+def fake_source(running):
+    for b in fake_blocks:
+        if isinstance(b, str):
+            mem.muted = b == "mute"
+            yield None
+        else:
+            yield b
+
+
+real_blocks, loopback.blocks = loopback.blocks, fake_source
+mem.running = True
+mem._run()
+loopback.blocks = real_blocks
+assert [len(c[1]) for c in mem.chunks] == [1600, 1600], "Nova's own voice (while muted) isn't remembered"
+
+# requests that bring the screen in: the window's text, every monitor
+import nova as nova_screen  # noqa: E402
+for said, read, everything in [("summarize this page", True, False), ("read this to me", True, False),
+                               ("what's on my whole screen", False, True), ("look at both monitors", False, True),
+                               ("read my emails from yesterday", False, False)]:
+    assert bool(nova_screen.READ_RE.search(said)) == read and bool(nova_screen.ALL_SCREENS_RE.search(said)) == everything, said
+
+# talking over Nova: only the user's own words stop it, not noise, an echo or a video through the speakers
+from core.wake import interrupts  # noqa: E402
+SAID = "Playing a drive-thru video on YouTube in Brave now."
+VIDEO = "So this is not my usual car for these videos, I had an argument with my producer."
+for heard, played, follows, want in [
+        ("Thank you.", "", 0.0, False),                                   # Whisper's word for a cough or a fan
+        ("That's it.", "", 0.0, False),                                   # a short leftover without a stop word
+        ("Playing a drive-thru video", SAID, 0.0, False),                 # Nova's own voice
+        ("my usual car for these videos", f"{SAID} {VIDEO}", 0.0, False),  # the video, heard through the speakers
+        ("Ref, Posh, Kivita, Tampo.", "", 0.9, False),                    # garbled, but in step with the speakers
+        ("stop", f"{SAID} {VIDEO}", 0.1, True),
+        ("Nova wait", SAID, 0.0, True),
+        ("what time is the meeting tomorrow", f"{SAID} {VIDEO}", 0.2, True)]:
+    assert interrupts(heard, SAID, played, follows) == want, f"interrupts {heard!r}: want {want}"
+rng = np.random.default_rng(0)
+speech = np.repeat(rng.uniform(0.001, 0.3, 300), 160) * rng.normal(0, 1, 300 * 160)  # a loudness pattern, 3 s
+computer = speech.astype(np.float32)
+assert loopback.follows(computer[16000:32000] * 0.05, computer) > 0.9  # the mic hearing the speakers, quietly
+person = (np.repeat(rng.uniform(0.001, 0.3, 100), 160) * rng.normal(0, 1, 100 * 160)).astype(np.float32)
+assert loopback.follows(person, computer) < 0.5  # someone else's voice in the room doesn't follow the speakers
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it

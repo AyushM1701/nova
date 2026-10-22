@@ -82,7 +82,9 @@ To update by hand instead: download the new ZIP into the same folder and run set
 | Esc | Stop listening or talking; when Nova is asking for permission, Esc denies. A request Nova is working on keeps going (Esc in another app shouldn't stop it): press the shortcut again, or Stop in the Nova window or on your phone |
 | "switch to dictation" / "switch to assistant" | Change mode |
 | "new conversation" | Forget the follow-up context |
-| "add Kubernetes to my dictionary" | Teaches the speech recognizer a word |
+| "add Kubernetes to my dictionary" | Teaches the speech recognizer a word. Fixing a misheard word right after dictating teaches it too (Settings → Dictation) |
+| Hold **Right Ctrl** (or Right Alt / Shift, set in Settings → General) | Hold-to-talk: Nova listens until you let go, however long you pause |
+| "record this meeting" / "stop recording" | Records your microphone and the computer's audio (no bot joins), then writes a transcript with speaker labels and minutes from your notes. See the Meetings page |
 | "turn it up a bit", "volume 40", "skip this song", "open VS Code", "open YouTube", "what time is it?", "set a timer for 5 minutes", "lock my computer" | Done instantly on your computer: no AI call, no quota used |
 | Select text, then "make this shorter" (dictation mode) | Rewrites the selection in place |
 | Click the tray icon, or right-click the bar | Opens the Nova window |
@@ -122,7 +124,10 @@ Type a request, or tap the **mic on the phone's keyboard** to dictate it. Replie
 
 ## What stays on your computer
 
-- **Speech recognition** (Whisper, via faster-whisper) and the **"Hey Nova" wake word** run entirely on your machine. Audio is never uploaded, and nothing you say is kept unless it starts with "Hey Nova" or you pressed the shortcut.
+- **Speech recognition** (Whisper via faster-whisper, or Parakeet, Orukeet or whisper.cpp if you choose them) and the **"Hey Nova" wake word** run entirely on your machine by default. Nothing you say is kept unless it starts with "Hey Nova" or you pressed the shortcut. **If you choose a cloud engine** (OpenAI, Groq, Mistral, Deepgram or your own server, in Settings → Voice), what you say to Nova is sent to that service under your own key and its privacy policy; meetings and "Hey Nova" still stay on your computer.
+- **What the computer plays** (a video, a call) is remembered for the last 10 minutes on Windows, in memory only, so you can ask "what did they just say?" any time. It's never saved, and it's transcribed only when you ask (or as it plays, on a GPU). Settings → Privacy & safety changes the minutes, or 0 turns it off.
+- **Your screen:** when a request is about it ("summarize this page", "what's on my whole screen?"), the AI gets a screenshot and the window's text, read through Windows UI Automation or macOS Accessibility, including what's scrolled out of view. Password fields are never read.
+- **Meetings** are recorded and transcribed on your computer. The recording is deleted once it's transcribed; the transcript and minutes are kept as notes in `workspace/notes/meetings/`. Minutes, AI actions and questions about meetings send the meeting's text to your chosen AI. A connected calendar is only read, from its secret ICS address.
 - **Spoken replies** use a natural neural voice (Kokoro, run by sherpa-onnx) on your own computer, or your operating system's built-in voices (Windows SAPI, macOS `say`) if you prefer them or the voice isn't downloaded.
 - **Settings, logs, notes and history** live in the Nova folder (`config.json`, `logs/`, `workspace/notes/`). History is kept for 30 days and can be cleared on the History page. There is no Nova server, account or analytics. The daily update check only downloads Nova's version number from GitHub (Settings → Advanced turns it off).
 - **Text only goes out to your chosen AI:** your request and, for long or tricky dictations, the dictated text go to Claude Code or Codex, because that's where the AI runs. With "Share what you're looking at" on (Settings → Privacy & safety), a spoken request also says which app or window you're in, and a request about your screen comes with a screenshot (saved as `workspace/screen.png`). Nova turns off Claude Code's telemetry and error reporting, and turns off the speech-model downloader's telemetry and online checks after setup.
@@ -201,11 +206,17 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 
 ```
 nova.py               app: tray, shortcut, bar, voice commands, wiring, the window's control channel
-core/app.py, app.html the Nova window (pywebview): first-run setup, chat, history, dictionary, settings
+core/app.py, app.html the Nova window (pywebview): first-run setup, chat, history, meetings, dictionary, settings
 core/config.py        settings (defaults plus your changes) and the activity log
 core/system.py        everything that differs between Windows and macOS
 core/audio.py         microphone capture with silence detection
 core/stt.py           speech to text (faster-whisper, GPU when available)
+core/models.py        optional on-device models: Parakeet, Orukeet, speaker labels
+core/whisper_cpp.py, cloud_stt.py, deepgram.py  the other speech engines you can choose
+core/meetings.py      meeting recording, transcripts, minutes, AI actions; diarize.py: speaker labels
+core/calendar_ics.py  your calendar, read-only, from its ICS address
+core/learn.py         learns dictionary words from the corrections you make after dictating
+core/loopback.py      the computer's own audio (Windows loopback; helpers/mac_audio_tap.swift on macOS)
 core/wake.py          "Hey Nova" wake word
 core/cleanup.py       dictation cleanup: fillers, self-corrections, Hinglish
 core/brain.py         Claude Code and Codex adapters

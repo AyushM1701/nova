@@ -143,6 +143,7 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
 .row .what { flex: 1; min-width: 0; }
 .row .what p { color: var(--muted); font-size: 13px; margin-top: 2px; max-width: 58ch; }
 .row .how { display: flex; align-items: center; gap: 10px; flex: none; }
+.row .how select.input { max-width: 250px; }
 .row .value { min-width: 52px; text-align: right; color: var(--muted); font-size: 13px; }
 .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 28px 0 8px; overflow-x: auto; overflow-y: hidden; }
 .tabs button { border: 0; background: none; padding: 10px 12px; color: var(--muted); font-weight: 550; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
@@ -188,6 +189,31 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
 .feed .acts { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
 .feed li:hover .acts, .feed li:focus-within .acts { opacity: 1; }
 .day { color: var(--muted); font-size: 12.5px; font-weight: 600; margin: 28px 0 6px; }
+.badge.rec { background: #e5484d; }
+#mtItems li.clickable { cursor: pointer; border-radius: 8px; }
+#mtItems li.clickable:hover { background: var(--raised); }
+#mtItems li.clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.live-rec { margin-top: 20px; display: flex; align-items: center; gap: 10px; }
+.rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #e5484d; flex: none; animation: recpulse 1.4s ease-in-out infinite; }
+@keyframes recpulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } }
+.mt-ask { display: flex; gap: 8px; margin-top: 20px; }
+.mt-ask .input { flex: 1; }
+.answer { margin-top: 12px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.upcoming { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.upcoming .ev { padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; background: var(--surface); }
+.upcoming .ev b { display: block; font-weight: 600; }
+.title-in { font-size: 22px; font-weight: 650; width: 100%; padding: 6px 10px; }
+.short-w { width: 150px; }
+.mt-pane { margin-top: 16px; }
+.mt-pane[hidden] { display: none; }
+textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 1.55; padding: 12px 14px; font: inherit; }
+.transcript p { margin: 0 0 10px; line-height: 1.55; }
+.transcript time { color: var(--faint); font-size: 12px; margin-right: 8px; font-variant-numeric: tabular-nums; }
+.transcript b { color: var(--accent-text); font-weight: 600; margin-right: 6px; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.action-out { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.action-out h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .empty { padding: 48px 24px; text-align: center; color: var(--muted); border: 1px dashed var(--line-strong); border-radius: 14px; }
 .empty h3 { color: var(--text); font-size: 15px; margin-bottom: 4px; }
 .toolbar { display: flex; gap: 10px; align-items: center; margin-top: 24px; flex-wrap: wrap; }
@@ -209,6 +235,7 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
 .msg.nova { display: grid; grid-template-columns: 26px 1fr; gap: 12px; align-items: start; }
 .msg.nova .who { width: 22px; height: 22px; margin-top: 1px; }
 .msg.nova .content { min-width: 0; }
+.md h3, .md h4 { font-size: 14.5px; font-weight: 650; margin: 16px 0 6px; } .md h3:first-child { margin-top: 0; }
 .md p { margin: 0 0 10px; } .md p:last-child { margin-bottom: 0; }
 .md ul, .md ol { margin: 0 0 10px; padding-left: 20px; }
 .md li { margin: 3px 0; }
@@ -388,6 +415,7 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
       <button data-page="home" title="Home"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9v11h14V9"/></svg><span>Home</span></button>
       <button data-page="chat" title="Chat"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg><span>Chat</span><i class="badge" id="chatBadge" hidden></i></button>
       <button data-page="history" title="History"><svg class="i" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5v4.5H8"/><path d="M12 7.5V12l3 2"/></svg><span>History</span></button>
+      <button data-page="meetings" title="Meetings"><svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/><circle cx="12" cy="15" r="1.6"/></svg><span>Meetings</span><i class="badge rec" id="recBadge" hidden></i></button>
       <button data-page="dictionary" title="Dictionary"><svg class="i" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 2-2h12v15H7a2 2 0 0 0-2 2z"/><path d="M5 20a2 2 0 0 0 2 1h12"/><path d="M9 7.5h6"/></svg><span>Dictionary</span></button>
       <button data-page="memory" title="Memory"><svg class="i" viewBox="0 0 24 24"><path d="M12 3a7 7 0 0 0-7 7c0 2.4 1.2 4.2 3 5.4V20h8v-4.6c1.8-1.2 3-3 3-5.4a7 7 0 0 0-7-7z"/><path d="M10 20v1.5h4V20"/><circle cx="12" cy="10" r="1.6"/></svg><span>Memory</span></button>
       <button data-page="settings" title="Settings"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg><span>Settings</span></button>
@@ -466,6 +494,39 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
       <div id="histList"></div>
     </section>
 
+    <!-- MEETINGS -->
+    <section class="page wide" id="page-meetings" hidden>
+      <div id="mtList">
+        <div class="head"><div class="grow"><h1>Meetings</h1><p class="lede">Record a call without a bot joining, or transcribe a recording. Nova writes the minutes from your notes and the transcript. Everything stays on this computer, as notes the assistant can read.</p></div>
+          <button class="btn" id="mtFile"><svg class="i" viewBox="0 0 24 24"><path d="M12 15V4M7 9l5-5 5 5M5 20h14"/></svg><span>Transcribe a file</span></button>
+          <button class="btn primary" id="mtRecord"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/></svg><span>Record</span></button></div>
+        <div class="banner live-rec" id="mtLive" hidden><i class="rec-dot"></i><span class="grow" id="mtLiveText"></span><button class="btn sm" id="mtLiveOpen">Take notes</button><button class="btn sm danger" id="mtStop">Stop</button></div>
+        <div id="mtUpcoming"></div>
+        <form class="mt-ask" id="mtAsk"><input class="input" id="mtQuestion" placeholder="Ask your meetings, like “what did we decide about pricing?”" aria-label="Ask your meetings"><button class="btn primary" type="submit">Ask</button></form>
+        <div class="answer md" id="mtAnswer" hidden></div>
+        <div class="toolbar">
+          <div class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input class="input" id="mtSearch" type="search" placeholder="Search meetings" aria-label="Search meetings"></div>
+          <select class="input" id="mtFolder" aria-label="Folder"><option value="">All folders</option></select>
+        </div>
+        <ul class="feed" id="mtItems"></ul>
+      </div>
+      <div id="mtDetail" hidden>
+        <button class="btn ghost sm" id="mtBack"><svg class="i" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></svg><span>Meetings</span></button>
+        <input class="input title-in" id="mtTitle" aria-label="Title" style="margin-top:10px">
+        <div class="toolbar" style="margin-top:10px"><span class="muted small" id="mtMeta" style="flex:1"></span>
+          <input class="input short-w" id="mtMove" list="mtFolders" placeholder="Folder" aria-label="Folder"><datalist id="mtFolders"></datalist>
+          <button class="btn sm" id="mtNote">Open note</button><button class="btn sm danger" id="mtDelete">Delete</button></div>
+        <div class="banner" id="mtStatus" hidden><span class="grow"></span></div>
+        <div class="seg" role="radiogroup" id="mtTabs" style="margin-top:16px">
+          <button role="radio" data-t="minutes">Minutes</button><button role="radio" data-t="notes">My notes</button><button role="radio" data-t="transcript">Transcript</button><button role="radio" data-t="actions">AI actions</button>
+        </div>
+        <div class="mt-pane md" data-t="minutes" id="mtMinutes"></div>
+        <div class="mt-pane" data-t="notes"><textarea class="input notes" id="mtNotes" placeholder="Jot down what matters. Nova uses your notes to decide what the minutes cover." aria-label="My notes"></textarea></div>
+        <div class="mt-pane transcript" data-t="transcript" id="mtTranscript"></div>
+        <div class="mt-pane" data-t="actions"><div class="chips" id="mtActions"></div><div id="mtActionOut"></div></div>
+      </div>
+    </section>
+
     <!-- DICTIONARY -->
     <section class="page" id="page-dictionary" hidden>
       <h1>Dictionary</h1>
@@ -496,6 +557,7 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
         <button role="tab" data-tab="general">General</button>
         <button role="tab" data-tab="voice">Voice</button>
         <button role="tab" data-tab="dictation">Dictation</button>
+        <button role="tab" data-tab="meetings">Meetings</button>
         <button role="tab" data-tab="ai">AI</button>
         <button role="tab" data-tab="routines">Routines</button>
         <button role="tab" data-tab="browsers">Browsers</button>
@@ -507,6 +569,8 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
       <div data-panel="general" class="rows">
         <div class="row"><div class="what"><h2>Shortcut</h2><p>Press it to talk, again to stop early, or while Nova works to cancel. When Nova asks for your OK, it means “allow”.</p></div>
           <div class="how"><span class="keys" id="setKeys"></span><button class="btn sm" id="setKeyBtn">Change</button></div></div>
+        <div class="row"><div class="what"><h2>Hold to talk</h2><p>Hold this key and speak; let go and Nova stops listening, however long you pause. Pressed with another key it works as usual.</p></div>
+          <div class="how"><select class="input" data-bind="hold_key" aria-label="Hold to talk key"><option value="">Off</option><option value="right ctrl">Right Ctrl</option><option value="right alt">Right Alt / Option</option><option value="right shift">Right Shift</option></select></div></div>
         <div class="row"><div class="what"><h2>Listen for “Hey Nova”</h2><p>Runs on this computer. Nothing is kept unless it hears “Hey Nova”.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="wake_word" aria-label="Listen for Hey Nova"></button></div></div>
         <div class="row"><div class="what"><h2>Start in</h2><p>The mode Nova opens in. Switch any time with the sidebar or by saying “switch to dictation”.</p></div>
@@ -522,6 +586,28 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
       <div data-panel="voice" class="rows" hidden>
         <div class="row"><div class="what"><h2>Language you speak</h2><p>“Detect automatically” handles English, Hindi and Hinglish; Hindi is written in Roman letters.</p></div>
           <div class="how"><select class="input" id="langSel" data-bind="voice.language" aria-label="Language"></select></div></div>
+        <div class="row"><div class="what"><h2>Speech recognition</h2><p>On this computer is private and free. Cloud services use your own key: what you say is sent to that company under your account. If an engine fails, Nova transcribes on this computer instead. “Hey Nova” and meetings always run on this computer.</p></div>
+          <div class="how"><select class="input" data-bind="voice.stt_engine" aria-label="Speech recognition">
+            <option value="local">This computer: Whisper</option><option value="parakeet">This computer: Parakeet</option><option value="orukeet">This computer: Orukeet</option><option value="whisper.cpp">This computer: whisper.cpp</option>
+            <option value="openai">OpenAI (your key)</option><option value="groq">Groq (your key)</option><option value="mistral">Mistral (your key)</option><option value="deepgram">Deepgram, streamed (your key)</option><option value="custom">Your own server (OpenAI-compatible)</option>
+          </select></div></div>
+        <div class="row" data-stt="parakeet orukeet"><div class="what"><h2>Model</h2><p id="sttModelNote">Fast and accurate in 25 European languages. Hindi and other languages use Whisper automatically.</p><div class="log mono" id="sttModelLog" hidden></div></div>
+          <div class="how"><span class="muted small" id="sttModelState"></span><button class="btn sm primary" id="sttModelGet" hidden>Download</button></div></div>
+        <div class="row" data-stt="whisper.cpp"><div class="what"><h2>whisper-server program</h2><p>Full path to whisper-server from a whisper.cpp release (whisper-server.exe on Windows).</p></div>
+          <div class="how"><input class="input" data-bind="voice.whisper_cpp_server" placeholder="C:\whisper.cpp\whisper-server.exe" aria-label="whisper-server program"></div></div>
+        <div class="row" data-stt="whisper.cpp"><div class="what"><h2>whisper.cpp model</h2><p>Full path to a ggml model file, for example ggml-large-v3-turbo.bin.</p></div>
+          <div class="how"><input class="input" data-bind="voice.whisper_cpp_model" placeholder="C:\whisper.cpp\models\ggml-large-v3-turbo.bin" aria-label="whisper.cpp model"></div></div>
+        <div class="row" data-stt="custom"><div class="what"><h2>Server address</h2><p>The full transcriptions address, for example http://localhost:8000/v1/audio/transcriptions.</p></div>
+          <div class="how"><input class="input" data-bind="voice.custom_stt_url" placeholder="http://localhost:8000/v1/audio/transcriptions" aria-label="Server address"></div></div>
+        <div class="row" data-stt="openai groq mistral custom"><div class="what"><h2>Model name</h2><p>Leave empty for the service's recommended model.</p></div>
+          <div class="how"><input class="input" data-bind="voice.cloud_stt_model" placeholder="Default" aria-label="Model name"></div></div>
+        <div class="row" data-stt="openai groq mistral deepgram custom" style="display:block"><div class="what"><h2 id="sttKeyTitle">API key</h2><p>Stored on this computer only, where the AI can't read it. Deepgram and the others are paid services; most give sign-up credit.</p></div>
+          <div class="add" style="max-width:none">
+            <input class="input" id="sttKey" type="password" autocomplete="off" placeholder="Paste an API key" aria-label="API key">
+            <button class="btn primary" id="sttSave">Check and save</button>
+            <button class="btn" id="sttGet">Get a key</button>
+          </div>
+          <p class="muted small" id="sttStatus" style="margin-top:10px"></p></div>
         <div class="row"><div class="what"><h2>Nova's voice</h2><p>Natural is a lifelike neural voice that runs on this computer. System uses your computer's built-in voices.</p></div>
           <div class="how"><div class="seg" role="radiogroup" data-bind="voice.tts_engine" data-options="kokoro:Natural,system:System"></div></div></div>
         <div class="row" data-engine="kokoro"><div class="what"><h2>Natural voice</h2><p id="naturalNote">Heart is the most natural. For a butler-style voice, try one of the British men.</p><div class="log mono" id="voiceLog" hidden></div></div>
@@ -549,8 +635,33 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
           <div class="how"><input class="input short num" type="number" min="10" max="600" data-bind="dictation.max_record_s" aria-label="Seconds"><span class="muted">seconds</span></div></div>
         <div class="row"><div class="what"><h2>Ask the AI to tidy dictations of at least</h2><p>Shorter ones are cleaned on this computer. Hindi and tricky self-corrections always go to the AI.</p></div>
           <div class="how"><input class="input short num" type="number" min="5" max="500" data-bind="dictation.llm_min_words" aria-label="Words"><span class="muted">words</span></div></div>
+        <div class="row"><div class="what"><h2>Translate into</h2><p>Speak any language and Nova types it in this one. English is translated on this computer by Whisper; other languages need Claude Code or Codex.</p></div>
+          <div class="how"><select class="input" data-bind="dictation.translate_to" aria-label="Translate into"><option value="">Off: type what I say</option><option>English</option><option value="Hindi, written in Roman letters (Hinglish)">Hindi (Roman letters)</option><option>Spanish</option><option>French</option><option>German</option><option>Portuguese</option><option>Italian</option><option>Dutch</option><option>Japanese</option><option>Chinese</option><option>Korean</option><option>Arabic</option><option>Russian</option></select></div></div>
+        <div class="row"><div class="what"><h2>Learn from my corrections</h2><p>When you fix a misheard name or term right after dictating, Nova adds it to your dictionary. It reads that text field for a minute after pasting, only in memory, and never password fields.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="dictation.auto_learn" aria-label="Learn from my corrections"></button></div></div>
         <div class="row"><div class="what"><h2>Rewrite selected text</h2><p>Select text in any app, press the shortcut and say “make this more formal”, “translate it to Hindi” or “fix the grammar”. Needs Claude Code or Codex.</p></div>
           <div class="how"><span class="tag ok"><svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg>On</span></div></div>
+      </div>
+
+      <div data-panel="meetings" class="rows" hidden>
+        <div class="row"><div class="what"><h2>Record the computer's audio</h2><p>Hear everyone on the call, not just your microphone. No bot joins. On a Mac this needs macOS 13 and Screen Recording permission.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="meetings.computer_audio" aria-label="Record the computer's audio"></button></div></div>
+        <div class="row"><div class="what"><h2>New meetings go in</h2><p>The folder a recording starts in. Move any meeting to another folder from its page.</p></div>
+          <div class="how"><input class="input" data-bind="meetings.folder" aria-label="Default folder"></div></div>
+        <div class="row"><div class="what"><h2>Model for minutes</h2><p>For Claude Code, for example “sonnet” or “opus”. Leave empty for the default.</p></div>
+          <div class="how"><input class="input" data-bind="meetings.claude_model" placeholder="Default" aria-label="Model for minutes"></div></div>
+        <div class="row" style="display:block"><div class="what"><h2>Calendar</h2><p>Paste your calendar's secret iCal (ICS) address. Google Calendar: Settings, your calendar, “Secret address in iCal format”. Outlook: Settings, Calendar, Shared calendars, Publish, ICS link. Nova names recordings after the meeting and reminds you when one starts. Read-only; stored where the AI can't read it.</p></div>
+          <div class="add" style="max-width:none">
+            <input class="input" id="calKey" type="password" autocomplete="off" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" aria-label="Calendar address">
+            <button class="btn primary" id="calSave">Check and save</button>
+          </div>
+          <p class="muted small" id="calStatus" style="margin-top:10px"></p></div>
+        <div class="row"><div class="what"><h2>Remind me when a meeting starts</h2><p>A card with how to start recording. Needs the calendar above.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="meetings.remind" aria-label="Remind me when a meeting starts"></button></div></div>
+        <div class="row" style="display:block"><div class="what"><h2>Your AI actions</h2><p>One-click actions for any meeting, next to Summarize and Follow-up email. Name it, then say what it should do.</p></div>
+          <div class="pair-head"><span>Name</span><span></span><span>What it should do</span><span></span></div>
+          <div class="pairs" id="mtActionPairs"></div>
+          <button class="btn sm" id="addMtAction" style="margin-top:8px"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>Add an action</span></button></div>
       </div>
 
       <div data-panel="ai" class="rows" hidden>
@@ -617,8 +728,10 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
         <div class="row" style="display:block"><div class="what"><h2>Permissions</h2><p>How often Nova asks before the AI does something. You can also switch from the tray menu → Permissions.</p></div>
           <div class="engines" id="permModes" role="radiogroup" aria-label="Permissions"></div>
           <p class="small" id="permWarn" style="margin-top:10px;color:var(--danger)" hidden>Bypass runs everything without asking, including deleting files, installing software and pushing code. Only wiping disks, turning off security and reading saved passwords stay blocked. Switch back when you're done.</p></div>
-        <div class="row"><div class="what"><h2>Share what you're looking at</h2><p>Tells the AI which app you're in, and when you ask about your screen (“what's this error?”) lets it see a screenshot. Off means the AI only gets your words.</p></div>
+        <div class="row"><div class="what"><h2>Share what you're looking at</h2><p>Tells the AI which app you're in. When you ask about your screen (“what's this error?”, “summarize this page”, “what's on my whole screen?”) it also gets a screenshot and the window's text, including what's scrolled out of view. Off means the AI only gets your words.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="brain.screen_context" aria-label="Share what you're looking at"></button></div></div>
+        <div class="row"><div class="what"><h2>Remember what the computer played for</h2><p>So you can ask “what did they just say?” about a video or call without starting anything first. Kept in memory only, never saved, and transcribed only when you ask (or as it plays on a GPU). 0 turns it off. Windows; on a Mac, say “listen to my computer”.</p></div>
+          <div class="how"><input class="input short num" type="number" min="0" max="30" data-bind="brain.audio_memory_min" aria-label="Minutes"><span class="muted">minutes</span></div></div>
         <div class="row"><div class="what"><h2>Remember what you copy</h2><p>The last 20 things you copied, kept in memory only and gone when Nova quits, so you can say “paste the link I copied earlier”. Anything that looks like a password or key is skipped. The AI only sees them when you mention copying or the clipboard.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="brain.clipboard_history" aria-label="Remember what you copy"></button></div></div>
         <div class="row"><div class="what"><h2>Answer permission requests by voice</h2><p>When Nova asks for your OK during a spoken request, say “allow” or “deny” (or “yes”, “go ahead”, “no”, “cancel”). Only a short, clear answer counts. Turn this off if other people talk near your computer and you'd rather always click or press a key.</p></div>
@@ -896,7 +1009,7 @@ function renderLive() {
   $("#chatBadge").hidden = !(S.state.pending && S.page !== "chat");
   const st = S.state;
   $("#stBrain").textContent = st.brain || "Not connected"; $("#stBrainDot").className = "dot " + (st.brain ? "ok" : "warn");
-  $("#stStt").textContent = st.stt ? `On this computer (${st.stt})` : S.gone ? "Off" : "Loading…"; $("#stSttDot").className = "dot " + (st.stt ? "ok" : "");
+  $("#stStt").textContent = !st.stt ? (S.gone ? "Off" : "Loading…") : st.speech && st.speech !== "Whisper" ? st.speech : `On this computer (${st.stt})`; $("#stSttDot").className = "dot " + (st.stt ? "ok" : "");
   $("#stWake").textContent = S.cfg.wake_word ? "Listening for it" : "Off"; $("#stWakeDot").className = "dot " + (S.cfg.wake_word ? "ok" : "");
   renderLede(); renderComposer();
 }
@@ -918,6 +1031,7 @@ function go(page, tab) {
   if (page === "settings") showTab(tab || S.tab || "general");
   if (page === "history") renderHistory();
   if (page === "memory") loadMemory();
+  if (page === "meetings") { if (MT.id) refreshMeeting(); else loadMeetings(); }
   if (page !== "settings") stopMic();
   $("#main").scrollTop = 0;
 }
@@ -1194,6 +1308,7 @@ function showTab(tab) {
   if (tab === "ai") { loadEngines($("#setEngines"), $("#setLog")); loadFallback(); }
   if (tab === "browsers") loadBrowsers($("#setBrowsers"), $("#browserLog"), false);
   if (tab === "phone") loadPhone();
+  if (tab === "meetings") loadCalendar();
   if (tab === "voice" && $("#voiceSel").options.length <= 1) loadVoices();
 }
 $$("#setTabs button").forEach(b => {
@@ -1207,6 +1322,7 @@ function showValue(path) {
   for (const el of $$(`[data-show="${path}"]`)) { const v = get(path); el.textContent = el.dataset.unit === "s" ? (v / 1000).toFixed(1) + " s" : el.dataset.unit === "x" ? Number(v).toFixed(2) + "×" : v; }
   if (path === "dictation.editing") $("#editDesc").textContent = EDIT[get(path)] || "";
   if (path === "voice.tts_engine") $$("[data-engine]").forEach(r => r.hidden = r.dataset.engine !== get(path));
+  if (path === "voice.stt_engine") { $$("[data-stt]").forEach(r => r.hidden = !r.dataset.stt.split(" ").includes(get(path))); loadSttExtras(); }
 }
 function bindSettings() {
   for (const el of $$("[data-bind]")) {
@@ -1240,6 +1356,7 @@ function bindSettings() {
   addRepl = pairsEditor($("#repls"), "dictation.replacements", "wisper", "Wispr");
   addAlias = pairsEditor($("#aliases"), "projects.aliases", "my site", "portfolio");
   renderFolders(); renderPermissions();
+  addMtAction = pairsEditor($("#mtActionPairs"), "meetings.actions", "Name, e.g. Jira tickets", "Turn the action items into Jira tickets");
   addRoutine = pairsEditor($("#routines"), "routines", "deep code mode", "pause music, open VS Code in portfolio, run npm run dev");
   $("#claudeHook").setAttribute("aria-checked", !!S.claudeHook);
   $("#watchCmd").textContent = `python "${S.paths.root}${S.platform === "mac" ? "/" : "\\"}helpers${S.platform === "mac" ? "/" : "\\"}watch.py" npm run build`;
@@ -1397,6 +1514,161 @@ $("#fbSave").addEventListener("click", async () => {
   try { await api().fallback_save(input.value); input.value = ""; toast("Backup brain ready"); loadFallback(); }
   catch (e) { fail(e); }
   btn.disabled = false; btn.textContent = "Check and save";
+});
+
+/* ---------- speech engines: cloud keys and on-device models ---------- */
+const KEYED = { openai: "OpenAI", groq: "Groq", mistral: "Mistral", deepgram: "Deepgram", custom: "Server" };
+async function loadSttExtras() {
+  const eng = get("voice.stt_engine");
+  if (KEYED[eng]) {
+    $("#sttKeyTitle").textContent = eng === "custom" ? "API key (if your server needs one)" : `${KEYED[eng]} key`;
+    $("#sttGet").hidden = eng === "custom";
+    const st = await api().stt_key_status(eng).catch(() => ({ set: false }));
+    const status = $("#sttStatus");
+    status.replaceChildren(st.set
+      ? h("span", { class: "tag ok", html: I.check + `<span>Key saved: Nova sends what you say to ${esc(KEYED[eng])}.</span>` })
+      : h("span", {}, eng === "custom" ? "No key: fine for a server on this computer." : "No key yet. Until you add one, Nova transcribes on this computer."));
+    if (st.set) {
+      const rm = h("button", { class: "btn sm danger", style: "margin-left:10px" }, h("span", {}, "Remove key"));
+      armed(rm, "Click again to remove", async () => { await api().stt_key_remove(eng); toast("Key removed"); loadSttExtras(); });
+      status.append(rm);
+    }
+  }
+  if (eng === "parakeet" || eng === "orukeet") {
+    const all = await api().model_status().catch(() => ({}));
+    const m = all[eng] || {};
+    $("#sttModelState").textContent = m.installed ? "Downloaded" : `Not downloaded (${m.size || "about 490 MB"})`;
+    $("#sttModelGet").hidden = !!m.installed;
+  }
+}
+$("#sttGet").addEventListener("click", () => api().open_stt_key_page(get("voice.stt_engine")).catch(fail));
+$("#sttSave").addEventListener("click", async () => {
+  const btn = $("#sttSave"), input = $("#sttKey");
+  btn.disabled = true; btn.textContent = "Checking…";
+  try { await api().stt_key_save(get("voice.stt_engine"), input.value); input.value = ""; toast("Key saved"); loadSttExtras(); }
+  catch (e) { fail(e); }
+  btn.disabled = false; btn.textContent = "Check and save";
+});
+$("#sttModelGet").addEventListener("click", async e => {
+  const btn = e.currentTarget, log = $("#sttModelLog");
+  btn.disabled = true; btn.textContent = "Downloading…"; log.hidden = false; log.textContent = ""; S.installLog = log;
+  try { await api().download_model(get("voice.stt_engine")); toast("Model ready"); log.hidden = true; }
+  catch (err) { fail(err); }
+  btn.disabled = false; btn.textContent = "Download"; loadSttExtras();
+});
+async function loadCalendar() {
+  const st = await api().calendar_status().catch(() => ({ set: false }));
+  const status = $("#calStatus");
+  status.replaceChildren(st.set ? h("span", { class: "tag ok", html: I.check + "<span>Calendar connected.</span>" }) : h("span", {}, "No calendar connected."));
+  if (st.set) {
+    const rm = h("button", { class: "btn sm danger", style: "margin-left:10px" }, h("span", {}, "Disconnect"));
+    armed(rm, "Click again to disconnect", async () => { await api().calendar_remove(); toast("Calendar disconnected"); loadCalendar(); });
+    status.append(rm);
+  }
+}
+$("#calSave").addEventListener("click", async () => {
+  const btn = $("#calSave"), input = $("#calKey");
+  btn.disabled = true; btn.textContent = "Checking…";
+  try { await api().calendar_save(input.value); input.value = ""; toast("Calendar connected"); loadCalendar(); }
+  catch (e) { fail(e); }
+  btn.disabled = false; btn.textContent = "Check and save";
+});
+let addMtAction;
+$("#addMtAction").addEventListener("click", () => addMtAction());
+
+/* ---------- meetings ---------- */
+const MT = { id: null, m: null, list: [], folders: [], actions: {}, tab: "minutes", live: null, progress: {}, pending: {} };
+const ago = t => new Date(t * 1000).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+const clock = s => { s = Math.floor(s); const hh = Math.floor(s / 3600), mm = Math.floor(s / 60) % 60, ss = s % 60; return (hh ? hh + ":" + String(mm).padStart(2, "0") : mm) + ":" + String(ss).padStart(2, "0"); };
+const STATUS = { recording: "Recording", queued: "Waiting to be transcribed", transcribing: "Transcribing", summarizing: "Writing the minutes", failed: "Didn't finish" };
+async function loadMeetings() {
+  const r = await api().meetings_list($("#mtFolder").value, $("#mtSearch").value).catch(fail); if (!r) return;
+  Object.assign(MT, { list: r.meetings, folders: r.folders, actions: r.actions });
+  const sel = $("#mtFolder"), keep = sel.value;
+  sel.replaceChildren(h("option", { value: "" }, "All folders"), ...r.folders.map(f => h("option", { value: f }, f))); sel.value = keep;
+  $("#mtFolders").replaceChildren(...r.folders.map(f => h("option", { value: f })));
+  const ul = $("#mtItems");
+  if (!MT.list.length) {
+    ul.replaceChildren(h("div", { class: "empty" }, h("h3", {}, $("#mtSearch").value ? "Nothing matches" : "No meetings yet"),
+      h("p", {}, $("#mtSearch").value ? "Try other words, or All folders." : "Press Record when a call starts, or say “record this meeting”. Or transcribe a recording you already have.")));
+  } else ul.replaceChildren(...MT.list.map(m => h("li", { class: "clickable", tabindex: "0", onclick: () => openMeeting(m.id), onkeydown: e => e.key === "Enter" && openMeeting(m.id) },
+    h("time", {}, new Date(m.started * 1000).toLocaleDateString([], { day: "numeric", month: "short" })),
+    h("span", { class: "kind dict", html: m.source === "upload" ? '<svg class="i" viewBox="0 0 24 24"><path d="M12 15V4M7 9l5-5 5 5M5 20h14"/></svg>' : I.mic }),
+    h("div", { class: "body" }, h("div", { class: "t" }, h("b", {}, m.title)),
+      h("div", { class: "sub" }, [m.folder, m.duration ? clock(m.duration) : null, MT.progress[m.id] || STATUS[m.status]].filter(Boolean).join(" · ")),
+      m.preview ? h("div", { class: "sub" }, m.preview) : null), h("span", {}))));
+  renderRecording();
+  loadUpcoming();
+}
+async function loadUpcoming() {
+  const evs = await api().upcoming().catch(() => []);
+  $("#mtUpcoming").replaceChildren(...(evs.length ? [h("div", { class: "upcoming" }, ...evs.slice(0, 4).map(e =>
+    h("div", { class: "ev" }, h("b", {}, e.title), new Date(e.start * 1000).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }))))] : []));
+}
+function renderRecording() {
+  const rec = S.state.recording;
+  $("#recBadge").hidden = !rec;
+  $("#mtLive").hidden = !rec;
+  $("#mtRecord").hidden = !!rec;
+  if (rec) $("#mtLiveText").textContent = `Recording “${rec.title}” · ${clock((MT.live && MT.live.id === rec.id ? MT.live.elapsed : Date.now() / 1000 - rec.started))}` + (MT.live && MT.live.error ? ` · computer audio unavailable: ${MT.live.error}` : "");
+}
+async function openMeeting(id) {
+  const m = await api().meeting_get(id).catch(fail); if (!m) return;
+  MT.id = id; $("#mtList").hidden = true; $("#mtDetail").hidden = false;
+  if (m.status === "recording") MT.tab = "notes";
+  renderMeeting(m); $("#main").scrollTop = 0;
+}
+function showMtTab(t) {
+  MT.tab = t;
+  $$("#mtTabs button").forEach(b => b.setAttribute("aria-checked", b.dataset.t === t));
+  $$(".mt-pane").forEach(p => p.hidden = p.dataset.t !== t);
+}
+function renderMeeting(m) {
+  MT.m = m;
+  if (document.activeElement !== $("#mtTitle")) $("#mtTitle").value = m.title;
+  if (document.activeElement !== $("#mtMove")) $("#mtMove").value = m.folder;
+  if (document.activeElement !== $("#mtNotes")) $("#mtNotes").value = m.notes;
+  $("#mtMeta").textContent = [ago(m.started), m.duration ? clock(m.duration) : null, m.source === "upload" ? "Transcribed file" : null, m.event ? "From your calendar" : null].filter(Boolean).join(" · ");
+  const st = $("#mtStatus"), busy = m.status !== "done";
+  st.hidden = !busy && !m.speaker_error;
+  const msg = m.status === "failed" ? `${STATUS.failed}: ${m.error || ""}` : busy ? (MT.progress[m.id] || STATUS[m.status]) + (m.status === "recording" ? ". Take notes below while it records." : "…") : `Speaker labels unavailable: ${m.speaker_error}`;
+  st.replaceChildren(h("span", { class: "grow" }, msg), m.status === "failed" ? h("button", { class: "btn sm", onclick: () => send("meeting_retry", { id: m.id }) }, "Retry") : null);
+  $("#mtMinutes").replaceChildren(m.minutes ? h("div", { html: md(m.minutes) }) : h("div", { class: "empty" }, h("h3", {}, busy ? "Minutes come after the transcript" : "No minutes"),
+    !busy && m.transcript.length ? h("button", { class: "btn sm primary", style: "margin-top:10px", onclick: () => { send("meeting_retry", { id: m.id }); toast("Writing the minutes…"); } }, "Write the minutes") : h("p", {}, busy ? "Nova writes them once the meeting is transcribed." : "Nothing was heard in this recording.")));
+  $("#mtTranscript").replaceChildren(...(m.transcript.length ? m.transcript.map(x => h("p", {}, h("time", {}, clock(x.start)), x.speaker ? h("b", {}, x.speaker) : null, x.text)) : [h("p", { class: "muted" }, busy ? "The transcript appears here when it's ready." : "Nothing was heard.")]));
+  $("#mtActions").replaceChildren(...Object.entries(MT.actions).map(([name, instruction]) =>
+    h("button", { class: "btn sm", disabled: !m.transcript.length || MT.pending[m.id + name], onclick: () => runAction(m.id, name, instruction) }, MT.pending[m.id + name] ? name + "…" : name)));
+  $("#mtActionOut").replaceChildren(...[...m.actions].reverse().map(a => h("div", { class: "action-out" },
+    h("h3", {}, a.name, h("button", { class: "icon-btn", "aria-label": "Copy", html: I.copy, onclick: () => { navigator.clipboard.writeText(a.text); toast("Copied"); } })), h("div", { class: "md", html: md(a.text) }))));
+  showMtTab(MT.tab);
+}
+function runAction(id, name, instruction) { MT.pending[id + name] = true; send("meeting_action", { id, name, instruction }); if (MT.m) renderMeeting(MT.m); }
+async function refreshMeeting() { if (MT.id && !$("#mtDetail").hidden) { const m = await api().meeting_get(MT.id).catch(() => null); if (m) renderMeeting(m); else closeMeeting(); } }
+function closeMeeting() { MT.id = null; $("#mtDetail").hidden = true; $("#mtList").hidden = false; loadMeetings(); }
+$$("#mtTabs button").forEach(b => b.addEventListener("click", () => showMtTab(b.dataset.t)));
+$("#mtBack").addEventListener("click", closeMeeting);
+$("#mtRecord").addEventListener("click", () => send("meeting_start", { folder: $("#mtFolder").value }));
+$("#mtStop").addEventListener("click", () => send("meeting_stop"));
+$("#mtLiveOpen").addEventListener("click", () => S.state.recording && openMeeting(S.state.recording.id));
+$("#mtFile").addEventListener("click", async () => {
+  const paths = await api().pick_audio().catch(fail); if (!paths || !paths.length) return;
+  for (const path of paths) await send("transcribe_file", { path, folder: $("#mtFolder").value });
+  toast(paths.length === 1 ? "Transcribing the file…" : `Transcribing ${paths.length} files…`);
+});
+let notesTimer;
+$("#mtNotes").addEventListener("input", () => { clearTimeout(notesTimer); const id = MT.id, notes = $("#mtNotes").value; notesTimer = setTimeout(() => send("meeting_update", { id, notes }), 700); });
+$("#mtTitle").addEventListener("change", e => send("meeting_update", { id: MT.id, title: e.target.value }));
+$("#mtMove").addEventListener("change", e => send("meeting_update", { id: MT.id, folder: e.target.value }));
+$("#mtNote").addEventListener("click", () => api().open_meeting_note(MT.id).catch(fail));
+armed($("#mtDelete"), "Click again to delete", () => { send("meeting_delete", { id: MT.id }); toast("Meeting deleted"); closeMeeting(); });
+let searchTimer;
+$("#mtSearch").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadMeetings, 250); });
+$("#mtFolder").addEventListener("change", loadMeetings);
+$("#mtAsk").addEventListener("submit", e => {
+  e.preventDefault();
+  const q = $("#mtQuestion").value.trim(); if (!q) return;
+  const box = $("#mtAnswer"); box.hidden = false; box.replaceChildren(h("p", { class: "muted" }, `Reading ${$("#mtFolder").value ? "the meetings in " + $("#mtFolder").value : "your meetings"}…`));
+  send("meeting_chat", { question: q, folder: $("#mtFolder").value });
 });
 
 /* ---------- permissions (guard/guard.py applies them) ---------- */
@@ -1594,8 +1866,14 @@ const handlers = {
     S.state = ev; S.gone = false; if (ev.phase === "idle" && !ev.paused && S.bar !== "idle" && S.bar !== "paused") S.bar = "idle";
     if (ev.paused) S.bar = "paused";
     if (wasBusy && ev.phase === "idle") endWork();
-    renderLive(); renderPhoneStatus();
+    renderLive(); renderPhoneStatus(); renderRecording();
   },
+  meetings() { if (S.page === "meetings") { if (MT.id) refreshMeeting(); else loadMeetings(); } },
+  meeting_live(ev) { MT.live = ev; renderRecording(); },
+  meeting_progress(ev) { MT.progress[ev.id] = ev.text; if (S.page === "meetings") { if (MT.id === ev.id && MT.m) renderMeeting(MT.m); else if (!MT.id) loadMeetings(); } },
+  meeting_action(ev) { delete MT.pending[ev.id + ev.name]; if (ev.error) fail(ev.error); else toast(`${ev.name} ready`); if (MT.id === ev.id) refreshMeeting(); },
+  meeting_answer(ev) { const box = $("#mtAnswer"); box.hidden = false; box.replaceChildren(ev.error ? h("p", {}, ev.error) : h("div", { html: md(ev.text) })); },
+  meeting_done(ev) { if (ev.error) fail(ev.error); if (MT.id === ev.id) refreshMeeting(); },
   bar(ev) { S.bar = ev.state; if (ev.state !== "listening") S.levels.fill(0); renderLive(); },
   level(ev) { S.levels.push(ev.value); S.levels.shift(); },
   mic(ev) { micLevels.push(ev.value); micLevels.shift(); },

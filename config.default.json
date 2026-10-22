@@ -1,11 +1,18 @@
 {
   "hotkey": "",
+  "hold_key": "",
   "start_mode": "assistant",
   "update_check": true,
   "wake_word": true,
   "voice": {
     "stt_model": "small",
     "stt_accurate_model": "large-v3-turbo",
+    "stt_engine": "local",
+    "whisper_cpp_server": "",
+    "whisper_cpp_model": "",
+    "deepgram_model": "nova-3",
+    "cloud_stt_model": "",
+    "custom_stt_url": "",
     "language": "auto",
     "tts_engine": "kokoro",
     "kokoro_voice": "af_heart",
@@ -22,6 +29,8 @@
     "silence_ms": 2500,
     "max_record_s": 120,
     "llm_min_words": 30,
+    "translate_to": "",
+    "auto_learn": true,
     "claude_model": "haiku",
     "codex_model": "",
     "dictionary": [
@@ -39,9 +48,18 @@
     "max_turns": 25,
     "followup_window_min": 5,
     "screen_context": true,
+    "audio_memory_min": 10,
     "auto_model": true,
     "clipboard_history": true,
     "fallback_model": "gemini-flash-latest"
+  },
+  "meetings": {
+    "folder": "Meetings",
+    "computer_audio": true,
+    "remind": true,
+    "claude_model": "sonnet",
+    "codex_model": "",
+    "actions": {}
   },
   "projects": {
     "aliases": {},
