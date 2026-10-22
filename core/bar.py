@@ -41,8 +41,8 @@ SS = 3  # draw 3x larger, then downscale: anti-aliased edges
 BOX = (300, 48)  # window size in logical px (bottom position); the pill is drawn inside it
 SIZES = {"idle": (64, 14), "paused": (64, 14), "listening": (156, 36), "thinking": (92, 30),
          "speaking": (124, 30), "approval": (92, 30), "hover": (0, 30)}  # hover width fits its text
-WHITE, AMBER, DIM, VIOLET = (255, 255, 255), (255, 186, 60), (190, 190, 200), (124, 92, 255)
-LIGHT = {False: (190, 172, 255), True: AMBER}  # the thinking dots: light violet, or amber when Nova needs you
+WHITE, AMBER, DIM, VIOLET = (255, 255, 255), (255, 186, 60), (190, 193, 214), (123, 109, 255)
+LIGHT = {False: (169, 161, 255), True: AMBER}  # the thinking dots: light violet, or amber when Nova needs you
 
 
 def _font(px, names=("segoeui.ttf", "/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc")):
@@ -336,7 +336,7 @@ class Bar(Layered):
             d.rounded_rectangle((x0, y0, x0 + pw, y1), radius=min(ph / 2, 14 * s), corners=corners, fill=(0, 0, 0, 255))
         else:
             d.rounded_rectangle((x0, y0, x0 + pw, y1), radius=ph / 2,
-                                fill=(16, 16, 20, 150 if state == "paused" else 238),
+                                fill=(13, 15, 26, 150 if state == "paused" else 238),
                                 outline=(tint if state in ("approval", "thinking") else WHITE)
                                 + ((90 if state == "paused" else 120 if idle else 215),),
                                 width=max(1, round(1.4 * s)))

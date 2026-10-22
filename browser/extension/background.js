@@ -44,8 +44,8 @@ connect();
 
 /* ---------- live sync: badge + panel ---------- */
 const BADGES = {
-  off: ["", "#555"], idle: ["", "#7c5cff"], listening: ["REC", "#e5484d"], thinking: ["…", "#7c5cff"],
-  speaking: ["♪", "#7c5cff"], approval: ["OK?", "#ffba3c"], paused: ["II", "#555"], done: ["✓", "#3ecf8e"],
+  off: ["", "#555"], idle: ["", "#7b6dff"], listening: ["REC", "#e5484d"], thinking: ["…", "#7b6dff"],
+  speaking: ["♪", "#7b6dff"], approval: ["OK?", "#ffba3c"], paused: ["II", "#555"], done: ["✓", "#3ecf8e"],
 };
 function badge(kind) {
   const [text, color] = BADGES[kind] || BADGES.idle;

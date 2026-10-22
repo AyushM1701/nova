@@ -7,30 +7,30 @@
 <style>
 /* the source of Nova's colour tokens: core/phone.html and the browser panel copy them, and tests.py checks they match */
 :root {
-  --bg: #f6f6f8; --side: #eeeef2; --surface: #ffffff; --raised: #f1f1f5; --sunk: #e8e8ee;
-  --line: rgba(20, 20, 32, .09); --line-strong: rgba(20, 20, 32, .16);
-  --text: #16161a; --muted: #5b5b66; --faint: #6a6a74;
-  --accent: #6a4cf5; --accent-hover: #5b3ce8; --accent-ink: #ffffff; --accent-soft: rgba(106, 76, 245, .10);
-  --accent-text: #5a3ce0;
+  --bg: #f5f6fb; --side: #ecedf6; --surface: #ffffff; --raised: #eff0f8; --sunk: #e5e7f2;
+  --line: rgba(19, 21, 40, .09); --line-strong: rgba(19, 21, 40, .16);
+  --text: #131528; --muted: #575b75; --faint: #606480;
+  --accent: #6a5cf5; --accent-hover: #5e4ff0; --accent-ink: #ffffff; --accent-soft: rgba(106, 92, 245, .10);
+  --accent-text: #4f40e6;
   --amber: #8f5500; --amber-soft: rgba(255, 186, 60, .16); --amber-line: rgba(204, 132, 0, .45);
   --ok: #117a50; --danger: #c93a3a; --danger-soft: rgba(201, 58, 58, .09);
-  --pill: #16161a; --pill-ink: #ffffff;
-  --shadow: 0 1px 2px rgba(20, 20, 32, .06), 0 8px 24px rgba(20, 20, 32, .06);
-  --focus: 0 0 0 3px rgba(106, 76, 245, .35);
+  --pill: #131528; --pill-ink: #ffffff;
+  --shadow: 0 1px 2px rgba(19, 21, 40, .06), 0 8px 24px rgba(19, 21, 40, .06);
+  --focus: 0 0 0 3px rgba(106, 92, 245, .35);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #111114; --side: #0c0c0f; --surface: #18181d; --raised: #1f1f25; --sunk: #0f0f12;
+    --bg: #0d0f1a; --side: #090b14; --surface: #151829; --raised: #1b1f33; --sunk: #0a0c16;
     --line: rgba(255, 255, 255, .07); --line-strong: rgba(255, 255, 255, .13);
-    --text: #f2f2f4; --muted: #a3a3ad; --faint: #80808b;
-    --accent: #7357ff; --accent-hover: #6346f0; --accent-ink: #ffffff; --accent-soft: rgba(124, 92, 255, .16);
-    --accent-text: #a995ff;
+    --text: #eef0fa; --muted: #a4a8c2; --faint: #858aa6;
+    --accent: #6d5ff7; --accent-hover: #5e4ff0; --accent-ink: #ffffff; --accent-soft: rgba(123, 109, 255, .16);
+    --accent-text: #a9a1ff;
     --amber: #ffba3c; --amber-soft: rgba(255, 186, 60, .10); --amber-line: rgba(255, 186, 60, .42);
     --ok: #3ecf8e; --danger: #ff7a7a; --danger-soft: rgba(255, 122, 122, .10);
-    --pill: #1c1c22; --pill-ink: #ffffff;
+    --pill: #1a1d30; --pill-ink: #ffffff;
     --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px rgba(0, 0, 0, .35);
-    --focus: 0 0 0 3px rgba(124, 92, 255, .45);
+    --focus: 0 0 0 3px rgba(123, 109, 255, .45);
     color-scheme: dark;
   }
 }
@@ -822,7 +822,7 @@ function drawPills(t) {
     ctx.clearRect(0, 0, W, H);
     const x0 = (W - p.w) / 2, y0 = (H - p.h) / 2, r = p.h / 2, lw = Math.max(1.5, H / 32);
     const amber = state === "approval", dim = state === "paused" || state === "gone";
-    const tint = amber ? "255,186,60" : "124,92,255";
+    const tint = amber ? "255,186,60" : "123,109,255";
     const glow = { listening: .55, thinking: .35 + .25 * Math.sin(sec * 2.4), approval: .45 + .3 * Math.sin(sec * 3) }[state];
     if (glow) for (const [i, g] of [5, 3.2, 1.6].entries()) {
       const k = g * H / 36;
@@ -830,7 +830,7 @@ function drawPills(t) {
       ctx.strokeStyle = `rgba(${tint},${glow * (40 + 35 * i) / 255})`; ctx.lineWidth = lw; ctx.stroke();
     }
     ctx.beginPath(); ctx.roundRect(x0, y0, p.w, p.h, r);
-    ctx.fillStyle = dim ? "rgba(16,16,20,.6)" : "#101014"; ctx.fill();
+    ctx.fillStyle = dim ? "rgba(13,15,26,.6)" : "#0d0f1a"; ctx.fill();
     ctx.lineWidth = lw;
     ctx.strokeStyle = state === "thinking" || amber ? `rgba(${tint},.85)` : `rgba(255,255,255,${dim ? .35 : state === "idle" ? .47 : .84})`;
     ctx.stroke();
@@ -855,7 +855,7 @@ function drawPills(t) {
       bars(Array.from({ length: 9 }, (_, i) => (.25 + .75 * Math.abs(.6 * Math.sin(sec * 4.2 + i * .55) + .4 * Math.sin(sec * 7.1 + i * 1.3))) * (.5 + .5 * Math.sin(Math.PI * (i + .5) / 9)) * inner));
     } else for (let i = 0; i < 3; i++) {  // thinking / approval: a travelling wave
       const up = Math.max(0, Math.sin(sec * 5.2 - i * .75)), a = .55 + .45 * up;
-      ctx.fillStyle = amber ? `rgba(255,186,60,${a})` : `rgba(190,172,255,${a})`;
+      ctx.fillStyle = amber ? `rgba(255,186,60,${a})` : `rgba(169,161,255,${a})`;
       ctx.beginPath(); ctx.arc(cx + (i - 1) * 9 * s, cy - up * 3.2 * s, 2.4 * s, 0, 7); ctx.fill();
     }
   }

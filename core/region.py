@@ -17,7 +17,7 @@ def select(root, on_done):
     canvas.pack(fill="both", expand=True)
     canvas.create_text(w // 2, 60, text="Drag around the part you mean.  Esc to cancel", fill="white",
                        font=("Segoe UI Semibold", 16))
-    box, start = canvas.create_rectangle(0, 0, 0, 0, outline="#a995ff", width=3), [None]
+    box, start = canvas.create_rectangle(0, 0, 0, 0, outline="#a9a1ff", width=3), [None]
 
     def finish(result):
         if win.winfo_exists():  # once only: Esc, a click or the caller's timeout, whichever comes first

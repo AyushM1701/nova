@@ -19,7 +19,7 @@ VENV, PY = ROOT / ".venv", ROOT / ".venv" / "bin" / "python"
 APP = Path.home() / "Applications" / "Nova.app"
 MODEL_BYTES = int(2.1 * 2**30)  # approximate size of the two speech models, only used for the progress label
 
-BG, FG, DIM, ACCENT, TRACK, BAD = "#16161a", "#f2f2f4", "#a3a3ad", "#7c5cff", "#2a2a31", "#ff7a7a"
+BG, FG, DIM, ACCENT, TRACK, BAD = "#131528", "#eef0fa", "#a4a8c2", "#7b6dff", "#262a42", "#ff7a7a"
 INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -54,7 +54,7 @@ class Window:
         self.fill = self.track.create_rectangle(0, 0, 0, 6, fill=ACCENT, width=0)
         self.detail = tk.Label(self.root, text="", bg=BG, fg=DIM, font=("Helvetica", 11), anchor="w", width=70)
         self.detail.place(x=28, y=128)
-        self.log = tk.Text(self.root, height=6, bg="#0f0f12", fg=DIM, font=("Menlo", 10), relief="flat")
+        self.log = tk.Text(self.root, height=6, bg="#0a0c16", fg=DIM, font=("Menlo", 10), relief="flat")
         self.button = tk.Button(self.root, text="Cancel", command=self.on_button, highlightbackground=BG)
         self.button.place(x=440, y=212)
         self.toggle = tk.Label(self.root, text="Show details", bg=BG, fg=DIM, cursor="hand2")

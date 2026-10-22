@@ -15,9 +15,9 @@ from core.bar import BOX, Layered, _font, dpi_scale
 
 SS = 2  # drawn 2x, then downscaled: smooth corners and text
 WIDTH, PAD, RADIUS, SHADOW = 440, 18, 16, 20  # logical px; SHADOW is the transparent margin the shadow uses
-BG, EDGE = (17, 17, 21, 246), (255, 255, 255, 30)
-TEXT, BODY, DIM, FAINT = (244, 244, 246), (214, 214, 222), (160, 160, 172), (122, 122, 134)
-ACCENT, AMBER, RED, TRACK = (124, 92, 255), (255, 186, 60), (255, 122, 122), (44, 44, 52)
+BG, EDGE = (13, 15, 26, 246), (255, 255, 255, 30)
+TEXT, BODY, DIM, FAINT = (240, 242, 250), (212, 215, 232), (164, 168, 194), (124, 129, 156)
+ACCENT, AMBER, RED, TRACK = (123, 109, 255), (255, 186, 60), (255, 122, 122), (38, 42, 66)
 ICON = {"thinking": ACCENT, "speaking": TEXT, "approval": AMBER, "error": RED, "info": ACCENT, "reply": ACCENT}
 HINT = {"speaking": "Esc to stop", "approval": "or say “allow” / “deny”"}
 FONTS = {"regular": ("segoeui.ttf", "/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc"),

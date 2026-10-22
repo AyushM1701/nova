@@ -457,7 +457,7 @@ def window_bg():
                 dark = winreg.QueryValueEx(k, "AppsUseLightTheme")[0] == 0
     except Exception:  # no setting saved means the system default, which is light
         dark = False
-    return "#111114" if dark else "#f6f6f8"
+    return "#0d0f1a" if dark else "#f5f6fb"
 
 
 def main():

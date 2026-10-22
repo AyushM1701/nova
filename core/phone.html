@@ -9,7 +9,7 @@
 <!-- not "black-translucent": in iPhone home-screen apps (iOS 26+) that draws the page under the clock but cuts the same
      59 points off the bottom, which no CSS can reach. "black" puts the page below the clock, down to the bottom edge. -->
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<meta name="theme-color" content="#111114">
+<meta name="theme-color" content="#0d0f1a">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="icon" href="/icon.png">
 <title>Nova</title>
@@ -17,20 +17,20 @@
 /* core/app.html's tokens; only the fills (--raised, --line, the -soft tints) are stronger for a phone in daylight.
    tests.py fails if the rest drift. */
 :root {
-  --bg: #f6f6f8; --surface: #ffffff; --raised: #ececf1; --line: rgba(20, 20, 32, .1);
-  --text: #16161a; --muted: #5b5b66; --faint: #6a6a74;
-  --accent: #6a4cf5; --accent-ink: #ffffff; --accent-soft: rgba(106, 76, 245, .12);
+  --bg: #f5f6fb; --surface: #ffffff; --raised: #e9ebf4; --line: rgba(19, 21, 40, .1);
+  --text: #131528; --muted: #575b75; --faint: #606480;
+  --accent: #6a5cf5; --accent-ink: #ffffff; --accent-soft: rgba(106, 92, 245, .12);
   --amber: #8f5500; --amber-soft: rgba(255, 186, 60, .18); --amber-line: rgba(204, 132, 0, .45);
-  --ok: #117a50; --danger: #c93a3a; --glass: rgba(246, 246, 248, .82);
+  --ok: #117a50; --danger: #c93a3a; --glass: rgba(245, 246, 251, .82);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #111114; --surface: #18181d; --raised: #26262d; --line: rgba(255, 255, 255, .09);
-    --text: #f2f2f4; --muted: #a3a3ad; --faint: #80808b;
-    --accent: #7357ff; --accent-soft: rgba(124, 92, 255, .2);
+    --bg: #0d0f1a; --surface: #151829; --raised: #232741; --line: rgba(255, 255, 255, .09);
+    --text: #eef0fa; --muted: #a4a8c2; --faint: #858aa6;
+    --accent: #6d5ff7; --accent-soft: rgba(123, 109, 255, .2);
     --amber: #ffba3c; --amber-soft: rgba(255, 186, 60, .12); --amber-line: rgba(255, 186, 60, .42);
-    --ok: #3ecf8e; --danger: #ff7a7a; --glass: rgba(17, 17, 20, .82);
+    --ok: #3ecf8e; --danger: #ff7a7a; --glass: rgba(13, 15, 26, .82);
     color-scheme: dark;
   }
 }

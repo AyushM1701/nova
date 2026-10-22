@@ -39,7 +39,7 @@ Nova uses the AI subscription the user already has (Claude Code or Codex CLI) in
 
 ## Brand Commitments
 
-- Name: Nova. Accent violet `#7c5cff` (tray icon, bar, card). Voice: plain, short, friendly, no jargon.
+- Name: Nova. Accent violet `#7b6dff` (tray icon, bar, card). Voice: plain, short, friendly, no jargon.
 
 ## Evidence on Hand
 
