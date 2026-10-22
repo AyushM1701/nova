@@ -1,7 +1,11 @@
-"""'Hey Nova' wake word, fully on-device.
+"""'Hey Nova' wake word, fully on-device, in two stages like "Hey Siri" (see Detector):
+1. a small keyword model (sherpa-onnx, 3 MB) listens to every 30 ms of the microphone, soft or loud, for the phrase;
+2. only when it fires, Whisper checks that clip, so other talk can't wake Nova.
+Measured on 360 synthesized "Hey Nova" scenes (normal, soft and quiet voices; quiet room, fan, TV) it caught 211 at
+Normal against 157 for the older loudness-gate-then-Whisper way (still used until the model is downloaded), with no
+false wake in 720 sound-alike scenes or 23 minutes of talk naming "Nova" about 100 times.
 
-The first 2.5 s of each utterance is transcribed locally and checked for the wake phrase. Nothing leaves
-the laptop and nothing is logged unless the phrase is heard. "Hey Nova, play some music" in one
+Nothing leaves the laptop and nothing is logged unless the phrase is heard. "Hey Nova, play some music" in one
 breath works too: the audio after "Nova" becomes the request, transcribed by the full (Hindi-aware) pipeline.
 """
 import collections
@@ -12,7 +16,7 @@ import re
 import numpy as np
 import sounddevice as sd
 
-from core.audio import BLOCK, RATE, is_speech
+from core.audio import BLOCK, MIN_SPEECH, RATE, is_speech
 
 # Whisper's usual spellings of the phrase; "noah"/"nava" only count after a greeting
 WAKE_RE = re.compile(r"^\W*(?:(?:hey|hej|hei|hi|hay|ay|a|eh|he|ok|okay|hello)[\s,]+"
@@ -96,10 +100,158 @@ def is_echo(heard, spoken):
     return same >= 0.7 * len(words)
 
 
-def listen(transcribe, on_wake, enabled, running=lambda: True):
+# ---------- two stages, like "Hey Siri": a tiny keyword model, then Whisper to check ----------
+# the wake phrases in the keyword model's word pieces (its bpe.model): "HEY NOVA" -> ▁HE Y ▁NO V A
+PHRASES = {"HEY_NOVA": "▁HE Y ▁NO V A", "HI_NOVA": "▁HI ▁NO V A", "OK_NOVA": "▁O K ▁NO V A",
+           "OKAY_NOVA": "▁OKAY ▁NO V A", "HELLO_NOVA": "▁HE LL O ▁NO V A"}
+# Settings → General → "Hey Nova" sensitivity: how easily the keyword model fires (boost, threshold), and whether
+# how close Whisper's letters must be to the phrase when it didn't spell it exactly (see sounds_like)
+SENSITIVITY = {"low": (1.5, 0.25, 0.9), "normal": (2.0, 0.1, 0.8), "high": (3.0, 0.05, 0.72)}
+SPELLED = ("heynova", "hinova", "oknova", "okaynova", "hellonova")  # the phrases as letters, for sounds_like
+PRE_S = 2.0  # audio kept before the keyword model fires: the phrase is in it
+CONFIRM_S = 1.5  # after the model fires, Whisper checks by then at the latest
+STEP, STAGGER = 5120, 3  # samples per model step (about 0.3 s), and how many copies run a fraction of one apart
+AGC_S, AGC_PEAK, MAX_GAIN = 3.0, 0.3, 30.0  # gain from the loudest sound of the last 3 s, at most +30 dB
+_spotters = {}
+
+
+def spotter(boost, threshold):
+    """The keyword model (about 3 MB, data/models), loaded once per setting."""
+    import sherpa_onnx
+    from core import models
+    if (boost, threshold) not in _spotters:
+        d = models.path("kws")
+        keywords = d / "nova-keywords.txt"
+        keywords.write_text("\n".join(f"{tokens} @{name}" for name, tokens in PHRASES.items()) + "\n", encoding="utf-8")
+        files = {part: str(d / f"{part}-epoch-12-avg-2-chunk-16-left-64.int8.onnx") for part in ("encoder", "decoder",
+                                                                                                "joiner")}
+        _spotters[(boost, threshold)] = sherpa_onnx.KeywordSpotter(
+            tokens=str(d / "tokens.txt"), keywords_file=str(keywords), num_threads=1, keywords_score=boost,
+            keywords_threshold=threshold, **files)
+    return _spotters[(boost, threshold)]
+
+
+class Detector:
+    """Feed it the microphone 30 ms at a time. The keyword model listens to every block, however soft (there is no
+    loudness gate to get past); when it hears "Hey Nova", the clip is raised to a normal level and Whisper checks it,
+    so other talk can't wake Nova. feed() returns None, or ("wake", the request's audio after the name, or None)."""
+
+    def __init__(self, transcribe, sensitivity="normal", copies=STAGGER, gain=True):
+        boost, threshold, self.similar = SENSITIVITY.get(sensitivity, SENSITIVITY["normal"])
+        self.transcribe, self.spotter, self.copies, self.gain = transcribe, spotter(boost, threshold), copies, gain
+        self.recent = collections.deque(maxlen=int(PRE_S * RATE / BLOCK))
+        self.peaks = collections.deque(maxlen=int(AGC_S * RATE / BLOCK))
+        self.seg, self.quiet, self.floor = None, 0, None
+        self.new_streams()
+
+    def new_streams(self):
+        """The model works in steps of about 0.3 s, and a phrase that straddles a step badly is easy to miss: copies
+        started a fraction of a step apart (measured: 21 of 40 caught with one, 32 with two, 35 with three) never all miss it."""
+        self.streams = []
+        for k in range(self.copies):
+            stream = self.spotter.create_stream()
+            stream.accept_waveform(RATE, np.zeros(int(STEP * k / self.copies), np.float32))
+            self.streams.append(stream)
+
+    def feed(self, block):
+        rms = float(np.sqrt(np.mean(block ** 2)))
+        if self.floor is None or rms < 2 * self.floor:  # the room's noise level, for telling when talking ends
+            self.floor = rms if self.floor is None else 0.98 * self.floor + 0.02 * rms
+        if self.seg is None:
+            self.recent.append(block)
+            self.peaks.append(float(np.abs(block).max()))
+            # a soft or distant voice is raised toward a normal level, like a phone's mic before its wake word
+            loud = block * min(MAX_GAIN, max(1.0, AGC_PEAK / max(self.peaks))) if self.gain else block
+            heard = False
+            for stream in self.streams:
+                stream.accept_waveform(RATE, loud)
+                while self.spotter.is_ready(stream):
+                    self.spotter.decode_stream(stream)
+                    heard = heard or bool(self.spotter.get_result(stream))
+            if heard:  # stage 1: keep listening until the user pauses, so "Hey Nova, play music" is one clip
+                self.seg, self.quiet = list(self.recent), 0
+                self.mark = len(self.seg)  # where the model fired
+            return None
+        self.seg.append(block)
+        self.quiet = 0 if rms > max(MIN_SPEECH, 2 * self.floor) else self.quiet + 30
+        paused = self.quiet >= END_SILENCE_MS
+        # check once the user pauses, or soon anyway: with a TV or people talking the pause may never come
+        if not paused and (len(self.seg) - self.mark) * BLOCK / RATE < CONFIRM_S:
+            return None
+        clip, self.seg = np.concatenate(self.seg), None
+        self.recent.clear()
+        self.new_streams()  # what was heard while checking isn't part of the next phrase
+        hit = self.confirm(clip)
+        if hit is None:
+            return None
+        after, rest = hit
+        # still talking ("Hey Nova, what's the…"): Nova records the rest, from this audio and this room's noise level
+        return ("wake", after, self.floor) if not paused else ("wake", after if rest else None, None)
+
+    def confirm(self, clip):
+        """Stage 2: Whisper hears the clip, raised to a normal level so a soft voice isn't taken for silence.
+        (the audio after the name, what Whisper heard after it), or None if it isn't the phrase."""
+        words = self.transcribe(clip * min(20.0, 0.3 / max(1e-4, float(np.abs(clip).max()))))
+        name = None
+        for i in range(len(words)):  # the phrase may follow a few words of other talk in the clip...
+            # ...but there "Nova" alone ("bossa nova") isn't the phrase: it needs its "hey"
+            if (not i or not NAME_RE.search(words[i][0])) and match(" ".join(w for w, _ in words[i:])) is not None:
+                name = next((j for j in range(i, len(words)) if NAME_RE.search(words[j][0])), i)
+                break
+        if name is None:  # Whisper's own spelling of it: "Hinova", "HINE OVER", "Henova", "High Nova"
+            name = sounds_like(words, self.similar)
+        if name is None:
+            return None
+        # +0.12 s because Whisper's word end times run slightly early
+        return clip[int((words[name][1] + 0.12) * RATE):], " ".join(w for w, _ in words[name + 1:]).strip(" .,!?")
+
+
+def sounds_like(words, at_least):
+    """The index of the word that ends a stretch of letters this close to a wake phrase (0..1), or None.
+    Letters only, so Whisper's word breaks don't matter ("hine over" vs "hinova": 0.83)."""
+    letters, owner = "", []
+    for k, (w, _) in enumerate(words):
+        clean = re.sub(r"[^a-z]", "", w.lower())
+        letters += clean
+        owner += [k] * len(clean)
+    best, end = 0.0, None
+    for phrase in SPELLED:
+        for size in range(len(phrase) - 1, len(phrase) + 3):
+            for start in range(max(1, len(letters) - size + 1)):
+                score = difflib.SequenceMatcher(None, letters[start:start + size], phrase).ratio()
+                if score > best and letters[start:start + size]:
+                    best, end = score, owner[min(start + size, len(letters)) - 1]
+    return end if best >= at_least else None
+
+
+def listen(transcribe, on_wake, enabled, running=lambda: True, sensitivity=lambda: "normal"):
     """Run until `running()` is False (own thread). on_wake(None) = start listening, on_wake(audio) = this
     audio is the request. `enabled()` is False while Nova is busy, so its own voice can't wake it.
     Returning closes the microphone, so turning the wake word off really stops listening."""
+    from core import models
+    if not models.installed("kws"):  # not downloaded yet (first start offline): the older, louder-voice way
+        return _listen_gated(transcribe, on_wake, enabled, running)
+    blocks, detector, level = queue.Queue(), None, None
+    with sd.InputStream(samplerate=RATE, channels=1, dtype="float32", blocksize=BLOCK,
+                        callback=lambda data, *_: blocks.put(data[:, 0].copy())):
+        while running():
+            try:
+                block = blocks.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            if not enabled():
+                detector = None  # Nova is busy: start afresh afterwards, so its own voice can't count
+                continue
+            if detector is None or sensitivity() != level:
+                level = sensitivity()
+                detector = Detector(transcribe, level)
+            hit = detector.feed(block)
+            if hit:
+                on_wake(hit[1], hit[2])
+
+
+def _listen_gated(transcribe, on_wake, enabled, running):
+    """The wake word without the keyword model: a loudness gate, then Whisper on every utterance."""
     blocks = queue.Queue()
     before = collections.deque(maxlen=10)  # 300 ms of audio before speech, so "hey" isn't clipped
     seg, floor, quiet = [], None, 0

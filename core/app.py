@@ -274,11 +274,10 @@ class Api:
 
     # ---------- meetings (core/meetings.py; Nova writes them, the window reads them) ----------
     def meetings_list(self, folder="", query=""):
-        found = meetings.search(query, folder or None) if query.strip() else [
-            meetings.summary(m) for m in meetings.all_meetings() if not folder or m["folder"] == folder]
-        folders = sorted({m["folder"] for m in meetings.all_meetings()} | {load_config()[0]["meetings"]["folder"]})
-        return {"meetings": found, "folders": folders, "actions": {**meetings.ACTIONS,
-                                                                    **load_config()[0]["meetings"]["actions"]}}
+        every, mc = meetings.all_meetings(), load_config()[0]["meetings"]  # read once: they can be large
+        return {"meetings": meetings.search(every, query, folder or None),
+                "folders": sorted({m["folder"] for m in every} | {mc["folder"]}),
+                "actions": {**meetings.ACTIONS, **mc["actions"]}}
 
     def meeting_get(self, mid):
         return meetings.load(mid)

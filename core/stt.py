@@ -63,13 +63,15 @@ class STT:
         found, info = model.transcribe(audio, language=None if language == "auto" else language, initial_prompt=prompt,
                                        vad_filter=True, vad_parameters=VAD, beam_size=1,
                                        condition_on_previous_text=False)
-        out, total = [], max(1.0, len(audio) / 16000)
+        out, total, shown = [], max(1.0, len(audio) / 16000), -1
         for s in found:
             text = drop_outro(s.text.strip())
             if text:
                 out.append({"start": round(s.start, 2), "end": round(s.end, 2), "text": text})
-            if on_progress:
-                on_progress(min(1.0, s.end / total))
+            percent = int(min(1.0, s.end / total) * 100)
+            if on_progress and percent != shown:  # once per percent, not once per segment (hundreds an hour)
+                shown = percent
+                on_progress(percent / 100)
         return out
 
     def transcribe(self, audio, language="auto", vocabulary=(), server=None, task="transcribe"):

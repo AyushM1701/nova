@@ -16,8 +16,7 @@ from pathlib import Path
 
 from core.system import IS_MAC, NO_WINDOW
 
-KOKORO = Path(__file__).resolve().parents[1] / "data" / "tts" / "kokoro-multi-lang-v1_0"
-KOKORO_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2"
+KOKORO = Path(__file__).resolve().parents[1] / "data" / "tts" / "kokoro-multi-lang-v1_0"  # core/models.py fetches it
 # speaker IDs in the model's voices.bin, in order (stable per the model's README)
 KOKORO_VOICES = ("af_alloy af_aoede af_bella af_heart af_jessica af_kore af_nicole af_nova af_river af_sarah af_sky "
                  "am_adam am_echo am_eric am_fenrir am_liam am_michael am_onyx am_puck am_santa bf_alice bf_emma "
@@ -135,29 +134,8 @@ def voices():
 
 def download():
     """Fetch and unpack the Kokoro model into data/tts, printing progress. Skips work already done."""
-    import tarfile
-    import urllib.request
-    if kokoro_installed():
-        return print("Natural voice already installed.")
-    KOKORO.parent.mkdir(parents=True, exist_ok=True)
-    part = KOKORO.parent / "kokoro.tar.bz2.part"
-    with urllib.request.urlopen(KOKORO_URL, timeout=60) as r, open(part, "wb") as f:
-        total, done = int(r.headers.get("Content-Length") or 0), 0
-        while block := r.read(1 << 20):
-            f.write(block)
-            done += len(block)
-            print(f"{done >> 20} of {total >> 20} MB", flush=True)
-    print("Unpacking…", flush=True)
-    with tarfile.open(part, "r:bz2") as tar:
-        try:
-            # one pass over the archive: listing names first would decompress all 330 MB of bz2 twice
-            tar.extractall(KOKORO.parent, filter="data")  # refuses absolute paths, "..", and links out of the folder
-        except TypeError:  # Python 3.11 before 3.11.4 has no filter argument: check the names ourselves
-            if any(n.startswith(("/", "\\")) or ".." in Path(n).parts for n in tar.getnames()):
-                raise ValueError("unexpected paths in the voice download")
-            tar.extractall(KOKORO.parent)
-    part.unlink()
-    print("Natural voice ready.")
+    from core import models
+    models.download("kokoro", lambda line: print(line, flush=True))
 
 
 if __name__ == "__main__" and sys.argv[1:] == ["download"]:

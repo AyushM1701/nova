@@ -240,22 +240,33 @@ class Phone:
         text = query.get("text", [""])[0].strip()[:4000]
         if not text:
             return connection.respond(400, "Tell me what you'd like Nova to do.\n")
-        future = self.loop.create_future()
-        self.waiters.append(future)
+        waiter = {"text": text, "future": self.loop.create_future(), "active": False}
+        self.waiters.append(waiter)
         self._handle({"op": "ask", "text": text}, lambda msg: None)
         try:
-            answer = await asyncio.wait_for(future, SIRI_WAIT_S)
+            answer = await asyncio.wait_for(waiter["future"], SIRI_WAIT_S)
         except asyncio.TimeoutError:  # Siri gives up on a link after about a minute
             answer = "Still working on it. The answer will be in the Nova app."
         finally:
-            if future in self.waiters:
-                self.waiters.remove(future)
+            self.waiters.remove(waiter)
         return connection.respond(200, answer + "\n")
 
-    def _answered(self, text):
-        for future in self.waiters:
-            if not future.done():
-                future.set_result(text)
+    def _answered(self, event):
+        """Answer the Siri request this event belongs to, never another one: its own reply (matched by the request),
+        or a note or error while Nova works on it (it's active once Nova logged hearing it), or "Not sent" (busy)."""
+        kind = event.get("event")
+        for w in self.waiters:
+            if w["future"].done():
+                continue
+            if kind == "heard" and not w["active"] and event.get("via") == "phone" and event.get("text") == w["text"]:
+                w["active"] = True
+                return
+            if (kind == "reply" and event.get("request") == w["text"]
+                    or w["active"] and (kind == "note" or kind == "error" and event.get("request"))
+                    or not w["active"] and kind == "note" and event.get("title") == "Not sent"):
+                text = event.get("say") or event.get("text") or event.get("reply") or event.get("error") or "Done."
+                w["future"].set_result(str(text))
+                return
 
     async def _client(self, ws):
         try:
@@ -285,11 +296,8 @@ class Phone:
         asyncio.run_coroutine_threadsafe(ws.send(json.dumps(msg, default=str)), self.loop)
 
     def broadcast(self, event):
-        # a Siri request waiting for its answer: the reply (its spoken line), or a note such as "It's 6:05 PM."
-        # (only a request's own error: a background one, like a failed browser repair, isn't Siri's answer)
-        if self.waiters and (event.get("event") in ("reply", "note") or event.get("event") == "error" and event.get("request")):
-            text = event.get("say") or event.get("text") or event.get("reply") or event.get("error") or "Done."
-            self.loop.call_soon_threadsafe(self._answered, str(text))
+        if self.waiters:  # a Siri request waiting for its answer (see _answered)
+            self.loop.call_soon_threadsafe(self._answered, event)
         for ws in list(self.clients):
             self.send(ws, {"type": "event", "event": event})
 

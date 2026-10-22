@@ -254,7 +254,8 @@ import asyncio  # noqa: E402
 import core.phone as phone_mod  # noqa: E402
 phone_mod.TOKEN = Path(tempfile.mkdtemp()) / "phone-token"
 siri_msgs = []
-siri = Phone(lambda msg, reply: siri_msgs.append(msg) or siri.broadcast({"event": "reply", "say": "It's 4 PM."}))
+siri = Phone(lambda msg, reply: siri_msgs.append(msg) or siri.broadcast(  # like Nova: the reply names its request
+    {"event": "reply", "request": msg["text"], "say": "It's 4 PM."}))
 ask_siri = lambda query: asyncio.run_coroutine_threadsafe(  # noqa: E731
     siri._ask(type("Conn", (), {"respond": staticmethod(lambda status, text: (status, text))}), query),
     siri.loop).result(5)
@@ -1039,8 +1040,9 @@ with tempfile.TemporaryDirectory() as tmp:
     note = meetings.export_note(m)
     meetings.save(m)
     assert note.exists() and "[00:03] Speaker 1: Annual plan" in note.read_text(encoding="utf-8")
-    assert [x["id"] for x in meetings.search("annual free")] == [m["id"]] and not meetings.search("zebra")
-    assert meetings.search("annual", "Other") == []
+    every = meetings.all_meetings()
+    assert [x["id"] for x in meetings.search(every, "annual free")] == [m["id"]] and not meetings.search(every, "zebra")
+    assert meetings.search(every, "annual", "Other") == [] and len(meetings.search(every, "")) == 1
     m["title"] = "Pricing sync v2"
     meetings.export_note(m)
     meetings.save(m)  # as Nova's meeting_update does
@@ -1146,5 +1148,171 @@ computer = speech.astype(np.float32)
 assert loopback.follows(computer[16000:32000] * 0.05, computer) > 0.9  # the mic hearing the speakers, quietly
 person = (np.repeat(rng.uniform(0.001, 0.3, 100), 160) * rng.normal(0, 1, 100 * 160)).astype(np.float32)
 assert loopback.follows(person, computer) < 0.5  # someone else's voice in the room doesn't follow the speakers
+
+# "Hey Nova", stage 2: what Whisper heard in the clip the keyword model flagged
+from core.wake import Detector  # noqa: E402
+
+
+def heard_as(words, similar=0.8):
+    d = object.__new__(Detector)
+    d.similar, d.transcribe = similar, lambda clip: words
+    return d.confirm(np.zeros(32000, np.float32))  # (audio after the name, what was said after it) or None
+
+
+W = lambda text, step=0.4: [(w, round((i + 1) * step, 2)) for i, w in enumerate(text.split())]  # noqa: E731
+assert heard_as(W("Hey Nova."))[1] == ""
+got = heard_as(W("Hey Nova, open Spotify."))
+assert got[1] == "open Spotify" and len(got[0]) == 32000 - int((0.8 + 0.12) * 16000)  # the request: audio after "Nova"
+assert heard_as(W("so I said hey Nova"))[1] == ""                  # the phrase after a few words of other talk
+for spelled in ("Hinova.", "HINE OVER!", "Henova Open Spotify", "KNOVA opens Spotify.", "High Nova."):
+    assert heard_as(W(spelled)) is not None, spelled                 # Whisper's own spellings of it
+assert heard_as(W("Henova Open Spotify"))[1] == "Open Spotify"
+for other in ("The supernova was bright.", "I love bossa Nova music.", "Hey, no problem at all.", "Novels are great.",
+              "Hey, nobody told me about it.", "Have a nice day.", ""):
+    assert heard_as(W(other)) is None, other
+assert heard_as(W("Hanover opens Spotify."), similar=0.72) is not None  # High lets more spellings through
+assert heard_as(W("Hinova."), similar=0.9) is not None and heard_as(W("HINE OVER!"), similar=0.9) is None  # Low: fewer
+
+# --- the audit's fixes ---
+import concurrent.futures  # noqa: E402
+import threading  # noqa: E402
+from core import brain as brain_mod, models, phone as phone_mod, stt as stt_mod  # noqa: E402
+
+# 1, 13: a meeting being processed keeps the edits made meanwhile, stays deleted, and keeps "You" after a retry
+with tempfile.TemporaryDirectory() as tmp:
+    meetings.STORE, meetings.NOTES = Path(tmp) / "meetings", Path(tmp) / "notes"
+    real_available, real_turns = diarize.available, diarize.turns
+    diarize.available, diarize.turns = lambda: True, lambda audio: [(0, 2, 0), (2, 4, 1)]
+    m = meetings.new("Standup", "Team")
+    meetings.update(m["id"], status="queued", loudness=[(0.05, 0.0)] * 4 + [(0.01, 0.05)] * 4)
+
+    class RenameMeanwhile:
+        def segments(self, audio, *a):
+            meetings.update(m["id"], title="Standup with Priya", notes="decide on pricing")  # the window, meanwhile
+            return [{"start": 0, "end": 2, "text": "hello"}, {"start": 2, "end": 4, "text": "hi there"}]
+    done = meetings.process(m["id"], np.zeros(64000, np.float32), RenameMeanwhile(), "auto", [],
+                            lambda sp, text: "## Summary\nOk." if "decide on pricing" in text else "no notes")
+    assert (done["title"], done["notes"], done["minutes"]) == ("Standup with Priya", "decide on pricing", "## Summary\nOk.")
+    assert [s["speaker"] for s in done["transcript"]] == ["You", "Speaker 1"] and done["loudness"] is None
+    assert (meetings.NOTES / done["note"]).exists() and "Standup with Priya" in done["note"]
+    m = meetings.new("Old call", "Team")
+
+    class DeleteMeanwhile:
+        def segments(self, audio, *a):
+            meetings.delete(m["id"])
+            return [{"start": 0, "end": 2, "text": "hello"}]
+    try:
+        meetings.process(m["id"], np.zeros(32000, np.float32), DeleteMeanwhile(), "auto", [], None)
+        raise AssertionError("processing a deleted meeting should stop")
+    except FileNotFoundError:
+        assert not meetings.file(m["id"]).exists()
+    diarize.available, diarize.turns = real_available, real_turns
+
+    # 4: no microphone: nothing is left behind to clean up (a still-open file can't be deleted on Windows)
+    import sounddevice as sd  # noqa: E402
+
+    def no_mic(*a, **k):
+        raise sd.PortAudioError("no microphone")
+    real_stream, sd.InputStream = sd.InputStream, no_mic
+    m = meetings.new("No mic", "Team")
+    try:
+        meetings.Recorder(m).start()
+        raise AssertionError("starting without a microphone should fail")
+    except sd.PortAudioError:
+        meetings.delete(m["id"])
+    finally:
+        sd.InputStream = real_stream
+    assert not list(meetings.STORE.iterdir()) or all(p.suffix == ".json" for p in meetings.STORE.iterdir())
+    assert not meetings.file(m["id"]).with_suffix(".wav").exists()
+
+# 9: mixing: the computer's audio is lined up with the mic's; a backlog over a second is dropped, gaps are silence
+rec = object.__new__(meetings.Recorder)
+rec.lock, rec.computer = threading.Lock(), [np.arange(24000, dtype=np.float32)]  # 1.5 s queued up
+got = rec._take_computer(1600)
+assert got[0] == 24000 - 3200 and len(got) == 1600 and len(rec.computer[0]) == 1600  # only the last 0.2 s kept
+assert list(rec._take_computer(2000)[1600:]) == [0.0] * 400 and rec.computer == []
+
+# 2, 3: Codex answers go to a file per call, and the time limit reaches the CLI
+seen = []
+
+
+def fake_shot(args, stdin, env, timeout=45):
+    out = Path(args[args.index("-o") + 1])
+    seen.append((out, timeout))
+    out.write_text(f"answer to {stdin[-3:]}", encoding="utf-8")
+    return ""
+
+
+real_shot, brain_mod._one_shot = brain_mod._one_shot, fake_shot
+codex = object.__new__(brain_mod.Codex)
+codex.exe, codex.env = "codex", {}
+with concurrent.futures.ThreadPoolExecutor(8) as pool:
+    answers = list(pool.map(lambda i: codex.clean("sys", f"#{i:02d}", "", timeout=300), range(8)))
+brain_mod._one_shot = real_shot
+assert answers == [f"answer to #{i:02d}" for i in range(8)], answers  # nobody read another call's answer
+assert len({out for out, _ in seen}) == 8 and all(t == 300 for _, t in seen) and not any(o.exists() for o, _ in seen)
+
+# 5: progress once per percent, not per segment
+Seg = __import__("collections").namedtuple("Seg", "start end text")
+fake_model = type("M", (), {"transcribe": lambda self, *a, **k: ([Seg(i / 10, (i + 1) / 10, "w") for i in range(1000)],
+                                                                  None)})()
+ticks = []
+stt_obj = object.__new__(stt_mod.STT)
+stt_obj.fast, stt_obj.accurate = fake_model, None
+assert len(stt_obj.segments(np.zeros(16000 * 100, np.float32), on_progress=ticks.append)) == 1000
+assert ticks == sorted(set(ticks)) and len(ticks) == 101, len(ticks)  # 0% to 100%, not 1000 updates
+
+# 6: on request, only the last two minutes are transcribed; older audio waits (or is never needed)
+mem = loopback.SystemAudio(FakeSTT(), keep_s=600)
+FakeSTT.calls = 0
+mem.chunks.extend([[time.time() - 500, np.zeros(1600, np.int16), None], [time.time() - 30, np.zeros(1600, np.int16), None]])
+assert mem.transcript().count("heard") == 1 and FakeSTT.calls == 1
+
+# 8: a failing engine falls back to Whisper on this computer; a failing local Whisper still says so
+nova_obj = object.__new__(nova_mod.Nova)
+nova_obj.cfg = merged(json.load(open("config.default.json", encoding="utf-8")), {"voice": {"stt_engine": "parakeet"}})
+nova_obj.mode, nova_obj.engine_spec = "assistant", None
+nova_obj.vocabulary, nova_obj.ui = lambda: [], lambda fn: None
+
+
+class Broken:
+    def transcribe(self, audio, language, prompt):
+        raise RuntimeError("model missing")
+
+
+class LocalSTT:
+    def transcribe(self, clip, language, vocabulary, server=None, task="transcribe"):
+        return server.transcribe(clip, language, None) if server else "said locally"
+
+
+nova_obj.engine, nova_obj.stt = lambda: Broken(), LocalSTT()
+assert nova_obj.transcribe(np.zeros(16000, np.float32)) == "said locally"
+nova_obj.cfg["voice"]["stt_engine"] = "local"
+nova_obj.engine = lambda: None
+nova_obj.stt = type("S", (), {"transcribe": lambda self, *a, **k: (_ for _ in ()).throw(RuntimeError("no model"))})()
+try:
+    nova_obj.transcribe(np.zeros(16000, np.float32))
+    raise AssertionError("a failing local Whisper must not be hidden")
+except RuntimeError:
+    pass
+
+# 12: Siri gets its own answer, not another request's
+ph = object.__new__(phone_mod.Phone)
+waiter = {"text": "what time is it", "future": concurrent.futures.Future(), "active": False}
+ph.waiters = [waiter]
+ph._answered({"event": "reply", "request": "play music", "say": "Playing music."})  # someone else's request
+ph._answered({"event": "note", "title": "Volume", "text": "Volume 40%"})          # before Siri's was heard
+assert not waiter["future"].done()
+ph._answered({"event": "heard", "text": "what time is it", "via": "phone"})
+ph._answered({"event": "note", "title": "Time", "text": "It's 6:05 PM."})
+assert waiter["future"].result() == "It's 6:05 PM."
+busy = {"text": "hi", "future": concurrent.futures.Future(), "active": False}
+ph.waiters = [busy]
+ph._answered({"event": "note", "title": "Not sent", "text": "Nova is busy with another request."})
+assert busy["future"].result().startswith("Nova is busy")
+
+# 11: one downloader; the natural voice stays where it was
+from core import tts as tts_mod  # noqa: E402
+assert models.path("kokoro") == tts_mod.KOKORO and models.DOWNLOADS["kokoro"][1].endswith("kokoro-multi-lang-v1_0.tar.bz2")
 
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it

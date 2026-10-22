@@ -4,6 +4,7 @@
   "start_mode": "assistant",
   "update_check": true,
   "wake_word": true,
+  "wake_sensitivity": "normal",
   "voice": {
     "stt_model": "small",
     "stt_accurate_model": "large-v3-turbo",

@@ -425,18 +425,20 @@ class Nova:
             return self.card.show("Still loading", "The speech model is loading, try again in a moment.", hide_after=3)
         self.start_job()
 
-    def on_wake(self, clip):
+    def on_wake(self, clip, floor=None):
+        """`clip`: what followed "Nova" (None: just the name). `floor`: the room's noise level when the user was still
+        talking as the wake word was confirmed, so the request is recorded on from that audio."""
         if self.phase == "idle" and not self.paused and not self.pending:
             log("wake", with_request=clip is not None)
-            self.start_job(clip)  # "Hey Nova, play music" runs at once; "Hey Nova" alone starts listening
+            self.start_job(clip, floor=floor)  # "Hey Nova, play music" runs at once; "Hey Nova" alone starts listening
 
-    def start_job(self, clip=None, followup=False, hold=False):
+    def start_job(self, clip=None, followup=False, hold=False, floor=None):
         self.target = system.foreground()  # where dictation will be typed
         self.holding = hold  # held: listen until the key is let go, however long the pauses
         self.voice, self.in_followup = True, followup
         if followup:
             self.card.show("Still listening", "Go on, or say “that's it” to finish.", hide_after=6)
-        self.spawn(lambda: self.voice_job(clip), "busy" if clip is not None else "listening")
+        self.spawn(lambda: self.voice_job(clip, floor), "busy" if clip is not None else "listening")
 
     def spawn(self, work, phase):
         # cleared here, before the phase changes, so a press that arrives right away isn't lost
@@ -471,9 +473,14 @@ class Nova:
 
     def run_wake(self):
         try:
-            wake.listen(self.stt.quick, lambda clip: self.ui(lambda: self.on_wake(clip)),
+            models.download("kws", lambda line: None)  # 18 MB once; offline, "Hey Nova" works the older way
+        except Exception as e:
+            log("error", error=f"\"Hey Nova\" detector didn't download: {e!r}")
+        try:
+            wake.listen(self.stt.quick, lambda clip, floor=None: self.ui(lambda: self.on_wake(clip, floor)),
                         lambda: self.phase == "idle" and not self.paused and not self.pending,
-                        lambda: self.cfg["wake_word"])  # turning it off in settings closes the microphone
+                        lambda: self.cfg["wake_word"],  # turning it off in settings closes the microphone
+                        lambda: self.cfg["wake_sensitivity"])
         except Exception as e:  # no microphone, device unplugged: the shortcut still works
             log("error", error=f"wake word stopped: {e!r}")
             message = friendly(e)
@@ -661,7 +668,7 @@ class Nova:
         v = self.cfg["voice"]
         if v["stt_engine"] != "deepgram" or self.whisper_translates():
             return None
-        api_key = deepgram.key()
+        api_key = cloud_stt.key("deepgram")
         if not api_key:
             log("error", error="Deepgram is chosen but has no key; using on-device speech")
             return None
@@ -714,7 +721,7 @@ class Nova:
             return self.stt.transcribe(clip, v["language"], self.vocabulary(), task=task)
 
     # ---------- worker thread: one request ----------
-    def voice_job(self, clip=None):
+    def voice_job(self, clip=None, floor=None):
         mode, v, d = self.mode, self.cfg["voice"], self.cfg["dictation"]
         silence, cap = (d["silence_ms"], d["max_record_s"]) if mode == "dictation" else (v["silence_ms"], v["max_record_s"])
         if self.holding:
@@ -741,6 +748,13 @@ class Nova:
                 return self.ui(lambda: self.card.show("I didn't hear anything",
                                                       "Speak after the chime. You can test your microphone in "
                                                       "Nova's settings.", hide_after=4))
+        elif floor is not None:  # "Hey Nova, what's the…" still being said: record on from where the wake word stopped
+            self.phase = "listening"
+            self.ui(lambda: self.show_bar("listening"))
+            clip = audio.record(silence, cap, self.stop_rec, self.on_level, prefix=clip, floor_rms=floor)
+            self.phase = "busy"
+            if self.cancel.is_set() or clip is None:
+                return
         self.ui(lambda: self.show_bar("thinking"))
         text = self.transcribe(clip, stream, "translate" if self.whisper_translates() else "transcribe")
         if from_wake:  # the cut can leave the tail of "Nova" in the clip ("Hej, Nova!"): drop it
@@ -1123,10 +1137,8 @@ class Nova:
             return self.card.show("Already recording", f"“{self.meeting['title']}” is still recording. Say “stop "
                                   "recording” first.", hide_after=5)
         mc, event = self.cfg["meetings"], None
-        try:
-            event = calendar_ics.now_event()
-        except Exception as e:  # offline, or the calendar address stopped working: name it by the time
-            log("error", error=f"calendar: {e!r}")
+        cal = calendar_ics.cached()  # never fetched here: a slow network would freeze Nova and miss the start
+        event = cal and calendar_ics.now_event(cal=cal)
         title = title or (event and event["title"]) or time.strftime("Meeting %d %b, %H:%M")
         m = meetings.new(title, folder or mc["folder"], event=event and {k: str(v) for k, v in event.items()})
         recorder = meetings.Recorder(m, with_computer=mc["computer_audio"])
@@ -1160,19 +1172,17 @@ class Nova:
         self.recorder = self.meeting = None
         seconds = recorder.stop()
         log("meeting", action="stop", id=mid, seconds=round(seconds))
-        m = meetings.load(mid)  # with the notes typed during the meeting
-        m["status"] = "queued"
-        meetings.save(m)
+        meetings.update(mid, status="queued", loudness=recorder.loudness)  # kept until transcribed: a retry needs it
         self.card.show("Meeting saved", "Nova is transcribing it now. The notes appear on the Meetings page.",
                        hide_after=6)
-        self.meeting_jobs.put((mid, recorder.path, recorder.loudness))
+        self.meeting_jobs.put((mid, recorder.path))
         self.outbox.put({"event": "meetings"})
         self.push_state()
 
     def transcribe_file(self, path, folder=""):
         """An audio or video file the user picked: transcribed into a note like a meeting (without "You")."""
         m = meetings.new(Path(path).stem, folder or "Uploads", source="upload")
-        self.meeting_jobs.put((m["id"], Path(path), None))
+        self.meeting_jobs.put((m["id"], Path(path)))
         self.outbox.put({"event": "meetings"})
 
     def meeting_worker(self):
@@ -1180,9 +1190,9 @@ class Nova:
         for m in meetings.all_meetings():  # Nova quit while these were recording or waiting: finish them now
             wav = meetings.file(m["id"]).with_suffix(".wav")
             if m["status"] in ("recording", "queued", "transcribing", "summarizing") and wav.exists():
-                self.meeting_jobs.put((m["id"], wav, None))
+                self.meeting_jobs.put((m["id"], wav))
         while True:
-            mid, source, loudness = self.meeting_jobs.get()
+            mid, source = self.meeting_jobs.get()
             while self.stt is None:  # Nova just started
                 time.sleep(1)
             progress = lambda text: self.outbox.put({"event": "meeting_progress", "id": mid, "text": text})  # noqa: E731
@@ -1193,19 +1203,19 @@ class Nova:
                     audio = meetings.read_wav(source)
                 else:
                     audio = meetings.decode(source)
-                meetings.process(m, audio, self.stt, self.cfg["voice"]["language"], self.vocabulary(), self.ai_clean(),
-                                 loudness, progress)
+                m = meetings.process(mid, audio, self.stt, self.cfg["voice"]["language"], self.vocabulary(),
+                                     self.ai_clean(), progress)
                 if m["source"] == "meeting":
                     Path(source).unlink(missing_ok=True)  # transcribed: the recording itself isn't kept
                 log("meeting", action="done", id=mid, title=m["title"], segments=len(m["transcript"]))
                 self.ui(lambda m=m: self.card.show("Notes ready", f"“{m['title']}” is transcribed"
                                                    + (" and summarized." if m["minutes"] else "."), hide_after=6))
+            except FileNotFoundError:  # deleted while it was being transcribed: nothing to finish
+                pass
             except Exception as e:
                 log("error", error=f"meeting {mid} failed: {e!r}")
                 try:
-                    m = meetings.load(mid)
-                    m.update(status="failed", error=friendly(e))
-                    meetings.save(m)
+                    meetings.update(mid, status="failed", error=friendly(e))
                 except (OSError, ValueError):  # deleted meanwhile
                     pass
             self.outbox.put({"event": "meetings"})
@@ -1216,7 +1226,8 @@ class Nova:
             return None
         mc = self.cfg["meetings"]
         model = mc["claude_model"] if self.brain.name == "Claude Code" else mc["codex_model"]
-        return lambda system_prompt, text: self.brain.clean(system_prompt, text, model)
+        # minutes from an hour of transcript, or a question across many meetings, take longer than a dictation
+        return lambda system_prompt, text: self.brain.clean(system_prompt, text, model, timeout=300)
 
     def meeting_ai(self, work, reply_event, **fields):
         """Run one AI request about meetings off the UI thread; the window gets the answer or the problem."""
@@ -1241,14 +1252,10 @@ class Nova:
         elif op == "meeting_stop":
             self.meeting_stop()
         elif op == "meeting_update":
-            m = meetings.load(mid)
-            for k, limit in (("title", 200), ("folder", 80), ("notes", 200_000)):
-                if isinstance(msg.get(k), str):
-                    m[k] = msg[k][:limit] if k == "notes" else msg[k][:limit].strip()
-            m["title"], m["folder"] = m["title"] or "Meeting", m["folder"] or meetings.DEFAULT_FOLDER
-            if m["status"] == "done":
-                meetings.export_note(m)
-            meetings.save(m)
+            fields = {k: msg[k][:limit] if k == "notes" else msg[k][:limit].strip() or empty
+                      for k, limit, empty in (("title", 200, "Meeting"), ("folder", 80, meetings.DEFAULT_FOLDER),
+                                              ("notes", 200_000, "")) if isinstance(msg.get(k), str)}
+            m = meetings.update(mid, **fields)
             if self.meeting and self.meeting["id"] == mid:
                 self.meeting = m
             if "notes" not in msg:  # typing notes doesn't redraw the list on every pause
@@ -1263,15 +1270,14 @@ class Nova:
         elif op == "meeting_retry":
             m, wav = meetings.load(mid), meetings.file(mid).with_suffix(".wav")
             if wav.exists():
-                m["status"] = "queued"
-                meetings.save(m)
-                self.meeting_jobs.put((mid, wav, None))
+                meetings.update(mid, status="queued")
+                self.meeting_jobs.put((mid, wav))
             elif m["transcript"]:  # transcribed already: only the minutes are missing
                 self.meeting_ai(lambda clean: self.redo_minutes(mid, clean), "meeting_done", id=mid)
             self.outbox.put({"event": "meetings"})
         elif op == "meeting_action":
             name, instruction = str(msg.get("name", ""))[:80], str(msg.get("instruction", ""))[:2000]
-            self.meeting_ai(lambda clean: meetings.run_action(meetings.load(mid), name, instruction, clean),
+            self.meeting_ai(lambda clean: meetings.run_action(mid, name, instruction, clean),
                             "meeting_action", id=mid, name=name)
         elif op == "meeting_chat":
             question, folder = str(msg.get("question", ""))[:2000], msg.get("folder") or None
@@ -1282,23 +1288,20 @@ class Nova:
             self.transcribe_file(str(msg["path"]), str(msg.get("folder", ""))[:80])
 
     def redo_minutes(self, mid, clean):
-        m = meetings.load(mid)
-        m["minutes"], m["status"] = meetings.minutes(m, clean), "done"
-        meetings.export_note(m)
-        meetings.save(m)
-        return m["minutes"]
+        return meetings.update(mid, minutes=meetings.minutes(meetings.load(mid), clean), status="done")["minutes"]
 
     def watch_calendar(self):
         """Remind once when a calendar meeting starts, so recording it is one sentence away."""
         failed = False
         while True:
-            time.sleep(60)
-            if not (self.cfg["meetings"]["remind"] and calendar_ics.url()):
+            if not calendar_ics.url():
+                time.sleep(60)
                 continue
             try:
                 now = datetime.datetime.now()
                 minute = datetime.timedelta(minutes=1)
-                for e in calendar_ics.events(now - minute, now + minute):
+                found = calendar_ics.events(now - minute, now + minute)  # also keeps the saved copy fresh
+                for e in found if self.cfg["meetings"]["remind"] else []:
                     key = (e["title"], e["start"])
                     if key not in self.reminded and abs((e["start"] - now).total_seconds()) <= 60 and not self.recorder:
                         self.reminded.add(key)
@@ -1310,6 +1313,7 @@ class Nova:
                 if not failed:  # once, not every minute
                     log("error", error=f"calendar: {e!r}")
                 failed = True
+            time.sleep(60)
 
     def on_event(self, msg):
         """A finished terminal command (helpers/watch.py) or Claude Code task (the Stop hook)."""

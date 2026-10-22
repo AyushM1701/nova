@@ -18,6 +18,7 @@ import numpy as np
 from core.config import DATA, ROOT
 
 KEEP_S, CHUNK_S = 15 * 60, 12  # transcript window; seconds of audio per transcription pass
+ASK_S = 120  # transcribed on request (a CPU without eager transcription): ten minutes of music took about a minute
 RATE = 16000
 MAC_HELPER, MAC_SOURCE = DATA / "bin" / "mac-audio-tap", ROOT / "helpers" / "mac_audio_tap.swift"
 
@@ -209,7 +210,9 @@ class SystemAudio:
             if self.buf:
                 self._cut(len(self.buf))
             chunks = list(self.chunks)
+        recent = time.time() - ASK_S
         for chunk in chunks:
-            self._fill(chunk)
+            if chunk[0] >= recent:  # older audio not transcribed yet is left out: minutes of it would hold up the request
+                self._fill(chunk)
         now = now or time.time()
         return "\n".join(f"[{int((now - t) // 60)} min ago] {text}" for t, _, text in chunks if text)[-8000:]

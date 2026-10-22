@@ -22,6 +22,7 @@ STORE = DATA / "meetings"
 RATE = 16000
 MAX_CONTEXT = 150_000  # characters of meetings handed to the AI for one answer
 DEFAULT_FOLDER = "Meetings"
+LOCK = threading.RLock()  # Nova's worker, AI actions and the window's edits all write meeting files
 
 MINUTES_PROMPT = """You turn a meeting into minutes. The user message has the meeting's title and date, the \
 user's own rough notes inside <notes> (may be empty) and the transcript inside <transcript>, as lines \
@@ -73,6 +74,19 @@ def save(m):
     tmp.replace(file(m["id"]))  # atomic: the window never reads half a file
 
 
+def update(mid, **fields):
+    """Change only these fields of the meeting as it is on disk now, so edits made meanwhile (a new title, notes typed
+    while it transcribes) survive. Raises FileNotFoundError if it was deleted meanwhile: finished work never brings a
+    deleted meeting back. Every writer goes through here."""
+    with LOCK:
+        m = load(mid)
+        m.update(fields)
+        if m["status"] == "done":
+            export_note(m)
+        save(m)
+        return m
+
+
 def new(title, folder=DEFAULT_FOLDER, source="meeting", event=None):
     now = time.time()
     m = {"id": time.strftime("%Y%m%d-%H%M%S", time.localtime(now)), "title": title or "Meeting", "folder": folder,
@@ -101,11 +115,12 @@ def summary(m):
         "preview": (first or m["notes"] or " ".join(s["text"] for s in m["transcript"][:3]))[:160]}
 
 
-def search(query, folder=None):
-    """Meetings whose title, notes, minutes or transcript contain every word of the query, newest first."""
+def search(every, query, folder=None):
+    """Of `every` (all_meetings()), those whose title, notes, minutes or transcript contain every word of the query
+    (an empty query: all of them), newest first, as list summaries."""
     words = [w for w in query.lower().split() if w]
     found = []
-    for m in all_meetings():
+    for m in every:
         if folder and m["folder"] != folder:
             continue
         hay = " ".join([m["title"], m["notes"], m["minutes"], *(s["text"] for s in m["transcript"])]).lower()
@@ -116,11 +131,12 @@ def search(query, folder=None):
 
 
 def delete(mid):
-    m = load(mid)
-    if m.get("note"):
-        (NOTES / m["note"]).unlink(missing_ok=True)
-    file(mid).unlink(missing_ok=True)
-    file(mid).with_suffix(".wav").unlink(missing_ok=True)
+    with LOCK:
+        m = load(mid)
+        if m.get("note"):
+            (NOTES / m["note"]).unlink(missing_ok=True)
+        file(mid).unlink(missing_ok=True)
+        file(mid).with_suffix(".wav").unlink(missing_ok=True)
 
 
 # ---------- Markdown: the note the assistant can read ----------
@@ -197,14 +213,15 @@ class Recorder:
 
     def start(self):
         import sounddevice as sd
+        # the microphone first: if there is none, nothing has been created that would need cleaning up
+        self.mic = sd.InputStream(samplerate=RATE, channels=1, dtype="float32", blocksize=RATE // 10,
+                                  callback=lambda data, *_: self.blocks.put(data[:, 0].copy()))
+        self.mic.start()
         self.running = True
         self.wav = wave.open(str(self.path), "wb")
         self.wav.setnchannels(1)
         self.wav.setsampwidth(2)
         self.wav.setframerate(RATE)
-        self.mic = sd.InputStream(samplerate=RATE, channels=1, dtype="float32", blocksize=RATE // 10,
-                                  callback=lambda data, *_: self.blocks.put(data[:, 0].copy()))
-        self.mic.start()
         self.writer = threading.Thread(target=self._write, daemon=True)
         self.writer.start()
         if self.with_computer and loopback.available():
@@ -282,33 +299,28 @@ def read_wav(path):
         return np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").astype(np.float32) / 32768
 
 
-def process(m, audio, stt, language, vocabulary, clean, loudness=None, on_progress=lambda text: None):
+def process(mid, audio, stt, language, vocabulary, clean, on_progress=lambda text: None):
     """Transcribe, label speakers, write minutes. `clean(system_prompt, text)` is the AI (None: no minutes)."""
-    m["status"] = "transcribing"
-    m["duration"] = round(len(audio) / RATE, 1)
-    save(m)
-    m["transcript"] = stt.segments(audio, language, vocabulary,
-                                   lambda f: on_progress(f"Transcribing… {int(f * 100)}%"))
-    if m["transcript"] and not diarize.available():
+    m = update(mid, status="transcribing", duration=round(len(audio) / RATE, 1))
+    transcript, problem = stt.segments(audio, language, vocabulary,
+                                       lambda f: on_progress(f"Transcribing… {int(f * 100)}%")), None
+    if transcript and not diarize.available():
         try:  # first meeting: fetch the speaker models (about 35 MB) once
             for name in ("segmentation", "embedding"):
                 models.download(name, on_progress)
         except Exception as e:  # offline: no labels this time
-            m["speaker_error"] = str(e)
-    if m["transcript"] and diarize.available():
+            problem = str(e)
+    if transcript and diarize.available():
         on_progress("Telling speakers apart…")
         try:
-            diarize.label(m["transcript"], diarize.turns(audio), loudness if m["source"] == "meeting" else None)
+            diarize.label(transcript, diarize.turns(audio), m.get("loudness") if m["source"] == "meeting" else None)
         except Exception as e:  # labels are a nice-to-have: keep the transcript
-            m["speaker_error"] = str(e)
-    m["status"] = "summarizing" if clean and m["transcript"] else "done"
-    save(m)
-    if clean and m["transcript"]:
+            problem = str(e)
+    m = update(mid, transcript=transcript, status="summarizing" if clean and transcript else "done", loudness=None,
+               **({"speaker_error": problem} if problem else {}))
+    if clean and transcript:
         on_progress("Writing the minutes…")
-        m["minutes"] = minutes(m, clean)
-        m["status"] = "done"
-    export_note(m)
-    save(m)
+        m = update(mid, minutes=minutes(m, clean), status="done")  # minutes() reads the notes as they are now
     return m
 
 
@@ -319,12 +331,11 @@ def minutes(m, clean):
     return (clean(MINUTES_PROMPT, text) or "").strip()
 
 
-def run_action(m, name, instruction, clean):
-    text = clean(ACTION_PROMPT, f"{meeting_context(m)}\n\n<task>{instruction}</task>")
+def run_action(mid, name, instruction, clean):
+    text = clean(ACTION_PROMPT, f"{meeting_context(load(mid))}\n\n<task>{instruction}</task>")
     if not text:
         raise RuntimeError("The AI didn't answer. Try again in a moment.")
-    m["actions"] = [a for a in m["actions"] if a["name"] != name] + [{"name": name, "text": text.strip(),
-                                                                        "t": time.time()}]
-    export_note(m)
-    save(m)
+    with LOCK:  # the actions as they are now: another action may have finished meanwhile
+        actions = [a for a in load(mid)["actions"] if a["name"] != name]
+        update(mid, actions=actions + [{"name": name, "text": text.strip(), "t": time.time()}])
     return text

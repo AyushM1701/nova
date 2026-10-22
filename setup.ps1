@@ -210,7 +210,7 @@ try {
     New-Item -ItemType File -Force (Join-Path $Root "data\models-ready") | Out-Null
 
     Step "Downloading Nova's natural voice (about 330 MB, once)"
-    $part = Join-Path $Root "data\tts\kokoro.tar.bz2.part"
+    $part = Join-Path $Root "data\tts\kokoro.part"
     Push-Location $Root
     $code = Run $Py @("-m", "core.tts", "download") {
         if (Test-Path $part) { $detail.Text = "{0:N0} MB of about 330 MB" -f ((Get-Item $part).Length / 1MB) } else { $detail.Text = "Unpacking…" }

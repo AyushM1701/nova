@@ -1,8 +1,9 @@
 """Optional cloud speech recognition: Deepgram, streamed while you speak, so the text is ready the moment you stop.
 
 Opt-in only. When chosen, what you say to Nova is sent to Deepgram (a paid service; new accounts get sign-up
-credit). The key lives in data/deepgram.key, which the safety guard won't let the AI read, and travels in a
-request header, never in a URL. If Deepgram can't be reached, Nova transcribes on this computer instead.
+credit). The key lives in data/deepgram.key (read by core/cloud_stt.py, with the other services' keys), which the
+safety guard won't let the AI read, and travels in a request header, never in a URL. If Deepgram can't be reached,
+Nova transcribes on this computer instead.
 """
 import json
 import queue
@@ -14,18 +15,8 @@ import urllib.request
 import numpy as np
 from websockets.sync.client import connect
 
-from core.config import DATA
-
-KEY_FILE = DATA / "deepgram.key"
 LISTEN = "wss://api.deepgram.com/v1/listen"
 FINISH_TIMEOUT_S = 8  # for the last results after you stop; past this Nova transcribes locally
-
-
-def key():
-    try:
-        return KEY_FILE.read_text(encoding="utf-8").strip()
-    except OSError:
-        return ""
 
 
 def check(api_key):

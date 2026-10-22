@@ -573,6 +573,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><select class="input" data-bind="hold_key" aria-label="Hold to talk key"><option value="">Off</option><option value="right ctrl">Right Ctrl</option><option value="right alt">Right Alt / Option</option><option value="right shift">Right Shift</option></select></div></div>
         <div class="row"><div class="what"><h2>Listen for “Hey Nova”</h2><p>Runs on this computer. Nothing is kept unless it hears “Hey Nova”.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="wake_word" aria-label="Listen for Hey Nova"></button></div></div>
+        <div class="row"><div class="what"><h2>How easily “Hey Nova” wakes Nova</h2><p>High hears a soft or distant voice, and can wake by mistake now and then. Low needs you to say it clearly. The listening runs on this computer.</p></div>
+          <div class="how"><div class="seg" role="radiogroup" data-bind="wake_sensitivity" data-options="low:Low,normal:Normal,high:High"></div></div></div>
         <div class="row"><div class="what"><h2>Start in</h2><p>The mode Nova opens in. Switch any time with the sidebar or by saying “switch to dictation”.</p></div>
           <div class="how"><div class="seg" role="radiogroup" data-bind="start_mode" data-options="assistant:Assistant,dictation:Dictation"></div></div></div>
         <div class="row"><div class="what"><h2>Open Nova when you sign in</h2><p>Nova waits quietly in the tray (the ^ by the clock) or the menu bar.</p></div>
@@ -1581,6 +1583,7 @@ const MT = { id: null, m: null, list: [], folders: [], actions: {}, tab: "minute
 const ago = t => new Date(t * 1000).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 const clock = s => { s = Math.floor(s); const hh = Math.floor(s / 3600), mm = Math.floor(s / 60) % 60, ss = s % 60; return (hh ? hh + ":" + String(mm).padStart(2, "0") : mm) + ":" + String(ss).padStart(2, "0"); };
 const STATUS = { recording: "Recording", queued: "Waiting to be transcribed", transcribing: "Transcribing", summarizing: "Writing the minutes", failed: "Didn't finish" };
+const rowSub = m => [m.folder, m.duration ? clock(m.duration) : null, MT.progress[m.id] || STATUS[m.status]].filter(Boolean).join(" · ");
 async function loadMeetings() {
   const r = await api().meetings_list($("#mtFolder").value, $("#mtSearch").value).catch(fail); if (!r) return;
   Object.assign(MT, { list: r.meetings, folders: r.folders, actions: r.actions });
@@ -1591,11 +1594,11 @@ async function loadMeetings() {
   if (!MT.list.length) {
     ul.replaceChildren(h("div", { class: "empty" }, h("h3", {}, $("#mtSearch").value ? "Nothing matches" : "No meetings yet"),
       h("p", {}, $("#mtSearch").value ? "Try other words, or All folders." : "Press Record when a call starts, or say “record this meeting”. Or transcribe a recording you already have.")));
-  } else ul.replaceChildren(...MT.list.map(m => h("li", { class: "clickable", tabindex: "0", onclick: () => openMeeting(m.id), onkeydown: e => e.key === "Enter" && openMeeting(m.id) },
+  } else ul.replaceChildren(...MT.list.map(m => h("li", { class: "clickable", tabindex: "0", "data-id": m.id, onclick: () => openMeeting(m.id), onkeydown: e => e.key === "Enter" && openMeeting(m.id) },
     h("time", {}, new Date(m.started * 1000).toLocaleDateString([], { day: "numeric", month: "short" })),
     h("span", { class: "kind dict", html: m.source === "upload" ? '<svg class="i" viewBox="0 0 24 24"><path d="M12 15V4M7 9l5-5 5 5M5 20h14"/></svg>' : I.mic }),
     h("div", { class: "body" }, h("div", { class: "t" }, h("b", {}, m.title)),
-      h("div", { class: "sub" }, [m.folder, m.duration ? clock(m.duration) : null, MT.progress[m.id] || STATUS[m.status]].filter(Boolean).join(" · ")),
+      h("div", { class: "sub" }, rowSub(m)),
       m.preview ? h("div", { class: "sub" }, m.preview) : null), h("span", {}))));
   renderRecording();
   loadUpcoming();
@@ -1870,7 +1873,13 @@ const handlers = {
   },
   meetings() { if (S.page === "meetings") { if (MT.id) refreshMeeting(); else loadMeetings(); } },
   meeting_live(ev) { MT.live = ev; renderRecording(); },
-  meeting_progress(ev) { MT.progress[ev.id] = ev.text; if (S.page === "meetings") { if (MT.id === ev.id && MT.m) renderMeeting(MT.m); else if (!MT.id) loadMeetings(); } },
+  meeting_progress(ev) {  // only the row or page it's about: reloading every meeting per tick froze the window
+    MT.progress[ev.id] = ev.text;
+    if (S.page !== "meetings") return;
+    if (MT.id === ev.id && MT.m) renderMeeting(MT.m);
+    const row = $(`#mtItems li[data-id="${CSS.escape(ev.id)}"] .sub`), m = MT.list.find(x => x.id === ev.id);
+    if (row && m) row.textContent = rowSub(m);
+  },
   meeting_action(ev) { delete MT.pending[ev.id + ev.name]; if (ev.error) fail(ev.error); else toast(`${ev.name} ready`); if (MT.id === ev.id) refreshMeeting(); },
   meeting_answer(ev) { const box = $("#mtAnswer"); box.hidden = false; box.replaceChildren(ev.error ? h("p", {}, ev.error) : h("div", { html: md(ev.text) })); },
   meeting_done(ev) { if (ev.error) fail(ev.error); if (MT.id === ev.id) refreshMeeting(); },

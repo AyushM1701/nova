@@ -45,6 +45,11 @@ def calendar():
         return _cache["cal"]
 
 
+def cached():
+    """The calendar as last fetched, without going to the network (None if there's none yet)."""
+    return _cache["cal"] if _cache["url"] == url() else None
+
+
 def local(value):
     """An event time as a local naive datetime (all-day dates become midnight)."""
     if not isinstance(value, dt.datetime):

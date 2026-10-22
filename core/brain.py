@@ -306,10 +306,10 @@ class Claude(Brain):
             text = f"Claude Code error: {result.get('subtype', 'unknown')}"
         return (*split_say(text), state["commands"])
 
-    def clean(self, system_prompt, text, model):
+    def clean(self, system_prompt, text, model, timeout=45):
         args = [self.exe, "-p", "--model", model or "haiku", "--tools", "", "--setting-sources", "project",
                 "--no-session-persistence", "--system-prompt", system_prompt]
-        return _one_shot(args, text, self.env)
+        return _one_shot(args, text, self.env, timeout)
 
 
 class Codex(Brain):
@@ -377,23 +377,27 @@ class Codex(Brain):
             return "Codex gave no answer.", "Sorry, Codex didn't answer.", 0
         return (*split_say(text), state["commands"])
 
-    def clean(self, system_prompt, text, model):
-        out = Path(tempfile.gettempdir()) / f"nova-clean-{os.getpid()}.txt"
+    def clean(self, system_prompt, text, model, timeout=45):
+        # a file of its own per call: minutes and a dictation can run at once and must never read each other's answer
+        fd, out = tempfile.mkstemp(prefix="nova-clean-", suffix=".txt")
+        os.close(fd)
+        out = Path(out)
         args = [self.exe, "exec", "--skip-git-repo-check", "--ephemeral", "-c", 'sandbox_mode="read-only"',
                 "-c", 'model_reasoning_effort="low"', "-o", str(out)] + (["-m", model] if model else []) + ["-"]
-        out.unlink(missing_ok=True)  # never paste the previous dictation if this run writes nothing
-        if _one_shot(args, f"{system_prompt}\n\n{text}", self.env) is None:
-            return None
         try:
-            return out.read_text(encoding="utf-8").strip() or None
+            if _one_shot(args, f"{system_prompt}\n\n{text}", self.env, timeout) is None:
+                return None
+            return out.read_text(encoding="utf-8").strip() or None  # empty: this run wrote nothing
         except OSError:
             return None
+        finally:
+            out.unlink(missing_ok=True)
 
 
-def _one_shot(args, stdin, env):
+def _one_shot(args, stdin, env, timeout=45):
     """Run a CLI once outside any project (so no CLAUDE.md/AGENTS.md is picked up). stdout, or None on failure."""
     try:
-        r = subprocess.run(args, input=stdin, capture_output=True, text=True, encoding="utf-8", timeout=45,
+        r = subprocess.run(args, input=stdin, capture_output=True, text=True, encoding="utf-8", timeout=timeout,
                            cwd=tempfile.gettempdir(), env=env, creationflags=NO_WINDOW)
     except (OSError, subprocess.TimeoutExpired):
         return None

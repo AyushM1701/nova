@@ -1,5 +1,5 @@
-"""Optional on-device models Nova downloads when you choose them: the Parakeet and Orukeet speech engines and
-the speaker-label (diarization) models. All run through sherpa-onnx on the CPU; nothing is sent anywhere.
+"""On-device models Nova downloads: the natural voice (Kokoro), the Parakeet and Orukeet speech engines and the
+speaker-label (diarization) models. All run through sherpa-onnx on the CPU; nothing is sent anywhere.
 
 Run `python -m core.models download <name>` to fetch one with progress lines (the Nova window does this).
 """
@@ -14,24 +14,29 @@ from core.config import DATA
 
 MODELS = DATA / "models"
 SHERPA = "https://github.com/k2-fsa/sherpa-onnx/releases/download"
-# name: (label, url, unpacked folder or file name, size shown to people)
+# name: (label, url, where it lives once unpacked (a folder, or the .onnx file itself), size shown to people)
 DOWNLOADS = {
+    "kokoro": ("Natural voice", f"{SHERPA}/tts-models/kokoro-multi-lang-v1_0.tar.bz2",
+               DATA / "tts" / "kokoro-multi-lang-v1_0", "330 MB"),
+    "kws": ("\"Hey Nova\" detector", f"{SHERPA}/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2",
+            MODELS / "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01", "18 MB"),
     "parakeet": ("Parakeet", f"{SHERPA}/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
-                 "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8", "490 MB"),
+                 MODELS / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8", "490 MB"),
     "orukeet": ("Orukeet", "https://huggingface.co/oruk/orukeet/resolve/55a984d46f68323301837194ce647c702f55facc/"
-                "onnx/sherpa-onnx-orukeet-v0.1.0-int8.tar.bz2", "sherpa-onnx-orukeet-v0.1.0-int8", "490 MB"),
+                "onnx/sherpa-onnx-orukeet-v0.1.0-int8.tar.bz2", MODELS / "sherpa-onnx-orukeet-v0.1.0-int8", "490 MB"),
     "segmentation": ("Speaker segmentation", f"{SHERPA}/speaker-segmentation-models/"
-                     "sherpa-onnx-pyannote-segmentation-3-0.tar.bz2", "sherpa-onnx-pyannote-segmentation-3-0", "7 MB"),
+                     "sherpa-onnx-pyannote-segmentation-3-0.tar.bz2", MODELS / "sherpa-onnx-pyannote-segmentation-3-0",
+                     "7 MB"),
     "embedding": ("Speaker voices", f"{SHERPA}/speaker-recongition-models/"
-                  "3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx", "3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx",
-                  "28 MB"),
+                  "3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx",
+                  MODELS / "3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx", "28 MB"),
 }
 # Parakeet v3 and its Orukeet fine-tune understand these 25 languages; Hindi isn't one of them
 LANGUAGES = set("bg hr cs da nl en et fi fr de el hu it lv lt mt pl pt ro sk sl es sv ru uk".split())
 
 
 def path(name):
-    return MODELS / DOWNLOADS[name][2]
+    return DOWNLOADS[name][2]
 
 
 def installed(name):
@@ -41,11 +46,11 @@ def installed(name):
 
 def download(name, say=print):
     """Fetch and unpack one model into data/models, reporting progress. Skips work already done."""
-    label, url, _, _ = DOWNLOADS[name]
+    label, url, where, _ = DOWNLOADS[name]
     if installed(name):
         return say(f"{label} is already downloaded.")
-    MODELS.mkdir(parents=True, exist_ok=True)
-    part = MODELS / f"{name}.part"
+    where.parent.mkdir(parents=True, exist_ok=True)
+    part = where.parent / f"{name}.part"
     with urllib.request.urlopen(url, timeout=60) as r, open(part, "wb") as f:
         total, done, shown = int(r.headers.get("Content-Length") or 0), 0, -1
         while block := r.read(1 << 20):
@@ -60,11 +65,11 @@ def download(name, say=print):
         say("Unpacking…")
         with tarfile.open(part, "r:bz2") as tar:
             try:
-                tar.extractall(MODELS, filter="data")  # refuses absolute paths, "..", and links out of the folder
+                tar.extractall(where.parent, filter="data")  # refuses absolute paths, "..", and links out of it
             except TypeError:  # Python 3.11 before 3.11.4 has no filter argument: check the names ourselves
                 if any(n.startswith(("/", "\\")) or ".." in Path(n).parts for n in tar.getnames()):
                     raise ValueError("unexpected paths in the model download")
-                tar.extractall(MODELS)
+                tar.extractall(where.parent)
         part.unlink()
     say(f"{label} ready.")
 
