@@ -84,7 +84,7 @@ To update by hand instead: download the new ZIP into the same folder and run set
 | "new conversation" | Forget the follow-up context |
 | "add Kubernetes to my dictionary" | Teaches the speech recognizer a word. Fixing a misheard word right after dictating teaches it too (Settings → Dictation) |
 | Hold **Right Ctrl** (or Right Alt / Shift, set in Settings → General) | Hold-to-talk: Nova listens until you let go, however long you pause |
-| Tap **Ctrl** three times (Mac: **Cmd**) | Same as the shortcut, from any app. Ignored while a game is in front (full-screen, or installed by Steam, Epic, Xbox, GOG, EA, Ubisoft, Riot or Battle.net); turn it off in Settings → General |
+| Tap **Ctrl** three times (Mac: **Cmd**) | Same as the shortcut, from any app. Ignored while a game is in front: one installed by Steam, Epic, Xbox, GOG, EA, Ubisoft or Riot, any full-screen game on Windows, or an app filed as a game on a Mac. Turn it off in Settings → General |
 | "record this meeting" / "stop recording" | Records your microphone and the computer's audio (no bot joins), then writes a transcript with speaker labels and minutes from your notes. See the Meetings page |
 | "turn it up a bit", "volume 40", "skip this song", "open VS Code", "open YouTube", "what time is it?", "set a timer for 5 minutes", "lock my computer" | Done instantly on your computer: no AI call, no quota used |
 | Select text, then "make this shorter" (dictation mode) | Rewrites the selection in place |

@@ -188,12 +188,13 @@ class TripleTap:
 # shortcut: a game from anywhere else is caught only when full-screen (Windows) or filed as a game (macOS); add its
 # folder here if one is missed
 GAME_DIRS = re.compile(r"steamapps[\\/]common|[\\/](?:epic games|riot games|xboxgames|gog galaxy[\\/]games|ea games"
-                       r"|ubisoft game launcher[\\/]games|battle\.net)[\\/]", re.I)
+                       r"|ubisoft game launcher[\\/]games)[\\/]", re.I)
 
 
 def gaming():
     """A game is in front: a full-screen Direct3D program (Windows), an app filed as a game (macOS), or a program a
-    game store installed (Steam, Epic, Xbox, GOG, EA, Ubisoft, Riot, Battle.net)."""
+    game store installed (Steam, Epic, Xbox, GOG, EA, Ubisoft, Riot). Blizzard games install to their own folders,
+    so Battle.net's are caught only full-screen."""
     if IS_MAC:
         app = NSWorkspace.sharedWorkspace().frontmostApplication()
         url = app and app.bundleURL()

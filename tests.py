@@ -1022,7 +1022,8 @@ for path in (r"C:\Program Files (x86)\Steam\steamapps\common\Counter-Strike Glob
              "/Users/me/Library/Application Support/Steam/steamapps/common/Hades/Hades.app"):
     assert system.GAME_DIRS.search(path), path
 for path in (r"C:\Program Files\Microsoft VS Code\Code.exe", r"C:\Users\me\AppData\Local\Discord\app-1.0\Discord.exe",
-             r"C:\Program Files\Google\Chrome\Application\chrome.exe", "/Applications/Steam.app"):
+             r"C:\Program Files\Google\Chrome\Application\chrome.exe", "/Applications/Steam.app",
+             r"C:\Program Files (x86)\Battle.net\Battle.net Launcher.exe"):  # a launcher isn't a game
     assert not system.GAME_DIRS.search(path), path
 assert system.gaming() in (True, False)  # the real check runs on this computer
 
@@ -1345,6 +1346,21 @@ rec.lock, rec.computer = threading.Lock(), [np.arange(24000, dtype=np.float32)] 
 got = rec._take_computer(1600)
 assert got[0] == 24000 - 3200 and len(got) == 1600 and len(rec.computer[0]) == 1600  # only the last 0.2 s kept
 assert list(rec._take_computer(2000)[1600:]) == [0.0] * 400 and rec.computer == []
+# a microphone that stops mid-meeting (headset gone, sleep) is opened again, and the window is told
+closed, reopened = [], []
+rec.mic, rec.running, rec.error = type("Mic", (), {"close": lambda self: closed.append(1)})(), True, None
+rec._open_mic = lambda: reopened.append(1)
+rec.heard_at = time.time()
+rec.check_mic()
+assert not closed and not reopened and rec.error is None  # still sending sound: left alone
+rec.heard_at = time.time() - meetings.MIC_STALLED_S - 1
+rec.check_mic()
+assert closed == [1] and reopened == [1] and "reopened" in rec.error
+rec.check_mic()
+assert reopened == [1]  # given time to start sending before it's tried again
+rec.heard_at, rec._open_mic = 0, lambda: (_ for _ in ()).throw(OSError("device unavailable"))
+rec.check_mic()
+assert "couldn't be opened again" in rec.error
 
 # 2, 3: Codex answers go to a file per call, and the time limit reaches the CLI
 seen = []
@@ -1394,7 +1410,23 @@ assert mem.transcript().count("heard") == 1 and FakeSTT.calls == 1
 # 8: a failing engine falls back to Whisper on this computer; a failing local Whisper still says so
 nova_obj = object.__new__(nova_mod.Nova)
 nova_obj.cfg = merged(json.load(open("config.default.json", encoding="utf-8")), {"voice": {"stt_engine": "parakeet"}})
-nova_obj.mode, nova_obj.engine_spec = "assistant", None
+nova_obj.mode, nova_obj.engine_spec, nova_obj.cloud_rest = "assistant", None, ("", 0)
+# three Ctrl taps work like the shortcut, but never say "allow" to an approval, and not in a game
+pressed, saved_gaming = [], nova_mod.system.gaming
+nova_obj.on_hotkey, nova_mod.system.gaming = lambda: pressed.append(1), lambda: False
+try:
+    nova_obj.pending = (None, None)
+    nova_obj.on_triple()
+    assert pressed == [], "three taps answered an approval"
+    nova_obj.pending = None
+    nova_obj.on_triple()
+    assert pressed == [1]
+    nova_mod.system.gaming = lambda: True
+    nova_obj.on_triple()
+    assert pressed == [1], "three taps worked in a game"
+finally:
+    nova_mod.system.gaming = saved_gaming
+    del nova_obj.on_hotkey
 nova_obj.vocabulary, nova_obj.ui = lambda: [], lambda fn: None
 
 
@@ -1411,13 +1443,18 @@ class LocalSTT:
 nova_obj.engine, nova_obj.stt = lambda: Broken(), LocalSTT()
 assert nova_obj.transcribe(np.zeros(16000, np.float32)) == "said locally"
 # a cloud service out of credit or offline: Whisper answers, and the service rests 5 minutes instead of failing each time
-nova_obj.cfg["voice"]["stt_engine"], nova_obj.cloud_rest_until, tried = "groq", 0, []
+nova_obj.cfg["voice"]["stt_engine"], tried = "groq", []
 nova_obj.engine = lambda: tried.append(1) or Broken()
 assert nova_obj.transcribe(np.zeros(16000, np.float32)) == "said locally" and len(tried) == 1
-assert nova_obj.cloud_rest_until > time.time() + 290 and nova_obj.open_stream() is None
+assert nova_obj.cloud_rest[0] == "groq" and nova_obj.cloud_rest[1] > time.time() + 290
 assert nova_obj.transcribe(np.zeros(16000, np.float32)) == "said locally" and len(tried) == 1  # not tried again
-nova_obj.cloud_rest_until = time.time() - 1  # rested: tried again
+nova_obj.cfg["voice"]["stt_engine"] = "openai"  # switched to another service: that one is tried at once
 assert nova_obj.transcribe(np.zeros(16000, np.float32)) == "said locally" and len(tried) == 2
+nova_obj.cfg["voice"]["stt_engine"] = "deepgram"  # Deepgram resting: no connection is opened for it
+nova_obj.cloud_rest = ("deepgram", time.time() + 300)
+assert nova_obj.cloud_resting() and nova_obj.open_stream() is None
+nova_obj.cfg["voice"]["stt_engine"], nova_obj.cloud_rest = "groq", ("groq", time.time() - 1)  # rested: tried again
+assert nova_obj.transcribe(np.zeros(16000, np.float32)) == "said locally" and len(tried) == 3
 nova_obj.cfg["voice"]["stt_engine"] = "local"
 nova_obj.engine = lambda: None
 nova_obj.stt = type("S", (), {"transcribe": lambda self, *a, **k: (_ for _ in ()).throw(RuntimeError("no model"))})()

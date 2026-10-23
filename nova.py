@@ -110,7 +110,7 @@ class Nova:
         self.stt, self.target, self.pending, self.keys, self.heard = None, None, None, None, ""
         self.hold, self.holding, self.triple = None, False, None  # hold-to-talk key; Ctrl (Cmd) tapped three times
         self.engine_obj, self.engine_spec = None, None  # the chosen speech engine, when not faster-whisper
-        self.cloud_rest_until = 0  # a failing speech service isn't tried again before this time
+        self.cloud_rest = ("", 0)  # (the speech service that failed, the time it's tried again)
         self.voice = True  # False while handling a request typed in the Nova window: no card, no speech
         self.ui_queue, self.outbox, self.clients = queue.Queue(), queue.Queue(), []
         self.clips, self.followup, self.in_followup = clipboard.History(), False, False  # recent copies (memory only); ask-back pending
@@ -330,6 +330,8 @@ class Nova:
 
     def on_triple(self):
         """Ctrl (Cmd) tapped three times: the shortcut. Not in a game, where Ctrl is a control (crouch, fire)."""
+        if self.pending:  # an approval needs a deliberate press, not a habit tap
+            return
         if system.gaming():
             return log("triple_tap", ignored="game")
         self.on_hotkey()
@@ -722,7 +724,8 @@ class Nova:
     def cloud_resting(self):
         """The chosen speech service failed a moment ago: Whisper on this computer answers until it has rested,
         without waiting on the service or a warning each time."""
-        return self.cfg["voice"]["stt_engine"] in (*cloud_stt.PROVIDERS, "deepgram") and time.time() < self.cloud_rest_until
+        name, until = self.cloud_rest
+        return self.cfg["voice"]["stt_engine"] == name and time.time() < until
 
     def whisper_translates(self):
         """Dictating into English from another language: Whisper translates as it transcribes, on this computer."""
@@ -766,7 +769,7 @@ class Nova:
             # a service that answered with an error or couldn't be reached (not a missing key): rest it a while
             cloud = bool(stream or server) and v["stt_engine"] in (*cloud_stt.PROVIDERS, "deepgram")
             if cloud:
-                self.cloud_rest_until = time.time() + CLOUD_REST_S
+                self.cloud_rest = (v["stt_engine"], time.time() + CLOUD_REST_S)
             log("error", error=f"{engine} failed, transcribed on this computer: {e!r}")
             message, later = friendly(e), f", and will for the next {CLOUD_REST_S // 60} minutes" if cloud else ""
             self.ui(lambda: self.card.show(f"{engine} didn't work", f"{message}\n\nNova transcribed on this "
@@ -1215,6 +1218,7 @@ class Nova:
     def meeting_tick(self):
         if self.recorder:
             r = self.recorder
+            r.check_mic()
             self.outbox.put({"event": "meeting_live", "id": self.meeting["id"], "elapsed": time.time() - r.started,
                              "level": r.level, "error": r.error})
             self.root.after(1000, self.meeting_tick)

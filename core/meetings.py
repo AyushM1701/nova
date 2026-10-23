@@ -22,6 +22,7 @@ STORE = DATA / "meetings"
 RATE = 16000
 MAX_CONTEXT = 150_000  # characters of meetings handed to the AI for one answer
 DEFAULT_FOLDER = "Meetings"
+MIC_STALLED_S = 3  # a live microphone sends a block every 0.1 s, even in silence
 LOCK = threading.RLock()  # Nova's worker, AI actions and the window's edits all write meeting files
 
 MINUTES_PROMPT = """You turn a meeting into minutes. The user message has the meeting's title and date, the \
@@ -209,14 +210,11 @@ class Recorder:
         self.blocks, self.computer, self.lock = queue.Queue(), [], threading.Lock()
         self.loudness, self.level, self.error, self.running = [], 0.0, None, False
         self._acc = ([], [])  # the current loudness window's blocks: (mic, computer)
-        self.started = time.time()
+        self.started = self.heard_at = time.time()
 
     def start(self):
-        import sounddevice as sd
         # the microphone first: if there is none, nothing has been created that would need cleaning up
-        self.mic = sd.InputStream(samplerate=RATE, channels=1, dtype="float32", blocksize=RATE // 10,
-                                  callback=lambda data, *_: self.blocks.put(data[:, 0].copy()))
-        self.mic.start()
+        self._open_mic()
         self.running = True
         self.wav = wave.open(str(self.path), "wb")
         self.wav.setnchannels(1)
@@ -226,6 +224,32 @@ class Recorder:
         self.writer.start()
         if self.with_computer and loopback.available():
             threading.Thread(target=self._computer, daemon=True).start()
+
+    def _open_mic(self):
+        import sounddevice as sd
+        self.mic = sd.InputStream(samplerate=RATE, channels=1, dtype="float32", blocksize=RATE // 10,
+                                  callback=self._hear)
+        self.mic.start()
+
+    def _hear(self, data, *_):
+        self.heard_at = time.time()
+        self.blocks.put(data[:, 0].copy())
+
+    def check_mic(self):
+        """Once a second while recording: a microphone that stopped sending sound (a headset that disconnected, the
+        computer waking from sleep) is opened again, and the window says so, instead of recording nothing."""
+        if not self.running or time.time() - self.heard_at < MIC_STALLED_S:
+            return
+        self.heard_at = time.time()
+        try:
+            self.mic.close()
+        except Exception:  # the device is gone: closing it may fail too
+            pass
+        try:
+            self._open_mic()
+            self.error = "The microphone stopped for a moment; Nova reopened it and kept recording."
+        except Exception as e:
+            self.error = f"The microphone stopped and couldn't be opened again ({e}). Check it, then record again."
 
     def _computer(self):
         try:
