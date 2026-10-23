@@ -355,6 +355,16 @@ import types  # noqa: E402
 import nova as nova_mod  # noqa: E402
 nova_mod.log = lambda *a, **k: None  # these checks don't belong in your history
 
+# dictation stays on after "that's it"; a loose "switch back to assistant mode" must still switch, not get typed
+def spoken_mode(said):
+    n = re.sub(nova_mod.MODE_FILLER, "", re.sub(r"[^\w\s]", "", said.lower()).strip())
+    return next((m for m, p in nova_mod.MODE_PHRASES.items() if re.fullmatch(p, n)), None)
+for said, want in [("Switch back to assistant mode.", "assistant"), ("Nova, go back to assistant mode please", "assistant"),
+                   ("assistant mode", "assistant"), ("Exit dictation.", "assistant"), ("back to assistant mode", "assistant"),
+                   ("switch to dictation mode", "dictation"), ("start dictating", "dictation"),
+                   ("I told her to switch to assistant mode later.", None), ("Please send the report now", None)]:
+    assert spoken_mode(said) == want, (said, spoken_mode(said))
+
 
 def nova_stub(timeout):
     return types.SimpleNamespace(approval_lock=threading.Lock(), cfg={"safety": {"confirm_timeout_s": timeout}},

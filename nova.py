@@ -53,9 +53,12 @@ PERMISSIONS = {  # Settings → Privacy & safety; the guard applies them (guard.
 }
 
 MODE_PHRASES = {
-    "dictation": r"(switch|change|go)( to)? dictation( mode)?|dictation mode|start dictation",
-    "assistant": r"(switch|change|go)( to)? assistant( mode)?|assistant mode|stop dictation",
+    "dictation": r"(switch|change|go|get)( back)?( to)?( the)? dictation( mode)?|dictation mode|start dictat(ion|ing)",
+    "assistant": r"(switch|change|go|get)( back)?( to)?( the)? assistant( mode)?|(back to )?assistant mode|"
+                 r"(stop|exit|end|leave|quit) dictat(ion|ing)( mode)?",
 }
+# "Nova, switch back to assistant mode please": the fillers around a mode phrase, so it isn't typed as dictation
+MODE_FILLER = r"^(?:(?:hey|ok|okay|please|nova)\s+)+|(?:\s+(?:please|now|nova))+$"
 # requests about what's on screen get a screenshot the AI can look at (Cluely-style)
 # "turn this card into a Tailwind component": let the user drag a box around the part they mean
 REGION_RE = re.compile(r"\b(?:this|that|these) (?:area|region|part|section|bit|card|box|panel|piece|widget|component|"
@@ -630,8 +633,8 @@ class Nova:
         self.icon.update_menu()
         self.push_state()
         where = self.brain.name if self.brain else "your AI CLI"
-        self.card.show(f"{mode.title()} mode", "Dictation types into the focused app." if mode == "dictation"
-                       else f"Requests go to {where}.", hide_after=2)
+        self.card.show(f"{mode.title()} mode", "Dictation types into the focused app. Say “assistant mode” to "
+                       "switch back." if mode == "dictation" else f"Requests go to {where}.", hide_after=4)
 
     def set_engine(self, name):
         if self.phase != "idle":
@@ -1021,7 +1024,7 @@ class Nova:
         """Voice commands that never reach the AI or get typed. Whole-utterance matches only."""
         n = re.sub(r"[^\w\s]", "", text.lower()).strip()
         for mode, pattern in MODE_PHRASES.items():
-            if re.fullmatch(pattern, n):
+            if re.fullmatch(pattern, re.sub(MODE_FILLER, "", n)):
                 self.ui(lambda: self.set_mode(mode))
                 self.note(f"{mode.title()} mode", f"{mode.title()} mode.")
                 return True
