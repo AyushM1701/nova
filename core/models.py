@@ -1,5 +1,5 @@
-"""On-device models Nova downloads: the natural voice (Kokoro), the Parakeet and Orukeet speech engines and the
-speaker-label (diarization) models. All run through sherpa-onnx on the CPU; nothing is sent anywhere.
+"""On-device models Nova downloads: the voices (Piper, Kitten, Kokoro), the Parakeet and Orukeet speech engines,
+"Hey Nova" and the speaker-label (diarization) models. All run through sherpa-onnx on the CPU; nothing is sent anywhere.
 
 Run `python -m core.models download <name>` to fetch one with progress lines (the Nova window does this).
 """
@@ -16,8 +16,12 @@ MODELS = DATA / "models"
 SHERPA = "https://github.com/k2-fsa/sherpa-onnx/releases/download"
 # name: (label, url, where it lives once unpacked (a folder, or the .onnx file itself), size shown to people)
 DOWNLOADS = {
-    "kokoro": ("Natural voice", f"{SHERPA}/tts-models/kokoro-multi-lang-v1_0.tar.bz2",
+    "kokoro": ("Kokoro voice", f"{SHERPA}/tts-models/kokoro-multi-lang-v1_0.tar.bz2",
                DATA / "tts" / "kokoro-multi-lang-v1_0", "330 MB"),
+    "piper": ("Piper voice", f"{SHERPA}/tts-models/vits-piper-en_US-lessac-medium.tar.bz2",
+              DATA / "tts" / "vits-piper-en_US-lessac-medium", "64 MB"),
+    "kitten": ("Kitten voice", f"{SHERPA}/tts-models/kitten-nano-en-v0_2-fp16.tar.bz2",
+               DATA / "tts" / "kitten-nano-en-v0_2-fp16", "25 MB"),
     "kws": ("\"Hey Nova\" detector", f"{SHERPA}/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2",
             MODELS / "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01", "18 MB"),
     "parakeet": ("Parakeet", f"{SHERPA}/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",

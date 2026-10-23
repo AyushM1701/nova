@@ -142,9 +142,11 @@ for said, want in VOICE_OK:
 
 # conversation mode ends on a closing phrase, never on a real request
 DONE = ["Yeah, that's it.", "Ok thanks", "Okay, thank you so much!", "No, that's all.", "Nothing else, bye.",
-        "Thanks Nova", "Nope.", "That'll be all.", "Got it, thanks.", "Alright, bye for now."]
+        "Thanks Nova", "Nope.", "That'll be all.", "Got it, thanks.", "Alright, bye for now.",
+        "Aish. That's it.", "That's it. Is this a good gift? That's it.", "Okay. Thanks."]
 NOT_DONE = ["Open Spotify", "Okay, now open my mail", "No, make it Chandigarh instead", "Thanks, and play some music",
-            "That's it, now commit the changes", "What's the time?"]
+            "That's it, now commit the changes", "What's the time?", "Open YouTube. That's it.",
+            "That's it. Now commit the changes."]
 for said in DONE:
     assert is_done(said), f"done {said!r} should end the conversation"
 for said in NOT_DONE:
@@ -508,9 +510,11 @@ assert with_flag(OPERA, EXT) == (r'"C:\Users\me\AppData\Local\Programs\Opera GX\
 assert with_flag(with_flag(OPERA, EXT), EXT) == with_flag(OPERA, EXT)  # applying twice changes nothing
 assert with_flag(with_flag(OPERA, EXT), EXT, on=False) == OPERA
 assert with_flag("--autostart", EXT) == f'--load-extension="{EXT}" --autostart'
-# Chromium's unpacked-extension ID, checked against what a real browser reported for this folder
-assert extension_id(r"C:\Users\AYUSH\AppData\Local\Temp\claude\D--projects-NOVA\061f3c1f-3feb-48ed-9a38-da7524988dce"
-                    r"\scratchpad\spike\ext") == "aonnpjnlccjloffngloiggoanmdhbebn"
+# Chromium's unpacked-extension ID, checked against what a real browser reported for this folder (a Windows path,
+# hashed as UTF-16 the way Windows Chromium stores it; a Mac hashes UTF-8)
+assert sys.platform != "win32" or extension_id(
+    r"C:\Users\AYUSH\AppData\Local\Temp\claude\D--projects-NOVA\061f3c1f-3feb-48ed-9a38-da7524988dce"
+    r"\scratchpad\spike\ext") == "aonnpjnlccjloffngloiggoanmdhbebn"
 # macOS: browsers are found as app bundles in /Applications or ~/Applications, by the program their Info.plist names
 import plistlib  # noqa: E402
 import core.browser as web  # noqa: E402
@@ -524,7 +528,8 @@ with tempfile.TemporaryDirectory() as apps:
     (brave / "Contents" / "Info.plist").write_bytes(plistlib.dumps({"CFBundleExecutable": "Brave Browser"}))
     (brave / "Contents" / "MacOS" / "Brave Browser").write_text("")
     (Path(apps) / "Broken.app" / "Contents").mkdir(parents=True)  # no Info.plist: not an app
-    saved, win_id = (web.MAC, web.BROWSERS, web.running, web.HOME), extension_id("/Users/me/x")
+    saved, web.MAC = (web.MAC, web.BROWSERS, web.running, web.HOME), False
+    win_id = extension_id("/Users/me/x")  # as Windows would hash it, whichever machine runs this
     web.MAC, web.running, web.HOME = True, lambda bid: False, Path(apps) / "nova"  # not the real token file
     web.BROWSERS = {"brave": ("Brave", [str(Path(apps) / "Broken.app"), str(brave)], None, "flag", True),
                     "vivaldi": ("Vivaldi", [str(Path(apps) / "Vivaldi.app")], None, "flag", False)}
@@ -964,6 +969,7 @@ from core import system  # noqa: E402
 calls = []
 hold = object.__new__(system.HoldKey)  # the state machine alone, without a real keyboard hook
 hold.key, hold.on_start, hold.on_stop = "right ctrl", lambda: calls.append("start"), lambda: calls.append("stop")
+hold.on_cancel = lambda: calls.append("cancel")
 hold.held = hold.started = False
 hold.timer, hold.lock = None, __import__("threading").Lock()
 hold.event("Right Ctrl", True); hold.event("Right Ctrl", False); time.sleep(system.HOLD_DELAY_S + 0.1)  # noqa: E702
@@ -972,9 +978,53 @@ hold.event("right ctrl", True); hold.event("c", True); time.sleep(system.HOLD_DE
 hold.event("c", False); hold.event("right ctrl", False)  # noqa: E702
 assert calls == [], f"combo: {calls}"
 hold.event("right ctrl", True); time.sleep(system.HOLD_DELAY_S + 0.1)  # noqa: E702
-hold.event("right ctrl", True); hold.event("x", True)  # noqa: E702  (key repeat, and typing while listening)
-hold.event("right ctrl", False)
+hold.event("right ctrl", True); hold.event("right ctrl", False)  # noqa: E702  (a held key repeats its key-down)
 assert calls == ["start", "stop"], f"hold: {calls}"
+calls.clear()  # Shift held a little long before a capital: listening started, then typing drops it, nothing sent
+hold.event("right ctrl", True); time.sleep(system.HOLD_DELAY_S + 0.1)  # noqa: E702
+hold.event("a", True); hold.event("a", False); hold.event("right ctrl", False)  # noqa: E702
+assert calls == ["start", "cancel"], f"typing: {calls}"
+
+# Ctrl (Cmd) tapped three times: the shortcut; not when slow, held, part of a combo, or two taps
+taps = []
+triple = object.__new__(system.TripleTap)  # the counting alone, without a real keyboard hook
+triple.on_triple, triple.taps, triple.down_at = lambda: taps.append(1), [], None
+
+
+def tap_at(*times, hold=0.05):
+    for t in times:
+        triple.event(True, True, t)
+        triple.event(True, False, t + hold)
+
+
+tap_at(0, 0.2, 0.4)
+assert taps == [1], taps
+tap_at(10, 10.2, 10.4, 10.6, 10.8, 11.0)  # six taps: twice, never four or five times
+assert taps == [1, 1, 1], taps
+tap_at(20, 20.6, 21.2)  # too slow: over a second for the three
+tap_at(30, 30.2, 30.4, hold=0.5)  # held, not tapped (hold-to-talk on Right Ctrl)
+tap_at(40, 40.2)
+triple.event(False, True, 40.3)  # Ctrl+C or typing in between
+tap_at(40.4)
+triple.event(True, True, 50)
+triple.event(False, True, 50.05)  # Ctrl held for Ctrl+S: its release isn't a tap
+triple.event(True, False, 50.1)
+tap_at(50.2, 50.4)
+assert taps == [1, 1, 1], taps
+triple.event(True, True, 60); triple.event(True, True, 60.03)  # noqa: E702  (a held key repeats its key-down)
+triple.event(True, False, 60.1)
+tap_at(60.3, 60.5)
+assert taps == [1, 1, 1, 1], taps
+# a game is in front: a game store's folder (Windows and Mac paths); other programs aren't games
+for path in (r"C:\Program Files (x86)\Steam\steamapps\common\Counter-Strike Global Offensive\game\bin\win64\cs2.exe",
+             r"D:\Epic Games\Fortnite\FortniteGame\Binaries\Win64\FortniteClient-Win64-Shipping.exe",
+             r"C:\XboxGames\Forza Horizon 5\Content\ForzaHorizon5.exe", r"C:\Riot Games\VALORANT\live\VALORANT.exe",
+             "/Users/me/Library/Application Support/Steam/steamapps/common/Hades/Hades.app"):
+    assert system.GAME_DIRS.search(path), path
+for path in (r"C:\Program Files\Microsoft VS Code\Code.exe", r"C:\Users\me\AppData\Local\Discord\app-1.0\Discord.exe",
+             r"C:\Program Files\Google\Chrome\Application\chrome.exe", "/Applications/Steam.app"):
+    assert not system.GAME_DIRS.search(path), path
+assert system.gaming() in (True, False)  # the real check runs on this computer
 
 # recording: a held recording ignores pauses; a mic sending nothing is reported instead of hanging
 from core import audio  # noqa: E402
@@ -1149,6 +1199,70 @@ assert loopback.follows(computer[16000:32000] * 0.05, computer) > 0.9  # the mic
 person = (np.repeat(rng.uniform(0.001, 0.3, 100), 160) * rng.normal(0, 1, 100 * 160)).astype(np.float32)
 assert loopback.follows(person, computer) < 0.5  # someone else's voice in the room doesn't follow the speakers
 
+# settings saved by Nova and its window at the same moment (two programs): no save fails, no change is undone, and
+# config.json is never left broken (with one shared temp file and no lock, 274 of 400 failed and the file broke)
+import subprocess  # noqa: E402
+with tempfile.TemporaryDirectory() as tmp:
+    saver = ("import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); from core import config; "
+             "config.CONFIG = Path(sys.argv[2]); bad = 0\n"
+             "for i in range(60):\n"
+             "    try: config.update_config({sys.argv[3]: i})\n"
+             "    except Exception: bad += 1\n"
+             "print(bad)")
+    target = str(Path(tmp) / "config.json")
+    runs = [subprocess.Popen([sys.executable, "-c", saver, os.path.dirname(os.path.abspath(__file__)), target, key],
+                             stdout=subprocess.PIPE, text=True) for key in ("overlay.hide_after_s", "voice.max_record_s")]
+    assert [r.communicate()[0].strip() for r in runs] == ["0", "0"], "a save failed"
+    saved = json.loads(Path(target).read_text(encoding="utf-8"))
+    assert saved["overlay"]["hide_after_s"] == 59 and saved["voice"]["max_record_s"] == 59, saved
+    assert sorted(p.name for p in Path(tmp).iterdir()) == ["config.json"]  # no temp or lock file left
+
+# "Hey Nova", stage 1: the keyword model really hears the phrase (its word pieces are typed into core/wake.py by
+# hand: a mistake there, or a sherpa-onnx change, would silently stop "Hey Nova"), wherever in its 0.3 s steps the
+# phrase starts, and not a sound-alike. Recordings: test_audio/ (Kokoro's am_michael voice).
+import wave  # noqa: E402
+from core import models as wake_models, wake as wake_mod  # noqa: E402
+if wake_models.installed("kws"):
+    def stage1_hears(name, lead):
+        with wave.open(str(Path(__file__).resolve().parent / "test_audio" / f"{name}.wav"), "rb") as w:
+            clip = np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(np.float32) / 32767
+        noise = np.random.default_rng(0).normal(0, 3e-4, int(16000 * (lead + 1))).astype(np.float32)
+        audio = np.concatenate([noise[:int(16000 * lead)], clip, noise[int(16000 * lead):]])
+        det = wake_mod.Detector(None)  # the default sensitivity, High
+        return any(det.feed(audio[i:i + 480]) or det.seg is not None for i in range(0, len(audio) - 479, 480))
+    muted = wake_mod.Detector(None)  # a muted mic sends exact zeros: no wake, and no crash
+    assert not any(muted.feed(np.zeros(480, np.float32)) or muted.seg is not None for _ in range(100))
+    for lead in (0.3, 0.8, 1.3, 2.2):
+        assert stage1_hears("hey-nova", lead), f"stage 1 missed Hey Nova starting at {lead} s"
+        assert not stage1_hears("hey-no-problem", lead), f"stage 1 fired on 'Hey, no problem' at {lead} s"
+else:
+    print("note: the \"Hey Nova\" model isn't downloaded, so its check was skipped")
+# a microphone that stops sending sound (unplugged, changed, after sleep) is opened again, not waited on forever
+opened = []
+
+
+class GoesQuiet:
+    def __init__(self, callback, **_):
+        self.callback = callback
+        opened.append(self)
+
+    def __enter__(self):
+        for _ in range(3):
+            self.callback(np.zeros((480, 1), np.float32))
+        return self
+
+    def __exit__(self, *_):
+        pass
+
+
+saved_sd, saved_stall = wake_mod.sd, wake_mod.STALLED_S
+wake_mod.sd, wake_mod.STALLED_S = type("SD", (), {"InputStream": GoesQuiet}), 0.1
+try:
+    wake_mod.listen(None, None, lambda: False, running=lambda: len(opened) < 3)
+finally:
+    wake_mod.sd, wake_mod.STALLED_S = saved_sd, saved_stall
+assert len(opened) == 3, len(opened)
+
 # "Hey Nova", stage 2: what Whisper heard in the clip the keyword model flagged
 from core.wake import Detector  # noqa: E402
 
@@ -1261,6 +1375,15 @@ stt_obj = object.__new__(stt_mod.STT)
 stt_obj.fast, stt_obj.accurate = fake_model, None
 assert len(stt_obj.segments(np.zeros(16000 * 100, np.float32), on_progress=ticks.append)) == 1000
 assert ticks == sorted(set(ticks)) and len(ticks) == 101, len(ticks)  # 0% to 100%, not 1000 updates
+# translating never goes to the turbo (accurate) model, which can't translate; transcribing Spanish does
+Info = __import__("collections").namedtuple("Info", "language")
+used = []
+model = lambda name: type("M", (), {"transcribe": lambda self, *a, **k: (  # noqa: E731
+    used.append((name, k["task"])) or [Seg(0, 1, f"{name} text")], Info("es"))})()
+stt_obj.device, stt_obj.fast, stt_obj.accurate = "CPU", model("small"), model("turbo")
+assert stt_obj.transcribe(np.zeros(16000, np.float32), task="translate") == "small text" and used == [("small", "translate")]
+used.clear()
+assert stt_obj.transcribe(np.zeros(16000, np.float32)) == "turbo text" and [n for n, _ in used] == ["small", "turbo"]
 
 # 6: on request, only the last two minutes are transcribed; older audio waits (or is never needed)
 mem = loopback.SystemAudio(FakeSTT(), keep_s=600)
@@ -1287,6 +1410,14 @@ class LocalSTT:
 
 nova_obj.engine, nova_obj.stt = lambda: Broken(), LocalSTT()
 assert nova_obj.transcribe(np.zeros(16000, np.float32)) == "said locally"
+# a cloud service out of credit or offline: Whisper answers, and the service rests 5 minutes instead of failing each time
+nova_obj.cfg["voice"]["stt_engine"], nova_obj.cloud_rest_until, tried = "groq", 0, []
+nova_obj.engine = lambda: tried.append(1) or Broken()
+assert nova_obj.transcribe(np.zeros(16000, np.float32)) == "said locally" and len(tried) == 1
+assert nova_obj.cloud_rest_until > time.time() + 290 and nova_obj.open_stream() is None
+assert nova_obj.transcribe(np.zeros(16000, np.float32)) == "said locally" and len(tried) == 1  # not tried again
+nova_obj.cloud_rest_until = time.time() - 1  # rested: tried again
+assert nova_obj.transcribe(np.zeros(16000, np.float32)) == "said locally" and len(tried) == 2
 nova_obj.cfg["voice"]["stt_engine"] = "local"
 nova_obj.engine = lambda: None
 nova_obj.stt = type("S", (), {"transcribe": lambda self, *a, **k: (_ for _ in ()).throw(RuntimeError("no model"))})()
@@ -1313,6 +1444,61 @@ assert busy["future"].result().startswith("Nova is busy")
 
 # 11: one downloader; the natural voice stays where it was
 from core import tts as tts_mod  # noqa: E402
-assert models.path("kokoro") == tts_mod.KOKORO and models.DOWNLOADS["kokoro"][1].endswith("kokoro-multi-lang-v1_0.tar.bz2")
+assert models.path("kokoro").name == "kokoro-multi-lang-v1_0" and models.path("kokoro").parent.name == "tts"  # kept
+
+# voices: Piper speaks by default; picking Kokoro before it's downloaded never silences Nova
+real_installed = tts_mod.installed
+for have, choice, want in [({"piper", "kitten", "kokoro"}, "kokoro", "kokoro"),
+                           ({"piper", "kitten"}, "kokoro", "piper"),   # Kokoro still downloading: Piper talks
+                           ({"kitten"}, "piper", "kitten"), ({"piper"}, "kitten", "piper"),
+                           (set(), "piper", None), ({"piper"}, "system", None)]:  # None: the computer's own voice
+    tts_mod.installed = lambda engine, have=have: engine in have
+    assert tts_mod.pick({"tts_engine": choice}) == want, (have, choice)
+tts_mod.installed = real_installed
+assert json.load(open("config.default.json", encoding="utf-8"))["voice"]["tts_engine"] == "piper"
+assert tts_mod.speaker("kitten", {"kitten_voice": "expr-voice-3-m"}) == 2 and tts_mod.speaker("kitten", {}) == 1
+assert tts_mod.speaker("kokoro", {"kokoro_voice": "nope"}) == tts_mod.KOKORO_VOICES.index("af_heart")
+for engine in tts_mod.ENGINES:
+    assert engine in models.DOWNLOADS and models.path(engine).parent.name == "tts"
+
+# Piper became the default: people who already had Kokoro keep it, decided once, never undoing a later choice
+with tempfile.TemporaryDirectory() as tmp:
+    marker = Path(tmp) / "voice-default-piper"
+    assert tts_mod.keep_kokoro(marker, {}, kokoro_installed=True)           # had Kokoro, never chose: keep it
+    assert not tts_mod.keep_kokoro(marker, {}, kokoro_installed=True)       # ...and only once: later they picked
+                                                                            # Piper, which saves nothing (default)
+    marker.unlink()
+    assert not tts_mod.keep_kokoro(marker, {}, kokoro_installed=False)      # a new install: Piper
+    marker.unlink()
+    assert not tts_mod.keep_kokoro(marker, {"tts_engine": "system"}, True)  # chose a voice before: left alone
+    assert marker.exists()
+
+# one voice model in memory at a time (all three held about 690 MB until Nova restarted)
+import sherpa_onnx  # noqa: E402
+real_tts_class, tts_mod._models = sherpa_onnx.OfflineTts, {}
+sherpa_onnx.OfflineTts = lambda config: object()  # a stand-in: nothing real is loaded
+try:
+    first = tts_mod.load("kitten")
+    assert tts_mod.load("kitten") is first  # loaded once, then reused
+    tts_mod.load("kokoro")
+    assert list(tts_mod._models) == ["kokoro"], tts_mod._models  # switching dropped Kitten
+finally:
+    sherpa_onnx.OfflineTts, tts_mod._models = real_tts_class, {}
+
+# every voice Settings offers has a recorded sample to play before it's downloaded; nothing else can be read
+for engine, choices in (("piper", [""]), ("kitten", tts_mod.KITTEN_VOICES), ("kokoro", tts_mod.ENGLISH)):
+    for voice in choices:
+        clip = tts_mod.preview(engine, voice)
+        assert clip and clip.startswith("data:audio/mpeg;base64,") and len(clip) > 10_000, (engine, voice)
+assert tts_mod.preview("kokoro", "../../config") is None and tts_mod.preview("system", "x") is None
+# Kokoro is offered only where it runs well; Piper and Kitten everywhere
+real_memory = system.memory_gb
+for memory, cores, want in ((4, 8, False), (16, 2, False), (16, 8, True)):
+    system.memory_gb, real_cores = (lambda m=memory: m), os.cpu_count
+    os.cpu_count = lambda c=cores: c
+    assert tts_mod.capable("kokoro") == want and tts_mod.capable("piper") and tts_mod.capable("kitten"), (memory, cores)
+    os.cpu_count = real_cores
+system.memory_gb = real_memory
+assert system.memory_gb() > 1  # reads this computer's real memory
 
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it

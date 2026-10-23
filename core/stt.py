@@ -27,7 +27,7 @@ VAD = {"threshold": 0.35, "speech_pad_ms": 300}
 
 class STT:
     def __init__(self, fast_name, accurate_name):
-        self.accurate_name, self.accurate = accurate_name, None
+        self.fast_name, self.accurate_name, self.accurate, self.small = fast_name, accurate_name, None, None
         try:
             if sys.platform == "darwin":  # no NVIDIA GPU on a Mac: go straight to the CPU (int8 is fast on Apple chips)
                 raise RuntimeError("no CUDA on macOS")
@@ -41,6 +41,15 @@ class STT:
     def load_accurate(self):
         if self.device == "CPU" and self.accurate_name:
             self.accurate = WhisperModel(self.accurate_name, device="cpu", compute_type="int8")
+
+    def translator(self):
+        """Whisper's turbo models were trained without translation (they write the language spoken), so translating
+        uses the small model: the CPU's own fast one, or loaded once beside turbo on a GPU."""
+        if self.device == "CPU":
+            return self.fast
+        if self.small is None:
+            self.small = WhisperModel(self.fast_name, device="cuda", compute_type="float16")
+        return self.small
 
     def quick(self, audio):
         """One fast English pass to spot "Hey Nova": [(word, end_seconds)]. No prompt: Whisper can echo one on noise."""
@@ -89,10 +98,12 @@ class STT:
 
         if server:
             return drop_outro(server.transcribe(audio, lang, prompt))
-        text, detected = run(self.fast)
-        # Whisper's small model translates poorly too: the accurate one takes any non-English speech
-        model = self.accurate if detected != "en" and self.accurate else self.fast  # CPU only, once it's loaded
-        if model is not self.fast:
+        first = self.translator() if task == "translate" else self.fast
+        text, detected = run(first)
+        # the small model is weak at other languages: the accurate one takes them (CPU only, once it's loaded),
+        # except to translate, which it can't do
+        model = self.accurate if task == "transcribe" and detected != "en" and self.accurate else first
+        if model is not first:
             text, _ = run(model)
         if is_prompt_echo(text, prompt):  # the voice filter cut the speech: decode everything once more
             text = run(model, vad=False)[0] or text

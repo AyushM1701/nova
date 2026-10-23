@@ -3,6 +3,7 @@
 config.json holds only what the user changed; everything else comes from config.default.json,
 so new settings from an update appear automatically.
 """
+import contextlib
 import json
 import os
 import time
@@ -90,7 +91,43 @@ def defaults():
 
 def user_config():
     """The user's own overrides; raises ValueError if config.json isn't valid JSON."""
-    return json.loads(CONFIG.read_text(encoding="utf-8-sig")) if CONFIG.exists() else {}
+    return json.loads(_busy(lambda: CONFIG.read_text(encoding="utf-8-sig"))) if CONFIG.exists() else {}
+
+
+def _busy(action, tries=50):
+    """Windows refuses to read or replace a file another program is replacing or reading this instant: retry."""
+    for attempt in range(tries):
+        try:
+            return action()
+        except PermissionError:
+            if attempt == tries - 1:
+                raise
+            time.sleep(0.02)
+
+
+@contextlib.contextmanager
+def _saving():
+    """One save at a time across Nova, its window and the AI: each reads, changes and writes config.json, and two
+    at once would undo each other's change. A lock file older than 10 s was left by a crash and is taken over."""
+    lock = CONFIG.with_suffix(".lock")
+    for _ in range(500):  # up to about 10 s
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except (FileExistsError, PermissionError):  # Windows says PermissionError while it's being deleted
+            try:
+                if time.time() - lock.stat().st_mtime > 10:
+                    lock.unlink()
+            except OSError:  # released meanwhile
+                pass
+            time.sleep(0.02)
+    else:
+        raise TimeoutError("Another program kept Nova's settings locked.")
+    try:
+        yield
+    finally:
+        os.close(fd)
+        lock.unlink(missing_ok=True)
 
 
 def load_config():
@@ -112,19 +149,25 @@ def set_path(cfg, path, value):
 def update_config(changes):
     """Apply {"dotted.path": value} on top of the settings on disk now, so changes Nova, the window or the AI
     made since this caller read them survive. Raises ValueError if config.json is broken."""
-    cfg, error = load_config()
-    if error:
-        raise ValueError(error)
-    for path, value in changes.items():
-        set_path(cfg, path, value)
-    save_config(cfg)
+    with _saving():
+        cfg, error = load_config()
+        if error:
+            raise ValueError(error)
+        for path, value in changes.items():
+            set_path(cfg, path, value)
+        _save(cfg)
 
 
 def save_config(cfg):
+    with _saving():
+        _save(cfg)
+
+
+def _save(cfg):
     try:
         user_config()
     except ValueError:  # keep the hand-edited file the user may still want
         CONFIG.replace(CONFIG.with_suffix(".broken.json"))
-    tmp = CONFIG.with_suffix(".tmp")
+    tmp = CONFIG.with_suffix(f".{os.getpid()}.tmp")  # each program its own: a shared name collided
     tmp.write_text(json.dumps(overrides(cfg, defaults()), indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(CONFIG)  # atomic: Nova's settings watcher never reads half a file
+    _busy(lambda: tmp.replace(CONFIG))  # atomic: Nova's settings watcher never reads half a file

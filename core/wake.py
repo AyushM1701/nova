@@ -1,9 +1,10 @@
 """'Hey Nova' wake word, fully on-device, in two stages like "Hey Siri" (see Detector):
 1. a small keyword model (sherpa-onnx, 3 MB) listens to every 30 ms of the microphone, soft or loud, for the phrase;
 2. only when it fires, Whisper checks that clip, so other talk can't wake Nova.
-Measured on 360 synthesized "Hey Nova" scenes (normal, soft and quiet voices; quiet room, fan, TV) it caught 211 at
-Normal against 157 for the older loudness-gate-then-Whisper way (still used until the model is downloaded), with no
-false wake in 720 sound-alike scenes or 23 minutes of talk naming "Nova" about 100 times.
+Measured on 360 synthesized "Hey Nova" scenes (normal, soft and quiet voices; quiet room, fan, TV) it caught 225 at
+High (the default) and 212 at Normal, against 156 for the older loudness-gate-then-Whisper way, with no false wake in
+720 sound-alike scenes or 23 minutes of talk naming "Nova" about 100 times. Running the older way alongside added
+only 6 catches at High, for twice the processing, so it was removed.
 
 Nothing leaves the laptop and nothing is logged unless the phrase is heard. "Hey Nova, play some music" in one
 breath works too: the audio after "Nova" becomes the request, transcribed by the full (Hindi-aware) pipeline.
@@ -12,18 +13,20 @@ import collections
 import difflib
 import queue
 import re
+import time
 
 import numpy as np
 import sounddevice as sd
 
-from core.audio import BLOCK, MIN_SPEECH, RATE, is_speech
+from core.audio import BLOCK, MIN_SPEECH, RATE
 
 # Whisper's usual spellings of the phrase; "noah"/"nava" only count after a greeting
 WAKE_RE = re.compile(r"^\W*(?:(?:hey|hej|hei|hi|hay|ay|a|eh|he|ok|okay|hello)[\s,]+"
                      r"(?:nova|novah|nover|noba|noah|nava|novo|nowa|no va)|anova|inova|nova)\b"
                      r"[\s,.!?]*(.*)$", re.I | re.S)
 NAME_RE = re.compile(r"nov|noah|nava|noba|nowa|^\W*va\b", re.I)  # the word that ends the name ("no va" -> "va")
-CHECK_S, MAX_S, MIN_S, END_SILENCE_MS = 2.5, 20.0, 0.4, 700
+END_SILENCE_MS = 700  # this much quiet after the phrase: the user has stopped talking
+STALLED_S = 3  # a live microphone sends a block every 30 ms, even in silence
 
 
 def match(text):
@@ -43,8 +46,13 @@ DONE_RE = re.compile(
 
 
 def is_done(text):
-    """True if the user is ending the conversation rather than asking for something."""
-    return bool(DONE_RE.fullmatch(re.sub(r"[^\w\s]", "", (text or "").lower()).strip()))
+    """True if the user is ending the conversation rather than asking for something. Also when Whisper wraps the
+    goodbye in stray audio: "Aish. That's it." or "That's it. <a line from a video>. That's it."."""
+    said = [s for s in (re.sub(r"[^\w\s]", "", s).strip() for s in re.split(r"[.!?]", (text or "").lower())) if s]
+    if not said or not DONE_RE.fullmatch(said[-1]):
+        return False
+    return len(said) == 1 or said[0] == said[-1] or all(len(s.split()) == 1 for s in said[:-1]) \
+        or bool(DONE_RE.fullmatch(" ".join(said)))
 
 
 # "hello", "allo", "a low": how Whisper sometimes writes an accented "allow" (only ever matched during an approval)
@@ -136,8 +144,8 @@ class Detector:
     loudness gate to get past); when it hears "Hey Nova", the clip is raised to a normal level and Whisper checks it,
     so other talk can't wake Nova. feed() returns None, or ("wake", the request's audio after the name, or None)."""
 
-    def __init__(self, transcribe, sensitivity="normal", copies=STAGGER, gain=True):
-        boost, threshold, self.similar = SENSITIVITY.get(sensitivity, SENSITIVITY["normal"])
+    def __init__(self, transcribe, sensitivity="high", copies=STAGGER, gain=True):
+        boost, threshold, self.similar = SENSITIVITY.get(sensitivity, SENSITIVITY["high"])
         self.transcribe, self.spotter, self.copies, self.gain = transcribe, spotter(boost, threshold), copies, gain
         self.recent = collections.deque(maxlen=int(PRE_S * RATE / BLOCK))
         self.peaks = collections.deque(maxlen=int(AGC_S * RATE / BLOCK))
@@ -161,7 +169,8 @@ class Detector:
             self.recent.append(block)
             self.peaks.append(float(np.abs(block).max()))
             # a soft or distant voice is raised toward a normal level, like a phone's mic before its wake word
-            loud = block * min(MAX_GAIN, max(1.0, AGC_PEAK / max(self.peaks))) if self.gain else block
+            # (a muted mic sends exact zeros: never divide by them)
+            loud = block * min(MAX_GAIN, max(1.0, AGC_PEAK / max(max(self.peaks), 1e-6))) if self.gain else block
             heard = False
             for stream in self.streams:
                 stream.accept_waveform(RATE, loud)
@@ -224,21 +233,29 @@ def sounds_like(words, at_least):
     return end if best >= at_least else None
 
 
-def listen(transcribe, on_wake, enabled, running=lambda: True, sensitivity=lambda: "normal"):
+def listen(transcribe, on_wake, enabled, running=lambda: True, sensitivity=lambda: "high"):
     """Run until `running()` is False (own thread). on_wake(None) = start listening, on_wake(audio) = this
     audio is the request. `enabled()` is False while Nova is busy, so its own voice can't wake it.
-    Returning closes the microphone, so turning the wake word off really stops listening."""
-    from core import models
-    if not models.installed("kws"):  # not downloaded yet (first start offline): the older, louder-voice way
-        return _listen_gated(transcribe, on_wake, enabled, running)
-    blocks, detector, level = queue.Queue(), None, None
+    Returning closes the microphone, so turning the wake word off really stops listening.
+    Needs the keyword model (models.download("kws")); Nova fetches it before calling this."""
+    while running():
+        _listen(transcribe, on_wake, enabled, running, sensitivity)
+
+
+def _listen(transcribe, on_wake, enabled, running, sensitivity):
+    """One microphone stream. Returns when it stops sending sound (a device that went away or changed, the Mac
+    waking from sleep), so listen() opens a fresh one instead of waiting on it forever."""
+    blocks, detector, level, heard_at = queue.Queue(), None, None, time.monotonic()
     with sd.InputStream(samplerate=RATE, channels=1, dtype="float32", blocksize=BLOCK,
                         callback=lambda data, *_: blocks.put(data[:, 0].copy())):
         while running():
             try:
                 block = blocks.get(timeout=0.5)
             except queue.Empty:
+                if time.monotonic() - heard_at > STALLED_S:
+                    return
                 continue
+            heard_at = time.monotonic()
             if not enabled():
                 detector = None  # Nova is busy: start afresh afterwards, so its own voice can't count
                 continue
@@ -249,48 +266,3 @@ def listen(transcribe, on_wake, enabled, running=lambda: True, sensitivity=lambd
             if hit:
                 on_wake(hit[1], hit[2])
 
-
-def _listen_gated(transcribe, on_wake, enabled, running):
-    """The wake word without the keyword model: a loudness gate, then Whisper on every utterance."""
-    blocks = queue.Queue()
-    before = collections.deque(maxlen=10)  # 300 ms of audio before speech, so "hey" isn't clipped
-    seg, floor, quiet = [], None, 0
-    woke = None  # None: not checked yet, False: not a wake phrase, else (end of "Nova" in s, words after it)
-    with sd.InputStream(samplerate=RATE, channels=1, dtype="float32", blocksize=BLOCK,
-                        callback=lambda data, *_: blocks.put(data[:, 0].copy())):
-        while running():
-            try:
-                block = blocks.get(timeout=0.5)
-            except queue.Empty:
-                continue
-            if not enabled():
-                seg, quiet, woke = [], 0, None
-                before.clear()
-                continue
-            rms = float(np.sqrt(np.mean(block ** 2)))
-            floor = rms if floor is None else floor  # the first block seeds the room's noise level
-            loud = is_speech(rms, floor)
-            if not seg:
-                if loud:
-                    seg, quiet = list(before) + [block], 0
-                else:
-                    floor = 0.98 * floor + 0.02 * rms  # track the room's noise level
-                    before.append(block)
-                continue
-            seg.append(block)
-            quiet = 0 if loud else quiet + 30
-            ended, seconds = quiet >= END_SILENCE_MS, len(seg) * BLOCK / RATE
-            if woke is None and seconds >= MIN_S and (ended or seconds >= CHECK_S):
-                words = transcribe(np.concatenate(seg))
-                rest = match(" ".join(word for word, _ in words))
-                woke = False if rest is None else (next((e for word, e in words if NAME_RE.search(word)), 0.0), rest)
-            if woke is False:
-                seg = seg[-1:]  # ordinary talk: just wait for the pause, don't keep the audio
-            if ended or (woke and seconds >= MAX_S):
-                if woke:
-                    end, rest = woke
-                    # more speech after "Nova" (heard, or still going past the check): that audio is the request.
-                    # +0.12 s because Whisper's word end times run slightly early
-                    on_wake(np.concatenate(seg)[int((end + 0.12) * RATE):] if rest or seconds > CHECK_S + 1 else None)
-                seg, woke = [], None
-                before.clear()

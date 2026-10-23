@@ -1,10 +1,11 @@
 {
   "hotkey": "",
   "hold_key": "",
+  "triple_tap": true,
   "start_mode": "assistant",
   "update_check": true,
   "wake_word": true,
-  "wake_sensitivity": "normal",
+  "wake_sensitivity": "high",
   "voice": {
     "stt_model": "small",
     "stt_accurate_model": "large-v3-turbo",
@@ -15,8 +16,9 @@
     "cloud_stt_model": "",
     "custom_stt_url": "",
     "language": "auto",
-    "tts_engine": "kokoro",
+    "tts_engine": "piper",
     "kokoro_voice": "af_heart",
+    "kitten_voice": "expr-voice-2-f",
     "tts_speed": 1.0,
     "barge_in": true,
     "conversation": true,

@@ -1,10 +1,12 @@
 """Everything that differs between Windows and macOS, in one place."""
 import os
 import plistlib
+import re
 import shlex
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import numpy as np
@@ -12,9 +14,18 @@ import numpy as np
 IS_MAC = sys.platform == "darwin"
 
 if IS_MAC:
-    from AppKit import NSApplication, NSScreen, NSWorkspace
+    import contextlib
+
+    import pynput.keyboard._darwin as _pk_darwin
+    from AppKit import NSApplication, NSBundle, NSScreen, NSWorkspace
     from pynput import keyboard as pk
 
+    # every pynput listener reads the keyboard layout on its own thread, and macOS stops the app when one started
+    # after launch does (a new shortcut set in Settings): read it once here, on the main thread, for all of them.
+    # shortcut: a keyboard layout switched while Nova runs is picked up at the next start
+    with _pk_darwin.keycode_context() as _layout:
+        pass
+    _pk_darwin.keycode_context = lambda: contextlib.nullcontext(_layout)
     _keys = pk.Controller()
     MAC_HOLD = {pk.Key.ctrl_r: "right ctrl", pk.Key.alt_r: "right alt", pk.Key.shift_r: "right shift"}
     MEDIA = {"play_pause": pk.Key.media_play_pause, "next": pk.Key.media_next, "previous": pk.Key.media_previous,
@@ -78,10 +89,12 @@ HOLD_DELAY_S = 0.25  # a quick tap, or the key used in a combo, never starts lis
 
 class HoldKey:
     """Hold-to-talk on one modifier key on its own: hold it a moment and Nova listens, let go and it stops.
-    Pressed together with another key (Right Ctrl+C) it stays an ordinary shortcut: the key is never swallowed."""
+    Pressed together with another key (Right Ctrl+C) it stays an ordinary shortcut: the key is never swallowed.
+    Another key pressed after listening started (Shift held a little long before a capital) means typing, not
+    talking: on_cancel drops that recording."""
 
-    def __init__(self, key, on_start, on_stop):
-        self.key, self.on_start, self.on_stop = key.lower(), on_start, on_stop
+    def __init__(self, key, on_start, on_stop, on_cancel=lambda: None):
+        self.key, self.on_start, self.on_stop, self.on_cancel = key.lower(), on_start, on_stop, on_cancel
         self.held = self.started = False
         self.timer, self.lock = None, threading.Lock()
         if IS_MAC:
@@ -93,24 +106,25 @@ class HoldKey:
             self.hook = keyboard.hook(lambda e: self.event(e.name, e.event_type == "down"))
 
     def event(self, name, down):
-        name = (name or "").lower()
+        name, then = (name or "").lower(), None
         with self.lock:
             if name != self.key and not (self.key == "right alt" and name == "alt gr"):  # AltGr on many layouts
                 if down and self.held and not self.started:  # a combo: leave it to the app
                     self.held = False
                     self.timer and self.timer.cancel()
-                return
-            if down:
+                elif down and self.started:  # typing, not talking: drop the recording, and letting go won't send it
+                    self.started, then = False, self.on_cancel
+            elif down:
                 if not self.held:  # held keys repeat their key-down
                     self.held, self.started = True, False
                     self.timer = threading.Timer(HOLD_DELAY_S, self.fire)
                     self.timer.start()
-                return
-            self.held = False
-            self.timer and self.timer.cancel()
-            stop, self.started = self.started, False
-        if stop:
-            self.on_stop()
+            else:
+                self.held = False
+                self.timer and self.timer.cancel()
+                then, self.started = self.on_stop if self.started else None, False
+        if then:
+            then()
 
     def fire(self):
         with self.lock:
@@ -125,6 +139,87 @@ class HoldKey:
             self.listener.stop()
         else:
             keyboard.unhook(self.hook)
+
+
+TAP_S = 0.3  # down and up within this long is a tap; longer is a hold (hold-to-talk) or part of a combo
+TAPS_WITHIN_S = 1.0  # all three taps within this long
+
+
+class TripleTap:
+    """Ctrl (Command on a Mac) tapped three times on its own calls on_triple. Another key pressed in between
+    (Ctrl+C, typing) or a press held longer than a tap starts the count over. The keys are never swallowed."""
+
+    def __init__(self, on_triple):
+        self.on_triple, self.taps, self.down_at = on_triple, [], None
+        if IS_MAC:
+            ours = {pk.Key.cmd, pk.Key.cmd_l, pk.Key.cmd_r}
+            self.listener = pk.Listener(on_press=lambda k: self.event(k in ours, True),
+                                        on_release=lambda k: self.event(k in ours, False))
+            self.listener.start()
+        else:
+            self.hook = keyboard.hook(lambda e: self.event(e.name in ("ctrl", "left ctrl", "right ctrl"),
+                                                           e.event_type == "down"))
+
+    def event(self, ours, down, now=None):
+        now = time.monotonic() if now is None else now
+        if not ours:
+            if down:  # part of a combo, or typing: not a tap
+                self.taps, self.down_at = [], None
+            return
+        if down:
+            if self.down_at is None:  # held keys repeat their key-down
+                self.down_at = now
+            return
+        if self.down_at is None:  # its key-down came with another key
+            return
+        tapped, self.down_at = now - self.down_at <= TAP_S, None
+        self.taps = [t for t in self.taps if now - t <= TAPS_WITHIN_S] + [now] if tapped else []
+        if len(self.taps) == 3:
+            self.taps = []
+            self.on_triple()
+
+    def stop(self):
+        if IS_MAC:
+            self.listener.stop()
+        else:
+            keyboard.unhook(self.hook)
+
+
+# shortcut: a game from anywhere else is caught only when full-screen (Windows) or filed as a game (macOS); add its
+# folder here if one is missed
+GAME_DIRS = re.compile(r"steamapps[\\/]common|[\\/](?:epic games|riot games|xboxgames|gog galaxy[\\/]games|ea games"
+                       r"|ubisoft game launcher[\\/]games|battle\.net)[\\/]", re.I)
+
+
+def gaming():
+    """A game is in front: a full-screen Direct3D program (Windows), an app filed as a game (macOS), or a program a
+    game store installed (Steam, Epic, Xbox, GOG, EA, Ubisoft, Riot, Battle.net)."""
+    if IS_MAC:
+        app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        url = app and app.bundleURL()
+        if url is None:
+            return False
+        info = NSBundle.bundleWithURL_(url).infoDictionary() or {}
+        return "games" in str(info.get("LSApplicationCategoryType") or "") or bool(GAME_DIRS.search(str(url.path())))
+    state = ctypes.c_int()
+    if not ctypes.windll.shell32.SHQueryUserNotificationState(ctypes.byref(state)) and state.value == 3:
+        return True  # QUNS_RUNNING_D3D_FULL_SCREEN
+    pid = ctypes.wintypes.DWORD()
+    user32.GetWindowThreadProcessId(user32.GetForegroundWindow(), ctypes.byref(pid))
+    return bool(GAME_DIRS.search(_exe(pid.value)))
+
+
+def _exe(pid):
+    """The program a Windows process runs, or ''."""
+    kernel32 = ctypes.windll.kernel32
+    proc = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not proc:
+        return ""
+    try:
+        buf, size = ctypes.create_unicode_buffer(1024), ctypes.wintypes.DWORD(1024)
+        return buf.value if kernel32.QueryFullProcessImageNameW(proc, 0, buf, ctypes.byref(size)) else ""
+    finally:
+        kernel32.CloseHandle(proc)
 
 
 def pretty_hotkey(combo):
@@ -189,19 +284,14 @@ def raise_app(exe):
     browser after Nova opened a page in it). False if it has no open window."""
     if IS_MAC or not exe:
         return False
-    kernel32, name, found = ctypes.windll.kernel32, Path(exe).name.lower(), []
+    name, found = Path(exe).name.lower(), []
 
     def each(hwnd, _):
         if user32.IsWindowVisible(hwnd) and user32.GetWindowTextLengthW(hwnd) and not user32.GetWindow(hwnd, 4):
             pid = ctypes.wintypes.DWORD()
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            proc = kernel32.OpenProcess(0x1000, False, pid.value)  # PROCESS_QUERY_LIMITED_INFORMATION
-            if proc:
-                buf, size = ctypes.create_unicode_buffer(1024), ctypes.wintypes.DWORD(1024)
-                if kernel32.QueryFullProcessImageNameW(proc, 0, buf, ctypes.byref(size)) and \
-                        Path(buf.value).name.lower() == name:
-                    found.append(hwnd)
-                kernel32.CloseHandle(proc)
+            if Path(_exe(pid.value)).name.lower() == name:
+                found.append(hwnd)
         return not found  # windows come front to back: the first match is the one used last
 
     user32.EnumWindows(ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)(each), 0)
@@ -261,6 +351,20 @@ def screenshot(path, box=None):
                         min(img.width, int((box[2] - left) * k)), min(img.height, int((box[3] - top) * k))))  # overhang
     img.save(path)
     return path
+
+
+def memory_gb():
+    """This computer's memory (RAM), in GB."""
+    if IS_MAC:
+        return int(subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True).stdout) / 2 ** 30
+
+    class Status(ctypes.Structure):
+        _fields_ = [("length", ctypes.c_ulong), ("load", ctypes.c_ulong)] + \
+                   [(n, ctypes.c_ulonglong) for n in ("total", "free", "page", "page_free", "virtual", "virtual_free",
+                                                     "extended")]
+    status = Status(length=ctypes.sizeof(Status))
+    ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))
+    return status.total / 2 ** 30
 
 
 def screen_width():

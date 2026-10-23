@@ -209,14 +209,20 @@ try {
     New-Item -ItemType Directory -Force (Join-Path $Root "data") | Out-Null
     New-Item -ItemType File -Force (Join-Path $Root "data\models-ready") | Out-Null
 
-    Step "Downloading Nova's natural voice (about 330 MB, once)"
-    $part = Join-Path $Root "data\tts\kokoro.part"
+    # Piper speaks by default and Kitten is the light choice; Kokoro (330 MB) downloads only if picked in Settings
+    Step "Downloading Nova's voices and `"Hey Nova`" (about 110 MB, once)"
     Push-Location $Root
-    $code = Run $Py @("-m", "core.tts", "download") {
-        if (Test-Path $part) { $detail.Text = "{0:N0} MB of about 330 MB" -f ((Get-Item $part).Length / 1MB) } else { $detail.Text = "Unpacking…" }
+    foreach ($model in @(@("piper", "Piper voice", 64, "data\tts"), @("kitten", "Kitten voice", 25, "data\tts"),
+                         @("kws", "`"Hey Nova`"", 18, "data\models"))) {
+        $name, $label, $size = $model[0], $model[1], $model[2]
+        $part = Join-Path $Root "$($model[3])\$name.part"  # core/models.py downloads into <name>.part first
+        $detail.Text = "$label (about $size MB)"
+        $code = Run $Py @("-m", "core.models", "download", $name) {
+            if (Test-Path $part) { $detail.Text = "{0}: {1:N0} of about {2} MB" -f $label, ((Get-Item $part).Length / 1MB), $size }
+        }
+        if ($code -ne 0) { Note "$label didn't download. Nova uses what it has (the Windows voice at worst) and Settings can retry." }
     }
     Pop-Location
-    if ($code -ne 0) { Note "The natural voice didn't download; Nova will use the Windows voice. Settings > Voice can retry." }
 
     Step "Adding Nova to the Start menu"
     Push-Location $Root; & $Py -m core.icon $icoPath; Pop-Location

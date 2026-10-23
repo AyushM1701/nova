@@ -408,7 +408,13 @@ class Api:
             system_voices = tts.voices()
         except OSError:
             system_voices = []
-        return {"system": system_voices, "natural": tts.ENGLISH, "natural_installed": tts.kokoro_installed()}
+        return {"system": system_voices, "natural": tts.ENGLISH, "kitten": tts.KITTEN_VOICES,
+                "installed": {e: tts.installed(e) for e in tts.ENGINES},
+                "capable": {e: tts.capable(e) for e in tts.ENGINES}}
+
+    def voice_preview(self, engine, voice=""):
+        """A recorded sample of a voice, to play right away (see tts.preview)."""
+        return tts.preview(engine, voice)
 
     def test_voice(self, settings):
         """Play a sample with the unsaved voice settings; Nova speaks it, so the model is loaded only once."""
@@ -417,11 +423,13 @@ class Api:
         threading.Thread(target=tts.speak, args=("Hi, I'm Nova.", settings, threading.Event()), daemon=True).start()
         return True
 
-    def download_voice(self):
-        """Fetch the natural voice (about 330 MB); progress arrives as {event: 'install'} lines."""
-        if self._run([sys.executable, "-m", "core.tts", "download"], cwd=ROOT) != 0:
+    def download_voice(self, engine="kokoro"):
+        """Fetch a voice (Kokoro: about 330 MB); progress arrives as {event: 'install'} lines."""
+        if engine not in tts.ENGINES:
+            raise ValueError("unknown voice")
+        if self._run([sys.executable, "-m", "core.tts", "download", engine], cwd=ROOT) != 0:
             raise RuntimeError("The download didn't finish. Check your internet connection and try again.")
-        return tts.kokoro_installed()
+        return tts.installed(engine)
 
     def mic_start(self):
         """Start the microphone test; levels arrive as {event: 'mic'}. Returns the device name."""

@@ -1,10 +1,11 @@
 """Nova's macOS setup window: setup.sh finds Python, then this window does the rest with visible progress
-(libraries, speech models, the natural voice, Nova.app, self-checks) and opens Nova, whose own screens
+(libraries, speech models, the voices and "Hey Nova", Nova.app, self-checks) and opens Nova, whose own screens
 handle the microphone, your AI, the shortcut and macOS permissions. Stdlib + tkinter only.
 
     python3 helpers/setup_window.py
 """
 import os
+import platform
 import queue
 import shutil
 import subprocess
@@ -115,6 +116,17 @@ class Window:
         return code
 
 
+def show_part(win, stop, part, label, size_mb):
+    """How far one model download has got, from its .part file, once a second."""
+    win.ui(lambda: win.detail.config(text=f"{label} (about {size_mb} MB)"))
+    while not stop.wait(1):
+        try:
+            got = part.stat().st_size >> 20
+        except OSError:  # not started yet, or finished and unpacked
+            continue
+        win.ui(lambda g=got: win.detail.config(text=f"{label}: {g} of about {size_mb} MB"))
+
+
 def show_download(win, stop):
     """Counts what has arrived in the Hugging Face cache once a second (the download itself prints nothing)."""
     hub = Path.home() / ".cache" / "huggingface" / "hub"  # shortcut: ignores a custom HF_HOME, only feeds this label
@@ -155,14 +167,26 @@ def steps(win):
         raise RuntimeError("Downloading the speech models failed. Check your internet connection and try again.")
     (ROOT / "data").mkdir(exist_ok=True)
     (ROOT / "data" / "models-ready").touch()
-    step(4, "Downloading Nova's natural voice (about 330 MB, once)")
-    if win.run(PY, "-m", "core.tts", "download") != 0:
-        win.note("The natural voice didn't download; Nova will use the macOS voice. Settings > Voice can retry.")
+    # Piper speaks by default and Kitten is the light choice; Kokoro (330 MB) downloads only if picked in Settings
+    step(4, "Downloading Nova's voices and \"Hey Nova\" (about 110 MB, once)")
+    for name, label, size, folder in (("piper", "Piper voice", 64, "tts"), ("kitten", "Kitten voice", 25, "tts"),
+                                      ("kws", "\"Hey Nova\"", 18, "models")):
+        stop = threading.Event()
+        part = ROOT / "data" / folder / f"{name}.part"  # core/models.py downloads into <name>.part first
+        threading.Thread(target=show_part, args=(win, stop, part, label, size), daemon=True).start()
+        try:
+            failed = win.run(PY, "-m", "core.models", "download", name) != 0
+        finally:
+            stop.set()
+        if failed:
+            win.note(f"{label} didn't download. Nova uses what it has (the macOS voice at worst); Settings can retry.")
     step(5, "Adding Nova to your Applications")
     (APP / "Contents" / "MacOS").mkdir(parents=True, exist_ok=True)
     (APP / "Contents" / "Resources").mkdir(parents=True, exist_ok=True)
     launcher = APP / "Contents" / "MacOS" / "Nova"  # a tiny app, so macOS asks permissions for "Nova"
-    launcher.write_text(f'#!/bin/bash\ncd "{ROOT}" && exec "{PY}" "{ROOT / "nova.py"}"\n')
+    # macOS opens an app whose program is a script under Rosetta on Apple chips, where libraries installed for arm64
+    # won't load: run Python as the architecture setup installed them for
+    launcher.write_text(f'#!/bin/bash\ncd "{ROOT}" && exec /usr/bin/arch -{platform.machine()} "{PY}" "{ROOT / "nova.py"}"\n')
     launcher.chmod(0o755)
     (APP / "Contents" / "Info.plist").write_text(INFO_PLIST)
     win.run(PY, "-m", "core.icon", APP / "Contents" / "Resources" / "Nova.icns")

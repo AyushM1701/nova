@@ -65,6 +65,7 @@ if not system.IS_MAC:
                     ("biXPelsPerMeter", w.LONG), ("biYPelsPerMeter", w.LONG), ("biClrUsed", w.DWORD),
                     ("biClrImportant", w.DWORD)]
 else:
+    import objc
     from AppKit import NSColor, NSData, NSImage, NSImageView, NSMakeRect, NSScreen, NSTrackingArea, NSWindow
 
     class _View(NSImageView):
@@ -73,6 +74,9 @@ else:
         def acceptsFirstMouse_(self, event):
             return True  # one click works even though Nova's window is never the active one
 
+        # plain Python, not a method macOS calls: newer pyobjc refuses to load the class otherwise
+        # ("'_send' expects 0 arguments"), which stopped Nova from starting on a Mac
+        @objc.python_method
         def _send(self, kind, event):
             p = self.convertPoint_fromView_(event.locationInWindow(), None)
             self.owner._mac_event(kind, p.x, self.frame().size.height - p.y)

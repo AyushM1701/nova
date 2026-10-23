@@ -11,7 +11,7 @@ A voice assistant for Windows and macOS. Say **"Hey Nova"**, press a shortcut or
 - **Point at things:** "turn this card into a Tailwind component" dims the screen so you can drag a box around what you mean; other questions about your screen send just the window you're in. Highlight code and ask "where else is this function called?" and Nova passes the selection along.
 - **Routines:** "start my day" gives a short spoken rundown (each project's branch and uncommitted changes, open tasks in your notes, follow-ups from memory). Add your own in Settings → Routines, e.g. "deep code mode" = "pause music, open VS Code in portfolio, run npm run dev".
 - **Keeps an eye on long jobs:** run `python <nova folder>/helpers/watch.py npm run build` and keep working; Nova says when it's done, or explains why it failed and offers to fix it. Turn on Settings → AI → "Tell me when Claude Code finishes" to hear when a Claude Code task you started in a terminal is done.
-- **Listens to your computer (Windows):** say "listen to my computer" (or use the tray menu) during a video, lecture or call, then ask "what did they just say?" or "grab the command they mentioned". The transcript covers the last 15 minutes, stays in memory and is never saved; "stop listening" ends it.
+- **Listens to your computer (Windows):** say "listen to my computer" (or use the tray menu) during a video, lecture or call, then ask "what did they just say?" or "grab the command they mentioned". The transcript covers the last 15 minutes and stays in memory; "stop listening" ends it.
 - **Uses your real browser (Windows):** Opera GX, Brave, Vivaldi or Opera, inside your own profile with your logins, through a small Nova extension that only talks to Nova on this computer. "Open my GitHub notifications and summarise them", "fill this form with my address", "in Brave, find the cheapest flight to Goa". Nova asks before anything that submits, buys, posts or sends, and never types passwords, card numbers or one-time codes. Turn it on in Settings → Browsers (or the tray menu → Browsers…); a Nova panel in the browser shows the same live conversation, with Allow / Deny.
 - **Never stuck at a limit:** when Claude Code or Codex reaches its usage limit, Nova can switch to a free Google Gemini key (Settings → AI → Backup brain) until it resets. Its commands go through the same safety guard. On Google's free tier your requests may be used to improve Google's products, so it's off until you add a key.
 - **On your phone:** turn on Settings → Phone and scan the code with your iPhone or Android phone. You get the same live conversation: type or dictate requests, see replies, and **Allow / Deny** from the couch. Add it to your home screen and it opens like an app. Works on home Wi-Fi, and from anywhere with Tailscale (see [Phone](#phone)).
@@ -84,6 +84,7 @@ To update by hand instead: download the new ZIP into the same folder and run set
 | "new conversation" | Forget the follow-up context |
 | "add Kubernetes to my dictionary" | Teaches the speech recognizer a word. Fixing a misheard word right after dictating teaches it too (Settings → Dictation) |
 | Hold **Right Ctrl** (or Right Alt / Shift, set in Settings → General) | Hold-to-talk: Nova listens until you let go, however long you pause |
+| Tap **Ctrl** three times (Mac: **Cmd**) | Same as the shortcut, from any app. Ignored while a game is in front (full-screen, or installed by Steam, Epic, Xbox, GOG, EA, Ubisoft, Riot or Battle.net); turn it off in Settings → General |
 | "record this meeting" / "stop recording" | Records your microphone and the computer's audio (no bot joins), then writes a transcript with speaker labels and minutes from your notes. See the Meetings page |
 | "turn it up a bit", "volume 40", "skip this song", "open VS Code", "open YouTube", "what time is it?", "set a timer for 5 minutes", "lock my computer" | Done instantly on your computer: no AI call, no quota used |
 | Select text, then "make this shorter" (dictation mode) | Rewrites the selection in place |
@@ -124,11 +125,12 @@ Type a request, or tap the **mic on the phone's keyboard** to dictate it. Replie
 
 ## What stays on your computer
 
-- **Speech recognition** (Whisper via faster-whisper, or Parakeet, Orukeet or whisper.cpp if you choose them) and the **"Hey Nova" wake word** run entirely on your machine by default. Nothing you say is kept unless it starts with "Hey Nova" or you pressed the shortcut. **If you choose a cloud engine** (OpenAI, Groq, Mistral, Deepgram or your own server, in Settings → Voice), what you say to Nova is sent to that service under your own key and its privacy policy; meetings and "Hey Nova" still stay on your computer.
-- **What the computer plays** (a video, a call) is remembered for the last 10 minutes on Windows, in memory only, so you can ask "what did they just say?" any time. It's never saved, and it's transcribed only when you ask (or as it plays, on a GPU). Settings → Privacy & safety changes the minutes, or 0 turns it off.
+- **Speech recognition** (Whisper via faster-whisper, or Parakeet, Orukeet or whisper.cpp if you choose them) and the **"Hey Nova" wake word** run entirely on your machine by default. Nothing you say is kept unless it starts with "Hey Nova", you pressed the shortcut, or you spoke while Nova was talking (see below). **If you choose a cloud engine** (OpenAI, Groq, Mistral, Deepgram or your own server, in Settings → Voice), what you say to Nova is sent to that service under your own key and its privacy policy; meetings and "Hey Nova" still stay on your computer.
+- **What the computer plays** (a video, a call) is remembered for the last 10 minutes on Windows, in memory, so you can ask "what did they just say?" any time. It's transcribed only when you ask (or as it plays, on a GPU). Settings → Privacy & safety changes the minutes, or 0 turns it off.
+- **While Nova is talking,** it listens for you interrupting. To tell you apart from a video or call, it compares what the microphone heard with what the computer played. Those few words are written to Nova's activity log (`logs/`), which stays on this computer and is deleted after 30 days.
 - **Your screen:** when a request is about it ("summarize this page", "what's on my whole screen?"), the AI gets a screenshot and the window's text, read through Windows UI Automation or macOS Accessibility, including what's scrolled out of view. Password fields are never read.
 - **Meetings** are recorded and transcribed on your computer. The recording is deleted once it's transcribed; the transcript and minutes are kept as notes in `workspace/notes/meetings/`. Minutes, AI actions and questions about meetings send the meeting's text to your chosen AI. A connected calendar is only read, from its secret ICS address.
-- **Spoken replies** use a natural neural voice (Kokoro, run by sherpa-onnx) on your own computer, or your operating system's built-in voices (Windows SAPI, macOS `say`) if you prefer them or the voice isn't downloaded.
+- **Spoken replies** use a neural voice run by sherpa-onnx on your own computer: Piper (the default) or Kitten (the lightest), both installed by setup, or Kokoro (the most natural, downloaded only if you pick it). Or your operating system's own voices (Windows SAPI, macOS `say`) if you prefer them or no voice is downloaded.
 - **Settings, logs, notes and history** live in the Nova folder (`config.json`, `logs/`, `workspace/notes/`). History is kept for 30 days and can be cleared on the History page. There is no Nova server, account or analytics. The daily update check only downloads Nova's version number from GitHub (Settings → Advanced turns it off).
 - **Text only goes out to your chosen AI:** your request and, for long or tricky dictations, the dictated text go to Claude Code or Codex, because that's where the AI runs. With "Share what you're looking at" on (Settings → Privacy & safety), a spoken request also says which app or window you're in, and a request about your screen comes with a screenshot (saved as `workspace/screen.png`). Nova turns off Claude Code's telemetry and error reporting, and turns off the speech-model downloader's telemetry and online checks after setup.
 
@@ -165,8 +167,8 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 | `hotkey` | Ctrl+Alt+Space / Cmd+Shift+Space | e.g. `"ctrl+shift+n"` |
 | `wake_word` | `true` | Listen for "Hey Nova" |
 | `overlay.position` | `bottom` | `"top"` puts the bar at the top of the screen (from the notch on a MacBook) |
-| `voice.tts_engine` | `kokoro` | `"kokoro"` (natural voice) or `"system"` |
-| `voice.kokoro_voice` / `voice.tts_speed` | `af_heart` / `1.0` | Natural voice, e.g. `"bm_george"` (British man); speed 0.75 to 1.4 |
+| `voice.tts_engine` | `piper` | `"piper"`, `"kitten"`, `"kokoro"` (downloads when picked) or `"system"` |
+| `voice.kokoro_voice` / `voice.kitten_voice` / `voice.tts_speed` | `af_heart` / `expr-voice-2-f` / `1.0` | Kokoro voice, e.g. `"bm_george"` (British man); Kitten voice, `expr-voice-2-m` to `expr-voice-5-f`; speed 0.75 to 1.4 |
 | `voice.tts_voice` | system default | System voice name, e.g. `"Microsoft Zira Desktop"` or `"Rishi"` (Mac) |
 | `voice.language` | `auto` | Or `"en"`, `"hi"`… |
 | `brain.engine` | set by setup | `"claude"` or `"codex"` |
@@ -223,7 +225,7 @@ core/brain.py         Claude Code and Codex adapters
 core/bar.py           the bottom-centre bar
 core/overlay.py       the card for replies and approvals
 core/clipboard.py     keeps your clipboard intact around dictation
-core/tts.py           spoken replies: the natural Kokoro voice, or system voices
+core/tts.py           spoken replies: Piper, Kitten or Kokoro voices, or the system's
 guard/guard.py        safety hook for Claude Code and Codex
 core/browser.py       the browser bridge, its safety rules and the extension installer
 core/update.py        update check and installer (bump VERSION to publish an update)

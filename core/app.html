@@ -571,9 +571,11 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><span class="keys" id="setKeys"></span><button class="btn sm" id="setKeyBtn">Change</button></div></div>
         <div class="row"><div class="what"><h2>Hold to talk</h2><p>Hold this key and speak; let go and Nova stops listening, however long you pause. Pressed with another key it works as usual.</p></div>
           <div class="how"><select class="input" data-bind="hold_key" aria-label="Hold to talk key"><option value="">Off</option><option value="right ctrl">Right Ctrl</option><option value="right alt">Right Alt / Option</option><option value="right shift">Right Shift</option></select></div></div>
+        <div class="row"><div class="what"><h2>Tap Ctrl three times</h2><p>Works like the shortcut, from any app. Off while a game is in front, where Ctrl is part of the game.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="triple_tap" aria-label="Tap Ctrl three times"></button></div></div>
         <div class="row"><div class="what"><h2>Listen for “Hey Nova”</h2><p>Runs on this computer. Nothing is kept unless it hears “Hey Nova”.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="wake_word" aria-label="Listen for Hey Nova"></button></div></div>
-        <div class="row"><div class="what"><h2>How easily “Hey Nova” wakes Nova</h2><p>High hears a soft or distant voice, and can wake by mistake now and then. Low needs you to say it clearly. The listening runs on this computer.</p></div>
+        <div class="row"><div class="what"><h2>How easily “Hey Nova” wakes Nova</h2><p>High (the default) hears a soft or distant voice best. If Nova wakes when you didn't call it, try Normal; Low needs you to say it clearly. The listening runs on this computer.</p></div>
           <div class="how"><div class="seg" role="radiogroup" data-bind="wake_sensitivity" data-options="low:Low,normal:Normal,high:High"></div></div></div>
         <div class="row"><div class="what"><h2>Start in</h2><p>The mode Nova opens in. Switch any time with the sidebar or by saying “switch to dictation”.</p></div>
           <div class="how"><div class="seg" role="radiogroup" data-bind="start_mode" data-options="assistant:Assistant,dictation:Dictation"></div></div></div>
@@ -610,13 +612,17 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
             <button class="btn" id="sttGet">Get a key</button>
           </div>
           <p class="muted small" id="sttStatus" style="margin-top:10px"></p></div>
-        <div class="row"><div class="what"><h2>Nova's voice</h2><p>Natural is a lifelike neural voice that runs on this computer. System uses your computer's built-in voices.</p></div>
-          <div class="how"><div class="seg" role="radiogroup" data-bind="voice.tts_engine" data-options="kokoro:Natural,system:System"></div></div></div>
-        <div class="row" data-engine="kokoro"><div class="what"><h2>Natural voice</h2><p id="naturalNote">Heart is the most natural. For a butler-style voice, try one of the British men.</p><div class="log mono" id="voiceLog" hidden></div></div>
-          <div class="how"><select class="input" id="naturalSel" data-bind="voice.kokoro_voice" aria-label="Natural voice"></select><button class="btn sm" id="testNatural">Play</button><button class="btn sm primary" id="getNatural" hidden>Download (330 MB)</button></div></div>
+        <div class="row"><div class="what"><h2>Nova's voice</h2><p>All run on this computer. Piper (the default) and Kitten come with Nova; Kitten is the lightest. Kokoro is the most natural: picking it downloads it (330 MB) in the background, and Nova keeps talking with Piper until it's ready. System uses your computer's own voices.</p></div>
+          <div class="how"><div class="seg" role="radiogroup" data-bind="voice.tts_engine" data-options="piper:Piper,kitten:Kitten,kokoro:Kokoro,system:System"></div></div></div>
+        <div class="row" data-engine="piper"><div class="what"><h2>Piper voice</h2><p>A clear American English voice.</p></div>
+          <div class="how"><button class="btn sm" id="testPiper">Play</button></div></div>
+        <div class="row" data-engine="kitten"><div class="what"><h2>Kitten voice</h2><p>Eight voices, four men and four women. Small and quick on any computer.</p></div>
+          <div class="how"><select class="input" id="kittenSel" data-bind="voice.kitten_voice" aria-label="Kitten voice"></select><button class="btn sm" id="testKitten">Play</button></div></div>
+        <div class="row" data-engine="kokoro"><div class="what"><h2>Kokoro voice</h2><p id="naturalNote">Heart is the most natural. For a butler-style voice, try one of the British men.</p><div class="log mono" id="voiceLog" hidden></div></div>
+          <div class="how"><select class="input" id="naturalSel" data-bind="voice.kokoro_voice" aria-label="Kokoro voice"></select><button class="btn sm" id="testNatural">Play</button><button class="btn sm primary" id="getNatural" hidden>Download (330 MB)</button></div></div>
         <div class="row" data-engine="system"><div class="what"><h2>System voice</h2><p>Windows and macOS let you add more voices in their speech settings.</p></div>
           <div class="how"><select class="input" id="voiceSel" data-bind="voice.tts_voice" aria-label="System voice"><option value="">System default</option></select><button class="btn sm" id="testVoice">Play</button></div></div>
-        <div class="row" data-engine="kokoro"><div class="what"><h2>Speaking speed</h2><p>How fast the natural voice talks.</p></div>
+        <div class="row" data-engine="piper kitten kokoro"><div class="what"><h2>Speaking speed</h2><p>How fast Nova talks.</p></div>
           <div class="how"><input type="range" min="0.75" max="1.4" step="0.05" data-bind="voice.tts_speed" aria-label="Speaking speed"><span class="value num" data-show="voice.tts_speed" data-unit="x"></span></div></div>
         <div class="row"><div class="what"><h2>Keep listening after an answer</h2><p>After Nova answers, the mic opens again so you can keep talking without “Hey Nova”. Say “that's it”, “ok thanks” or “bye”, stay quiet for a few seconds, or press Esc to end the conversation.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="voice.conversation" aria-label="Keep listening after an answer"></button></div></div>
@@ -846,7 +852,8 @@ function keysText(combo) { return prettyKeys(combo).join(S.platform === "mac" ? 
 /* the copy is written with Windows words; on a Mac these become the Mac's own */
 const MAC_WORDS = [
   ["Enter to send, Shift+Enter for a new line", "Return to send, Shift-Return for a new line"],
-  ["Ctrl+Shift+N", "Control-Option-N"],
+  ["Ctrl+Shift+N", "Control-Option-N"], ["Tap Ctrl three times", "Tap Command three times"],
+  ["where Ctrl is part of the game", "where Command may be part of the game"],
   ["when you sign in", "when you log in"], ["at sign in", "at login"],
   ["the tray (the ^ by the clock) or the menu bar", "the menu bar"],
   ["allow Python through Windows Firewall on private networks (a Windows prompt asks the first time)",
@@ -1323,7 +1330,11 @@ const EDIT = { verbatim: "Exactly what you said, word for word.", light: "Remove
 function showValue(path) {
   for (const el of $$(`[data-show="${path}"]`)) { const v = get(path); el.textContent = el.dataset.unit === "s" ? (v / 1000).toFixed(1) + " s" : el.dataset.unit === "x" ? Number(v).toFixed(2) + "×" : v; }
   if (path === "dictation.editing") $("#editDesc").textContent = EDIT[get(path)] || "";
-  if (path === "voice.tts_engine") $$("[data-engine]").forEach(r => r.hidden = r.dataset.engine !== get(path));
+  if (path === "voice.tts_engine") {
+    $$("[data-engine]").forEach(r => r.hidden = !r.dataset.engine.split(" ").includes(get(path)));
+    // Kokoro downloads on select, in the background; until it's ready Nova keeps speaking with Piper
+    if (get(path) === "kokoro" && S.voiceState && !S.voiceState.installed.kokoro && !$("#getNatural").disabled) $("#getNatural").click();
+  }
   if (path === "voice.stt_engine") { $$("[data-stt]").forEach(r => r.hidden = !r.dataset.stt.split(" ").includes(get(path))); loadSttExtras(); }
 }
 function bindSettings() {
@@ -1375,23 +1386,42 @@ function voiceLabel(id) {   // "bm_george" -> "George, British man"
 async function loadVoices() {
   try {
     const vs = await api().voices();
-    const sys = $("#voiceSel"), nat = $("#naturalSel");
+    const sys = $("#voiceSel"), nat = $("#naturalSel"), kit = $("#kittenSel");
+    S.voiceState = vs;
     sys.replaceChildren(h("option", { value: "" }, "System default"), ...vs.system.map(v => h("option", { value: v }, v)));
     sys.value = get("voice.tts_voice") || "";
     const order = ["af_heart", ...vs.natural.filter(v => v !== "af_heart")];
     nat.replaceChildren(...order.map(v => h("option", { value: v }, voiceLabel(v))));
     nat.value = get("voice.kokoro_voice") || "af_heart";
-    $("#getNatural").hidden = vs.natural_installed; $("#testNatural").hidden = !vs.natural_installed; nat.disabled = !vs.natural_installed;
-    if (!vs.natural_installed) $("#naturalNote").textContent = "Not downloaded yet. Until it is, Nova uses the system voice.";
+    kit.replaceChildren(...vs.kitten.map(v => h("option", { value: v }, `Voice ${v.split("-")[2]}, ${v.endsWith("-m") ? "man" : "woman"}`)));
+    kit.value = get("voice.kitten_voice") || "expr-voice-2-f";
+    const ready = vs.installed.kokoro;
+    $("#getNatural").hidden = ready;  // Play works either way: a recorded sample until Kokoro is downloaded
+    // a computer too small to run Kokoro well doesn't offer it (unless it's already the choice)
+    const kokoroBtn = $('[data-bind="voice.tts_engine"] button[data-v="kokoro"]');
+    if (kokoroBtn) kokoroBtn.hidden = !vs.capable.kokoro && get("voice.tts_engine") !== "kokoro";
+    if (!ready) $("#naturalNote").textContent = "Not downloaded yet: Play gives a recorded sample. Until it's downloaded, Nova speaks with Piper.";
+
   } catch (e) { fail(e); }
 }
-const voiceTest = () => ({ tts_engine: get("voice.tts_engine"), kokoro_voice: get("voice.kokoro_voice"), tts_voice: get("voice.tts_voice"), tts_speed: get("voice.tts_speed") });
+const voiceTest = (engine = get("voice.tts_engine")) => ({ tts_engine: engine, kokoro_voice: get("voice.kokoro_voice"), kitten_voice: get("voice.kitten_voice"), tts_voice: get("voice.tts_voice"), tts_speed: get("voice.tts_speed") });
+async function playVoice(engine, voice) {
+  // downloaded: Nova says it with your speed setting; not yet: the recorded sample plays at once
+  if (S.voiceState && S.voiceState.installed[engine]) return api().test_voice(voiceTest(engine)).catch(fail);
+  const clip = await api().voice_preview(engine, voice || "").catch(fail);
+  if (!clip) return toast("There's no sample of this voice", true);
+  S.preview = S.preview || new Audio();
+  S.preview.src = clip;
+  S.preview.play().catch(fail);
+}
 $("#testVoice").addEventListener("click", () => api().test_voice(voiceTest()).catch(fail));
-$("#testNatural").addEventListener("click", () => api().test_voice(voiceTest()).catch(fail));
+$("#testNatural").addEventListener("click", () => playVoice("kokoro", get("voice.kokoro_voice")));
+$("#testPiper").addEventListener("click", () => playVoice("piper"));
+$("#testKitten").addEventListener("click", () => playVoice("kitten", get("voice.kitten_voice")));
 $("#getNatural").addEventListener("click", async e => {
   const btn = e.currentTarget, log = $("#voiceLog");
   btn.disabled = true; btn.textContent = "Downloading…"; log.hidden = false; log.textContent = ""; S.installLog = log;
-  try { await api().download_voice(); toast("Natural voice ready"); log.hidden = true; $("#naturalNote").textContent = "Heart is the most natural. For a butler-style voice, try one of the British men."; }
+  try { await api().download_voice("kokoro"); toast("Kokoro is ready: Nova speaks with it now"); log.hidden = true; $("#naturalNote").textContent = "Heart is the most natural. For a butler-style voice, try one of the British men."; }
   catch (err) { fail(err); btn.disabled = false; btn.textContent = "Try again"; }
   loadVoices();
 });

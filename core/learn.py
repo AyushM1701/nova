@@ -55,9 +55,10 @@ def corrections(pasted, field):
 
 if sys.platform == "darwin":
     def focused_text():
-        """(element, text) of the focused text field, or (None, None)."""
-        from ApplicationServices import (AXUIElementCopyAttributeValue, AXUIElementCreateSystemWide,
+        """(element id, text) of the focused text field, or (None, None)."""
+        from ApplicationServices import (AXUIElementCopyAttributeValue, AXUIElementCreateSystemWide, AXUIElementGetPid,
                                          kAXFocusedUIElementAttribute, kAXRoleAttribute, kAXValueAttribute)
+        from CoreFoundation import CFHash
         err, el = AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute, None)
         if err or el is None:
             return None, None
@@ -65,7 +66,9 @@ if sys.platform == "darwin":
         if role == "AXSecureTextField":
             return None, None
         err, value = AXUIElementCopyAttributeValue(el, kAXValueAttribute, None)
-        return (el, str(value)) if not err and isinstance(value, str) else (None, None)
+        # each read is a new Python object for the same field, never equal to the last: its pid and hash are
+        ident = (AXUIElementGetPid(el, None)[1], CFHash(el))
+        return (ident, str(value)) if not err and isinstance(value, str) else (None, None)
 else:
     def focused_text():
         """(element id, text) of the focused text field, or (None, None)."""

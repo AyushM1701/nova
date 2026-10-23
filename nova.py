@@ -23,7 +23,7 @@ from multiprocessing.connection import Listener
 from pathlib import Path
 
 from core.config import (CONFIG, DATA, LOG_HOOKS, LOGS, NOTES, ROOT, WORKSPACE, load_config, log, memory_text,
-                         prune_logs, read_history, save_config, set_path, update_config, write_private)
+                         prune_logs, read_history, save_config, set_path, update_config, user_config, write_private)
 
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 if (DATA / "models-ready").exists():  # the speech models are downloaded: never call home again
@@ -73,6 +73,7 @@ BRIEFING = ("Give me a spoken rundown of about 20 seconds to start my day, witho
             "what needs attention first.")
 ENGINE_NAMES = {"whisper.cpp": "whisper.cpp", "parakeet": "Parakeet", "orukeet": "Orukeet", "openai": "OpenAI",
                 "groq": "Groq", "mistral": "Mistral", "custom": "The custom speech service", "deepgram": "Deepgram"}
+CLOUD_REST_S = 300  # after a speech service fails (out of credit, rate limit, offline), Whisper here takes over this long
 CLIP_RE = re.compile(r"\b(?:clipboard|copied|copy|paste|pasted)\b", re.I)
 # "summarize this", "read it to me": the window's text; "my whole screen": every monitor
 READ_RE = re.compile(r"\b(?:read|summari[sz]e|translate|explain|proofread|reply to) (?:out )?(?:this|it|that|everything|"
@@ -107,8 +108,9 @@ class Nova:
         self.cfg_mtime = self.config_mtime()
         self.mode, self.paused, self.phase = self.cfg["start_mode"], False, "idle"  # idle | listening | busy
         self.stt, self.target, self.pending, self.keys, self.heard = None, None, None, None, ""
-        self.hold, self.holding = None, False  # hold-to-talk key
+        self.hold, self.holding, self.triple = None, False, None  # hold-to-talk key; Ctrl (Cmd) tapped three times
         self.engine_obj, self.engine_spec = None, None  # the chosen speech engine, when not faster-whisper
+        self.cloud_rest_until = 0  # a failing speech service isn't tried again before this time
         self.voice = True  # False while handling a request typed in the Nova window: no card, no speech
         self.ui_queue, self.outbox, self.clients = queue.Queue(), queue.Queue(), []
         self.clips, self.followup, self.in_followup = clipboard.History(), False, False  # recent copies (memory only); ask-back pending
@@ -198,6 +200,7 @@ class Nova:
             self.bind_hotkeys(system.DEFAULT_HOTKEY)
             self.cfg_error = f"The shortcut \"{wanted}\" can't be used, so Nova is using {self.pretty()}."
         self.bind_hold(self.cfg["hold_key"])
+        self.bind_triple(self.cfg["triple_tap"])
         self.start_tray()
         if self.cfg_error:
             self.card.show("Check your settings", self.cfg_error, hide_after=10)
@@ -236,11 +239,19 @@ class Nova:
             (DATA / "models-ready").touch()
         except Exception as e:
             log("error", error=f"accurate speech model failed to load: {e!r}")
-        if self.cfg["voice"]["tts_engine"] == "kokoro" and tts.kokoro_installed():
+        try:
+            saved = user_config().get("voice", {})
+        except ValueError:  # config.json is broken: decide at the next start, and never save over it here
+            saved = None
+        if saved is not None and tts.keep_kokoro(DATA / "voice-default-piper", saved, tts.installed("kokoro")):
+            self.ui(lambda: self.save_setting("voice.tts_engine", "kokoro"))
+            self.cfg["voice"]["tts_engine"] = "kokoro"
+        engine = tts.pick(self.cfg["voice"])
+        if engine:
             try:
-                tts.load_kokoro()  # now, so the first reply doesn't wait for it
+                tts.load(engine)  # now, so the first reply doesn't wait for it
             except Exception as e:
-                log("error", error=f"natural voice failed to load, using the system voice: {e!r}")
+                log("error", error=f"the {engine} voice failed to load, using the system voice: {e!r}")
 
     def check_updates(self):
         """A minute after starting, then daily: is there a newer Nova on GitHub? Say so once per version."""
@@ -302,9 +313,26 @@ class Nova:
             self.hold = None
         if key in system.HOLD_KEYS:
             try:
-                self.hold = system.HoldKey(key, lambda: self.ui(self.on_hold), lambda: self.ui(self.on_release))
+                self.hold = system.HoldKey(key, lambda: self.ui(self.on_hold), lambda: self.ui(self.on_release),
+                                           lambda: self.ui(self.on_typed))
             except Exception as e:  # macOS without Input Monitoring permission
                 log("error", error=f"hold-to-talk {key!r} failed: {e!r}")
+
+    def bind_triple(self, on):
+        if self.triple:
+            self.triple.stop()
+            self.triple = None
+        if on:
+            try:
+                self.triple = system.TripleTap(lambda: self.ui(self.on_triple))
+            except Exception as e:  # macOS without Input Monitoring permission
+                log("error", error=f"triple tap failed: {e!r}")
+
+    def on_triple(self):
+        """Ctrl (Cmd) tapped three times: the shortcut. Not in a game, where Ctrl is a control (crouch, fire)."""
+        if system.gaming():
+            return log("triple_tap", ignored="game")
+        self.on_hotkey()
 
     def on_hold(self):
         if self.phase != "idle" or self.pending:  # an approval needs a deliberate press, not a hold
@@ -315,6 +343,13 @@ class Nova:
 
     def on_release(self):
         if self.holding and self.phase == "listening":
+            self.stop_rec.set()
+        self.holding = False
+
+    def on_typed(self):
+        """The hold key was the start of typing (a capital letter): drop that recording quietly, nothing is pasted."""
+        if self.holding and self.phase == "listening":
+            self.cancel.set()
             self.stop_rec.set()
         self.holding = False
 
@@ -373,6 +408,8 @@ class Nova:
             self.audio_memory()
         if cfg["hold_key"] != old["hold_key"]:
             self.bind_hold(cfg["hold_key"])
+        if cfg["triple_tap"] != old["triple_tap"]:
+            self.bind_triple(cfg["triple_tap"])
         if hotkey != self.hotkey and not self.bind_hotkeys(hotkey):
             self.card.show("Shortcut not changed", f"\"{hotkey}\" can't be used as a shortcut. "
                            f"Nova still uses {self.pretty()}.", hide_after=8)
@@ -472,10 +509,17 @@ class Nova:
             self.wake_thread.start()
 
     def run_wake(self):
-        try:
-            models.download("kws", lambda line: None)  # 18 MB once; offline, "Hey Nova" works the older way
-        except Exception as e:
-            log("error", error=f"\"Hey Nova\" detector didn't download: {e!r}")
+        failed = False
+        while not models.installed("kws"):  # setup fetches it; if that failed (offline), keep trying meanwhile
+            if not self.cfg["wake_word"]:
+                return  # turned off while waiting
+            try:
+                models.download("kws", lambda line: None)  # 18 MB, once
+            except Exception as e:
+                if not failed:  # once, not every few minutes; the shortcut works all along
+                    log("error", error=f"\"Hey Nova\" detector didn't download yet: {e!r}")
+                failed = True
+                time.sleep(300)
         try:
             wake.listen(self.stt.quick, lambda clip, floor=None: self.ui(lambda: self.on_wake(clip, floor)),
                         lambda: self.phase == "idle" and not self.paused and not self.pending,
@@ -643,7 +687,8 @@ class Nova:
         elif op == "phone_forget":  # Settings made a new pairing key: drop the phones that had the old one
             self.phone.disconnect_all()
         elif op == "test_voice" and self.phase == "idle":  # Settings' Play button: the window's unsaved choice
-            v = dict(self.cfg["voice"], **{k: msg[k] for k in ("tts_engine", "kokoro_voice", "tts_voice", "tts_speed")
+            v = dict(self.cfg["voice"], **{k: msg[k] for k in ("tts_engine", "kokoro_voice", "kitten_voice", "tts_voice",
+                                                                "tts_speed")
                                            if k in msg})
             threading.Thread(target=tts.speak, args=("Hi, I'm Nova. This is how I'll sound when I answer you.", v,
                                                      self.stop_tts), daemon=True).start()
@@ -666,13 +711,18 @@ class Nova:
     # ---------- speech engines: faster-whisper on this computer, or whisper.cpp / Deepgram when chosen ----------
     def open_stream(self):
         v = self.cfg["voice"]
-        if v["stt_engine"] != "deepgram" or self.whisper_translates():
+        if v["stt_engine"] != "deepgram" or self.whisper_translates() or self.cloud_resting():
             return None
         api_key = cloud_stt.key("deepgram")
         if not api_key:
             log("error", error="Deepgram is chosen but has no key; using on-device speech")
             return None
         return deepgram.Stream(api_key, v["language"], self.vocabulary(), v["deepgram_model"])
+
+    def cloud_resting(self):
+        """The chosen speech service failed a moment ago: Whisper on this computer answers until it has rested,
+        without waiting on the service or a warning each time."""
+        return self.cfg["voice"]["stt_engine"] in (*cloud_stt.PROVIDERS, "deepgram") and time.time() < self.cloud_rest_until
 
     def whisper_translates(self):
         """Dictating into English from another language: Whisper translates as it transcribes, on this computer."""
@@ -703,20 +753,24 @@ class Nova:
         """What was said, by the engine chosen in settings. If it fails, faster-whisper on this computer answers,
         so a dropped connection or a broken engine setup never loses what the user said.
         task="translate": Whisper writes English whatever the language spoken (on this computer only)."""
-        v, server, engine = self.cfg["voice"], None, "Deepgram"
+        v, server, engine, resting = self.cfg["voice"], None, "Deepgram", self.cloud_resting()
         try:
             if stream and task == "transcribe":
                 return stream.finish()
             engine = ENGINE_NAMES.get(v["stt_engine"], "The speech engine")
-            server = None if task == "translate" else self.engine()
+            server = None if task == "translate" or resting else self.engine()
             return self.stt.transcribe(clip, v["language"], self.vocabulary(), server=server, task=task)
         except Exception as e:
-            if not (stream or server) and (task == "translate" or v["stt_engine"] in ("local", "deepgram")):
+            if not (stream or server) and (resting or task == "translate" or v["stt_engine"] in ("local", "deepgram")):
                 raise
+            # a service that answered with an error or couldn't be reached (not a missing key): rest it a while
+            cloud = bool(stream or server) and v["stt_engine"] in (*cloud_stt.PROVIDERS, "deepgram")
+            if cloud:
+                self.cloud_rest_until = time.time() + CLOUD_REST_S
             log("error", error=f"{engine} failed, transcribed on this computer: {e!r}")
-            message = friendly(e)
+            message, later = friendly(e), f", and will for the next {CLOUD_REST_S // 60} minutes" if cloud else ""
             self.ui(lambda: self.card.show(f"{engine} didn't work", f"{message}\n\nNova transcribed on this "
-                                           "computer instead.", hide_after=8, kind="error"))
+                                           f"computer instead{later}.", hide_after=8, kind="error"))
             self.engine_spec = None  # try it afresh next time
             return self.stt.transcribe(clip, v["language"], self.vocabulary(), task=task)
 
