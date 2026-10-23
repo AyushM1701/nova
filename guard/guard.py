@@ -276,6 +276,7 @@ def _command(cmd, home=None, cwd=None):
 def _fresh_script(cmd, cwd):
     """The first script file `cmd` runs that was written or changed in the last FRESH_S seconds, or None."""
     for path in re.findall(SCRIPT_RUN, cmd, re.I):
+        path = path.replace("\\", os.sep)  # PowerShell on a Mac takes ".\x.ps1" too, but macOS paths use "/"
         try:
             full = os.path.join(cwd or os.getcwd(), os.path.expandvars(os.path.expanduser(path)))
             if time.time() - os.path.getmtime(full) < FRESH_S:
