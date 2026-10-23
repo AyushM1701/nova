@@ -18,7 +18,9 @@ import time
 import numpy as np
 import sounddevice as sd
 
+from core import wakeword
 from core.audio import BLOCK, MIN_SPEECH, RATE
+from core.config import log
 
 # Whisper's usual spellings of the phrase; "noah"/"nava" only count after a greeting
 WAKE_RE = re.compile(r"^\W*(?:(?:hey|hej|hei|hi|hay|ay|a|eh|he|ok|okay|hello)[\s,]+"
@@ -144,9 +146,10 @@ class Detector:
     loudness gate to get past); when it hears "Hey Nova", the clip is raised to a normal level and Whisper checks it,
     so other talk can't wake Nova. feed() returns None, or ("wake", the request's audio after the name, or None)."""
 
-    def __init__(self, transcribe, sensitivity="high", copies=STAGGER, gain=True):
+    def __init__(self, transcribe, sensitivity="high", copies=STAGGER, gain=True, personal=None):
         boost, threshold, self.similar = SENSITIVITY.get(sensitivity, SENSITIVITY["high"])
         self.transcribe, self.spotter, self.copies, self.gain = transcribe, spotter(boost, threshold), copies, gain
+        self.personal = personal  # the model trained on the user's own "Hey Nova" (core/wakeword.py), if there is one
         self.recent = collections.deque(maxlen=int(PRE_S * RATE / BLOCK))
         self.peaks = collections.deque(maxlen=int(AGC_S * RATE / BLOCK))
         self.seg, self.quiet, self.floor = None, 0, None
@@ -160,6 +163,7 @@ class Detector:
             stream = self.spotter.create_stream()
             stream.accept_waveform(RATE, np.zeros(int(STEP * k / self.copies), np.float32))
             self.streams.append(stream)
+        self.listener, self.mine, self.keyword = (wakeword.Listener(self.personal) if self.personal else None), False, False
 
     def feed(self, block):
         rms = float(np.sqrt(np.mean(block ** 2)))
@@ -177,11 +181,16 @@ class Detector:
                 while self.spotter.is_ready(stream):
                     self.spotter.decode_stream(stream)
                     heard = heard or bool(self.spotter.get_result(stream))
-            if heard:  # stage 1: keep listening until the user pauses, so "Hey Nova, play music" is one clip
-                self.seg, self.quiet = list(self.recent), 0
-                self.mark = len(self.seg)  # where the model fired
+            # the personal model hears the microphone as it is: it was trained on soft, loud and distant voices
+            mine = self.listener is not None and self.listener.feed(block) is not None
+            if heard or mine:  # stage 1: keep listening until the user pauses, so "Hey Nova, play music" is one clip
+                self.seg, self.quiet, self.mine, self.keyword = list(self.recent), 0, mine, heard
+                self.mark = self.sure = len(self.seg)  # where a model fired
             return None
         self.seg.append(block)
+        # the personal model fires on the phrase's start and stays sure until it has all of it: follow it to there
+        if self.listener is not None and self.listener.feed(block) is not None:
+            self.mine, self.sure = True, len(self.seg)
         self.quiet = 0 if rms > max(MIN_SPEECH, 2 * self.floor) else self.quiet + 30
         paused = self.quiet >= END_SILENCE_MS
         # check once the user pauses, or soon anyway: with a TV or people talking the pause may never come
@@ -189,13 +198,34 @@ class Detector:
             return None
         clip, self.seg = np.concatenate(self.seg), None
         self.recent.clear()
+        mine, keyword = self.mine, self.keyword
         self.new_streams()  # what was heard while checking isn't part of the next phrase
-        hit = self.confirm(clip)
+        hit = self.check(clip, mine, keyword)
         if hit is None:
             return None
         after, rest = hit
         # still talking ("Hey Nova, what's the…"): Nova records the rest, from this audio and this room's noise level
         return ("wake", after, self.floor) if not paused else ("wake", after if rest else None, None)
+
+    def check(self, clip, mine, keyword):
+        """Stage 2. Each stage 1 has its own check: the personal model wakes only for the user's voice, and Whisper
+        (whose spelling check lets "Hey, no problem" or "ANOVA" through) only checks what the keyword model flagged."""
+        hit = mine and self.yours(clip)
+        if hit:  # which model woke Nova, for judging the personal one (Nova logs the wake itself)
+            log("wake_check", by="personal model")
+            return hit
+        return self.confirm(clip) if keyword else None
+
+    def yours(self, clip):
+        """Stage 2 when the personal model fired: the user's own voice, up to the last moment the model was sure, is
+        enough. Whisper isn't asked to hear the words (it writes many accents' "Hey Nova" as "you know what"), only
+        what came after. (the audio after the name, what Whisper heard after it), or None if it isn't their voice."""
+        end = self.sure * BLOCK
+        if not self.personal.voice.matches(clip[:end]):
+            return None
+        after = clip[end:]
+        rest = " ".join(w for w, _ in self.transcribe(after)) if len(after) > RATE // 4 else ""
+        return after, rest.strip(" .,!?")
 
     def confirm(self, clip):
         """Stage 2: Whisper hears the clip, raised to a normal level so a soft voice isn't taken for silence.
@@ -238,11 +268,17 @@ def listen(transcribe, on_wake, enabled, running=lambda: True, sensitivity=lambd
     audio is the request. `enabled()` is False while Nova is busy, so its own voice can't wake it.
     Returning closes the microphone, so turning the wake word off really stops listening.
     Needs the keyword model (models.download("kws")); Nova fetches it before calling this."""
+    personal = None
+    if wakeword.installed():  # trained on this computer with helpers/train_wake.py
+        try:
+            personal = wakeword.Personal()
+        except Exception as e:  # an older or broken model file: the keyword model still listens
+            log("error", error=f"the personal \"Hey Nova\" model didn't load: {e!r}")
     while running():
-        _listen(transcribe, on_wake, enabled, running, sensitivity)
+        _listen(transcribe, on_wake, enabled, running, sensitivity, personal)
 
 
-def _listen(transcribe, on_wake, enabled, running, sensitivity):
+def _listen(transcribe, on_wake, enabled, running, sensitivity, personal=None):
     """One microphone stream. Returns when it stops sending sound (a device that went away or changed, the Mac
     waking from sleep), so listen() opens a fresh one instead of waiting on it forever."""
     blocks, detector, level, heard_at = queue.Queue(), None, None, time.monotonic()
@@ -261,7 +297,7 @@ def _listen(transcribe, on_wake, enabled, running, sensitivity):
                 continue
             if detector is None or sensitivity() != level:
                 level = sensitivity()
-                detector = Detector(transcribe, level)
+                detector = Detector(transcribe, level, personal=personal)
             hit = detector.feed(block)
             if hit:
                 on_wake(hit[1], hit[2])

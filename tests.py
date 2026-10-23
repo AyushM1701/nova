@@ -1128,6 +1128,49 @@ except RuntimeError:
     pass
 assert cloud_stt.Cloud("custom", "", url="http://localhost:8000/v1/audio/transcriptions").model == "whisper-1"
 
+# cloud speech keeps one connection open: warmed while you speak, reused, and reopened if the service dropped it
+import http.server  # noqa: E402
+import socket  # noqa: E402
+import socketserver  # noqa: E402
+import threading  # noqa: E402
+
+opened = []
+
+
+class SpeechServer(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"  # keep-alive, like the real services
+
+    def setup(self):
+        opened.append(self.request)
+        super().setup()
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers["Content-Length"]))
+        body = json.dumps({"text": " hello  there "}).encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_):
+        pass
+
+
+server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), SpeechServer)
+server.daemon_threads, server.handle_error = True, lambda *_: None  # quiet about the dropped connection
+threading.Thread(target=server.serve_forever, daemon=True).start()
+speech_url = f"http://127.0.0.1:{server.server_address[1]}/v1/audio/transcriptions"
+speech = cloud_stt.Cloud("custom", "", url=speech_url)
+cloud_stt.warm(speech_url)
+time.sleep(0.2)
+assert len(opened) == 1  # open before any audio is sent
+assert speech.transcribe(np.zeros(1600, np.float32), "en", "") == "hello there"
+assert speech.transcribe(np.zeros(1600, np.float32), "", "") == "hello there" and len(opened) == 1  # reused
+opened[0].shutdown(socket.SHUT_RDWR)  # the service drops the idle connection
+time.sleep(0.2)
+assert speech.transcribe(np.zeros(1600, np.float32), "", "") == "hello there" and len(opened) == 2  # reopened
+server.shutdown()
+
 # what the computer played: kept as audio until asked, then transcribed, including the words still buffering
 from core import loopback  # noqa: E402
 
@@ -1178,6 +1221,40 @@ for said, read, everything in [("summarize this page", True, False), ("read this
                                ("what's on my whole screen", False, True), ("look at both monitors", False, True),
                                ("read my emails from yesterday", False, False)]:
     assert bool(nova_screen.READ_RE.search(said)) == read and bool(nova_screen.ALL_SCREENS_RE.search(said)) == everything, said
+# "where's the export button?" brings a screenshot; questions about it get one fast answer, tasks the full agent
+for said, shot, quick in [("where's the export button?", True, True), ("where do I click to share?", True, True),
+                          ("how do I fix this error?", False, True), ("what's this chart showing?", False, True),
+                          ("where is Paris?", False, True), ("fix this error", False, False),
+                          ("what's this? save it to my notes", False, False), ("can you open settings", False, False),
+                          ("is this code right? then commit it", False, False)]:
+    assert bool(nova_screen.WHERE_RE.search(said)) == shot and nova_screen.screen_question(said) == quick, said
+
+# the screenshot goes with the request; a screen question gets Claude with no tools and one turn
+from core import brain as brain_mod  # noqa: E402
+from core.config import defaults  # noqa: E402
+from PIL import Image  # noqa: E402
+sent = {}
+
+
+def fake_claude_cli(args, prompt, on_event):
+    sent.update(args=args, prompt=prompt)
+    on_event({"type": "result", "result": "Top right.\nSAY: Top right."})
+    return ""
+
+
+claude = brain_mod.Claude("claude", defaults(), tempfile.gettempdir(), {}, "settings.json")
+claude._stream = fake_claude_cli
+with tempfile.TemporaryDirectory() as tmp:
+    png = Path(tmp) / "s.png"
+    Image.new("RGB", (4, 4)).save(png)
+    assert claude.run("where's export?", {}, {}, print, image=str(png), tools=False)[1] == "Top right."
+    message = json.loads(sent["prompt"])["message"]["content"]
+    assert message[0]["text"] == "where's export?" and message[1]["source"]["media_type"] == "image/png"
+    args = sent["args"]
+    assert args[args.index("--tools") + 1] == "" and args[args.index("--max-turns") + 1] == "1"
+    assert "--input-format" in args and "--mcp-config" not in args
+    claude.run("fix it", {}, {}, print)  # a task: every tool, plain text in
+    assert sent["prompt"] == "fix it" and "--input-format" not in sent["args"] and sent["args"][sent["args"].index("--tools") + 1]
 
 # talking over Nova: only the user's own words stop it, not noise, an echo or a video through the speakers
 from core.wake import interrupts  # noqa: E402
@@ -1238,6 +1315,41 @@ if wake_models.installed("kws"):
         assert not stage1_hears("hey-no-problem", lead), f"stage 1 fired on 'Hey, no problem' at {lead} s"
 else:
     print("note: the \"Hey Nova\" model isn't downloaded, so its check was skipped")
+# the personal "Hey Nova" model: the stream scores exactly what training saw, whatever size the microphone's blocks
+from core import wakeword  # noqa: E402
+if (wakeword.DIR / "embedding_model.onnx").exists():
+    seen_windows = []
+    stand_in = type("P", (), {"features": wakeword.Features(), "scorer": type("S", (), {
+        "threshold": 2.0, "__call__": lambda self, f: seen_windows.append(f[0].copy()) or np.zeros(1)})()})()
+    sound = np.random.default_rng(1).normal(0, 0.05, 16000 * 4).astype(np.float32)
+    stream = wakeword.Listener(stand_in)
+    for i in range(0, len(sound), 480):  # Nova's 30 ms blocks, which don't divide 80 ms
+        assert stream.feed(sound[i:i + 480]) is None  # nothing reaches a threshold of 2
+    batch = stand_in.features(np.concatenate([np.zeros(wakeword.TAIL - wakeword.HOP, np.float32), sound]))
+    # scored only once all 16 frames come from fed audio, not the digital silence the stream starts with
+    assert len(seen_windows) == len(sound) // wakeword.HOP - (wakeword.FRAMES + wakeword.WARMUP) + 1
+    assert np.allclose(seen_windows[-1], batch[-wakeword.FRAMES:], atol=1e-4)
+else:
+    print("note: the personal \"Hey Nova\" feature models aren't downloaded, so their check was skipped")
+# ...and when it fires, the user's own voice wakes Nova without Whisper hearing the words; another voice doesn't
+det = object.__new__(wake_mod.Detector)
+det.mark = det.sure = 60
+det.transcribe = lambda audio: [("play", 0.2), ("music", 0.5)]
+clip = np.zeros(60 * 480 + 16000, np.float32)
+heard_voice = []
+det.personal = type("P", (), {"voice": type("V", (), {"matches": lambda self, a: heard_voice.append(len(a)) or True})()})()
+after, words = det.yours(clip)
+assert len(after) == 16000 and words == "play music", (len(after), words)
+assert heard_voice == [60 * 480]  # the voice is checked on everything up to where the model was last sure
+det.personal.voice.matches = lambda a: False
+assert det.yours(clip) is None
+# another voice the personal model flagged never reaches Whisper's looser check; the keyword model's flags do
+whisper_asked = []
+det.confirm = lambda c: whisper_asked.append(1) or (c, "")
+assert det.check(clip, mine=True, keyword=False) is None and not whisper_asked
+assert det.check(clip, mine=True, keyword=True) is not None and whisper_asked == [1]
+del det.confirm
+
 # a microphone that stops sending sound (unplugged, changed, after sleep) is opened again, not waited on forever
 opened = []
 
@@ -1537,5 +1649,33 @@ for memory, cores, want in ((4, 8, False), (16, 2, False), (16, 8, True)):
     os.cpu_count = real_cores
 system.memory_gb = real_memory
 assert system.memory_gb() > 1  # reads this computer's real memory
+
+# the pointer: a POINT: line in screenshot pixels lands on the right screen spot, and never shows in the reply
+from core.pointer import take as take_point  # noqa: E402
+from PIL import Image, ImageGrab  # noqa: E402
+real_grab, real_size = ImageGrab.grab, system.screen_width
+ImageGrab.grab = lambda **_: Image.new("RGB", (3840, 2160))  # a 4K screen
+try:
+    with tempfile.TemporaryDirectory() as tmp:
+        path, shot = system.screenshot(Path(tmp) / "s.png")
+        assert Image.open(path).size == shot[3:] and max(shot[3:]) <= 1568 and shot[3] * shot[4] <= 1.15e6, shot
+        left, top = shot[:2]
+        shown, spot = take_point(f"Click Export.\nPOINT: {shot[3] // 2},{shot[4]} export button", shot)
+        assert shown == "Click Export." and spot[2] == "export button", spot
+        k0 = 3840 / system.screen_width() if system.IS_MAC else 1  # a Mac's screenshot pixels per screen point
+        assert abs(spot[0] - left - 1920 / k0) <= 2 and abs(spot[1] - top - 2160 / k0) <= 2, spot  # shrinking rounds
+        if not system.IS_MAC:  # a window's box: the spot is offset by where the window is
+            _, shot = system.screenshot(Path(tmp) / "w.png", (left + 100, top + 50, left + 1100, top + 850))
+            assert shot[:2] == (left + 100, top + 50) and shot[2] == 1, shot
+            assert take_point("**POINT:** 10,20 save", shot) == ("", (left + 110, top + 70, "save"))
+        # a window off the captured screen (a Mac's other display): the whole capture, not an empty crop
+        _, shot = system.screenshot(Path(tmp) / "o.png", (left + 5000, top, left + 6000, top + 400))
+        assert shot[:2] == (left, top) and max(shot[3:]) > 1000, shot
+finally:
+    ImageGrab.grab = real_grab
+assert take_point("Done.\nPOINT: none", (0, 0, 1, 10, 10)) == ("Done.", None)
+assert system.mac_permissions() == {} or system.IS_MAC  # nothing to ask for outside a Mac
+assert take_point("POINT: 5,5 x", None) == ("", None)  # no screenshot this time: nothing to map to
+assert take_point("Use the POINT: 5,5 trick", (0, 0, 1, 10, 10))[1] is None  # only a line of its own
 
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it

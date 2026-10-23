@@ -63,7 +63,7 @@ Nova then shows its own first-run screens:
 3. **Shortcut:** keep Ctrl+Alt+Space or press a new one, and turn "Hey Nova" on or off.
 4. **Start at login**, and a first try.
 
-**On a Mac**, the last screen has one button per permission (Microphone, Accessibility, Input Monitoring, Screen Recording); each opens that page of System Settings → Privacy & Security. Turn on "Nova" in each, then quit Nova from the menu bar and open it again.
+**On a Mac**, the last screen lists the permissions Nova uses (Microphone, Input Monitoring, Accessibility, Screen Recording) and shows which ones macOS allows right now. **Allow** shows macOS's own prompt the first time and opens that page of System Settings → Privacy & Security after that; the row turns to *Allowed* as soon as you switch Nova on. Then click **Restart Nova** (macOS applies some of these only to a fresh start). If Nova isn't in a list, **Show Nova in Finder** and drag it in. Screen Recording is only needed for questions about your screen, and Nova asks for it the first time. The same list is at the top of Settings → General, and if a permission is turned off later, Nova says so when it starts.
 
 **Try it:** press the shortcut (or say "Hey Nova") and say "what time is it?". Then try "open YouTube", and, with an AI connected, "what's the weather in Goa?".
 
@@ -199,7 +199,7 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 
 - **The Nova window opens as a second taskbar button next to your pinned Nova (Windows):** your pin was made before version 1.2.2. Run setup again (or update), then unpin Nova and pin it again from the Start menu.
 - **No icon?** On Windows, click the ^ next to the clock. Nova may already be running; only one copy can run at a time.
-- **The shortcut does nothing (Mac):** allow Nova under Input Monitoring and Accessibility, then restart it.
+- **The shortcut does nothing (Mac):** Settings → General shows which permission is missing; allow Nova under Input Monitoring and Accessibility, then click Restart Nova.
 - **"No AI connected":** open the Nova window → Settings → AI, and install or sign in to Claude Code or Codex there.
 - **Setup stopped:** the setup window says why; the full output is in `data/setup.log`.
 - **Logs:** Nova window → Settings → Advanced → Logs. Every request, reply and guard decision is in `logs/nova-YYYY-MM-DD.jsonl`.

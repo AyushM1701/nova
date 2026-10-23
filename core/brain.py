@@ -4,6 +4,7 @@ Each request is one CLI run; follow-ups within the window resume the same sessio
 either CLI makes goes through Nova's guard hook (guard/guard.py). Nova checks afterwards that the
 hook really saw the commands, and warns if it did not.
 """
+import base64
 import json
 import os
 import re
@@ -48,13 +49,17 @@ or open the address with Start-Process / `open`; don't fetch pages with curl fir
 setting and its default is in {defaults}). To change a setting, add or edit just that key in {config}; \
 Nova applies it within a second. The user is asked to OK the edit.
 - A message may start with [Context: ...] describing the app the user is in or pointing to a screenshot \
-of their screen. Read the screenshot only when the request is about what is on screen.
-- End with exactly one line starting "SAY:" of at most two short sentences to be read aloud \
-(no code, paths or markdown in it).
+of their screen. Read the screenshot only when the request is about what is on screen, and when it is \
+attached to the message, look at that instead of opening the file.
+- End with exactly one line starting "SAY:" to be read aloud. Write it for the ear, the way you'd talk: \
+at most two short sentences (longer only when they ask you to explain or go deeper), no code, paths, \
+markdown, lists or symbols, "for example" not "e.g.", small numbers spelled out, and never "simply" or \
+"just". After answering a question or explaining something, don't end on a dead end like "want to know \
+more?"; when it fits, end by naming one related, more ambitious thing worth trying next.
 - If you need the user's answer to continue, or want to offer one clear next step (after building or \
 editing something: run the tests, wire it up, handle an edge case), add one more line starting "ASK:" \
 with that short yes/no or either/or question. Nova reads it out and listens for the answer. Leave it out \
-when the task is simply done.
+when the task is simply done, and never use it to offer more explanation.
 - Long-term memory is in {memory}. It says:
 {memory_text}
   When the user tells you something lasting (a preference, a habit, a fact about them or a project, or \
@@ -233,13 +238,14 @@ class Brain:
         self.proc = None
         return " ".join(other)[-300:]
 
-    def run(self, prompt, projects, aliases, on_step):
-        """Returns (text to show, line to speak, question to ask back or None)."""
+    def run(self, prompt, projects, aliases, on_step, image=None, tools=True):
+        """Returns (text to show, line to speak, question to ask back or None). `image`: a screenshot (PNG) sent
+        with the request. tools=False: one answer with no tools, for questions about the screen (Claude only)."""
         mark = Path(tempfile.gettempdir()) / f"nova-hook-{os.getpid()}.log"
         mark.write_text("", encoding="utf-8")
         self.env["NOVA_HOOK_MARK"] = str(mark)
         self.limited = False
-        shown, say, ask, commands = self._run(prompt, projects, aliases, on_step)
+        shown, say, ask, commands = self._run(prompt, projects, aliases, on_step, image, tools)
         if commands and not mark.read_text(encoding="utf-8").strip():  # tools ran, but our guard never saw them
             shown += (f"\n\n⚠ Nova's safety guard did not run for this request. Update the {self.name} CLI; "
                       "if this keeps happening, switch brains from the tray menu.")
@@ -266,15 +272,15 @@ class Claude(Brain):
         super().__init__(exe, cfg, workspace, env)
         self.settings = settings_path
 
-    def _run(self, prompt, projects, aliases, on_step):
+    def _run(self, prompt, projects, aliases, on_step, image=None, tools=True):
         b = self.cfg["brain"]
         args = [self.exe, "-p", "--output-format", "stream-json", "--verbose",
                 "--settings", self.settings, "--setting-sources", "project", "--permission-prompts", "none",
-                "--tools", CLAUDE_TOOLS, "--max-turns", str(b["max_turns"]),
+                "--tools", CLAUDE_TOOLS if tools else "", "--max-turns", str(b["max_turns"] if tools else 1),
                 "--append-system-prompt", self.system_prompt(projects, aliases)]
         for path in projects.values():
             args += ["--add-dir", path]
-        if mcp_config(self.cfg):  # only Nova's browser server, not the user's other MCP servers
+        if tools and mcp_config(self.cfg):  # only Nova's browser server, not the user's other MCP servers
             args += ["--mcp-config", str(MCP), "--strict-mcp-config"]
         model = pick_model(prompt, b)
         if model:
@@ -292,6 +298,12 @@ class Claude(Brain):
             elif ev.get("type") == "result":
                 state["result"] = ev
 
+        if image:  # sent with the request (as Clicky does), so Claude doesn't spend a turn opening the file
+            args += ["--input-format", "stream-json"]
+            png = base64.b64encode(Path(image).read_bytes()).decode("ascii")
+            prompt = json.dumps({"type": "user", "message": {"role": "user", "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": png}}]}}) + "\n"
         other = self._stream(args, prompt, on_event)
         result = state["result"]
         if result is None:
@@ -343,12 +355,14 @@ class Codex(Brain):
                       f"mcp_servers.nova-browser.env={env}"]
         return [x for pair in pairs for x in ("-c", pair)]
 
-    def _run(self, prompt, projects, aliases, on_step):
+    def _run(self, prompt, projects, aliases, on_step, image=None, tools=True):
         # Codex reads its instructions from AGENTS.md in the working folder
         (Path(self.workspace) / "AGENTS.md").write_text(self.system_prompt(projects, aliases), encoding="utf-8")
         resume = self._resume_id()
         args = [self.exe, "exec"] + (["resume"] if resume else []) + [
             "--json", "--skip-git-repo-check", "--dangerously-bypass-hook-trust"] + self._config(projects)
+        if image and not resume:  # shortcut: a resumed Codex chat opens the file instead; attach there too if it can
+            args.append(f"--image={image}")
         args += [resume, "-"] if resume else ["-"]
         state = {"text": "", "error": "", "commands": 0}
 

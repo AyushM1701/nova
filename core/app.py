@@ -197,6 +197,11 @@ class Api:
         """Cmd+W on a Mac: close the window, like its red button."""
         self._window.destroy()
 
+    def demo(self):
+        """First-run "Show me": this window gets out of the way, then Nova points at something on the screen."""
+        self._window.minimize()
+        return self.send("demo")
+
     # ---------- folders Nova may edit without asking (core/brain.py) ----------
     def pick_folder(self):
         """Ask for a folder; returns its path, None if cancelled. Folders that are too broad are refused."""
@@ -514,17 +519,27 @@ class Api:
             subprocess.Popen([exe, *LOGIN[name]], cwd=str(Path.home()), creationflags=subprocess.CREATE_NEW_CONSOLE)
         return True
 
+    # ---------- macOS permissions: live status, and one way to grant each (system.ask_permission) ----------
+    def mac_permissions(self):
+        return system.mac_permissions()
+
+    def mac_allow(self, name):
+        if name not in system.MAC_PANES:
+            raise ValueError(name)
+        return system.ask_permission(name)
+
+    def restart(self):
+        """macOS applies Screen Recording (and sometimes Input Monitoring) only after Nova starts again."""
+        return self.send("restart")
+
     # ---------- files ----------
     def open(self, what):
         if what == "config":
             if not CONFIG.exists():
                 CONFIG.write_text("{}\n", encoding="utf-8")
             return system.edit_file(CONFIG)
-        if what.startswith("mac-privacy:"):  # one pane at a time: opening all four at once leaves only the last
-            pane = what.split(":", 1)[1]
-            if pane not in ("Privacy_Microphone", "Privacy_Accessibility", "Privacy_ListenEvent", "Privacy_ScreenCapture"):
-                raise ValueError(pane)
-            subprocess.Popen(["open", f"x-apple.systempreferences:com.apple.preference.security?{pane}"])
+        if what == "nova-app":  # to drag into a Privacy & Security list when Nova isn't in it
+            subprocess.Popen(["open", "-R", str(system.MAC_APP)])
             return True
         system.open_path({"logs": LOGS, "notes": NOTES, "folder": ROOT}[what])
         return True

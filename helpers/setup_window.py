@@ -31,6 +31,7 @@ INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSUIElement</key><true/>
   <key>NSMicrophoneUsageDescription</key><string>Nova listens for "Hey Nova" and your requests. Audio never leaves this Mac.</string>
+  <key>NSScreenCaptureUsageDescription</key><string>Nova looks at your screen only when you ask about it.</string>
   <key>NSAppleEventsUsageDescription</key><string>Nova controls apps when you ask it to.</string>
 </dict></plist>
 """
@@ -140,6 +141,32 @@ def show_download(win, stop):
         win.ui(lambda s=size: win.detail.config(text=f"{s >> 20:,} MB of about {MODEL_BYTES >> 20:,} MB"))
 
 
+def make_app(run):
+    """Write ~/Applications/Nova.app (run(*args) runs a command). Returns whether anything in it changed.
+    helpers/check_mac.py builds it twice to check that an unchanged app is left alone."""
+    (APP / "Contents" / "MacOS").mkdir(parents=True, exist_ok=True)
+    (APP / "Contents" / "Resources").mkdir(parents=True, exist_ok=True)
+    launcher = APP / "Contents" / "MacOS" / "Nova"  # a tiny app, so macOS asks permissions for "Nova"
+    # macOS opens an app whose program is a script under Rosetta on Apple chips, where libraries installed for arm64
+    # won't load: run Python as the architecture setup installed them for
+    script = f'#!/bin/bash\ncd "{ROOT}" && exec /usr/bin/arch -{platform.machine()} "{PY}" "{ROOT / "nova.py"}"\n'
+    drawn = ROOT / "data" / "Nova.icns"
+    drawn.parent.mkdir(exist_ok=True)
+    run(PY, "-m", "core.icon", drawn)
+    # macOS remembers permissions for this exact app, so an update rewrites it only if something really changed:
+    # an unchanged app keeps its Microphone, Accessibility... permissions, a changed one may have to ask again
+    changed = False
+    for path, data in ((launcher, script.encode()), (APP / "Contents" / "Info.plist", INFO_PLIST.encode()),
+                       (APP / "Contents" / "Resources" / "Nova.icns", drawn.read_bytes() if drawn.exists() else b"")):
+        if data and (not path.exists() or path.read_bytes() != data):
+            path.write_bytes(data)
+            changed = True
+    launcher.chmod(0o755)
+    if changed:  # signed on this Mac ("ad hoc") under a fixed name, so it's the same Nova from one update to the next
+        run("codesign", "--force", "--sign", "-", "--identifier", "com.nova.assistant", APP)
+    return changed
+
+
 def steps(win):
     total = 6
 
@@ -181,15 +208,7 @@ def steps(win):
         if failed:
             win.note(f"{label} didn't download. Nova uses what it has (the macOS voice at worst); Settings can retry.")
     step(5, "Adding Nova to your Applications")
-    (APP / "Contents" / "MacOS").mkdir(parents=True, exist_ok=True)
-    (APP / "Contents" / "Resources").mkdir(parents=True, exist_ok=True)
-    launcher = APP / "Contents" / "MacOS" / "Nova"  # a tiny app, so macOS asks permissions for "Nova"
-    # macOS opens an app whose program is a script under Rosetta on Apple chips, where libraries installed for arm64
-    # won't load: run Python as the architecture setup installed them for
-    launcher.write_text(f'#!/bin/bash\ncd "{ROOT}" && exec /usr/bin/arch -{platform.machine()} "{PY}" "{ROOT / "nova.py"}"\n')
-    launcher.chmod(0o755)
-    (APP / "Contents" / "Info.plist").write_text(INFO_PLIST)
-    win.run(PY, "-m", "core.icon", APP / "Contents" / "Resources" / "Nova.icns")
+    make_app(win.run)
     step(6, "Running Nova's self-checks")
     if win.run(PY, ROOT / "tests.py") != 0:
         raise RuntimeError("Nova's self-checks failed (see details). Please report this.")

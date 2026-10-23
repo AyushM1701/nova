@@ -26,6 +26,24 @@ if IS_MAC:
     with _pk_darwin.keycode_context() as _layout:
         pass
     _pk_darwin.keycode_context = lambda: contextlib.nullcontext(_layout)
+
+    # macOS switches a key listener off when its callback is slow or secure input starts (a password field), and
+    # pynput never turns it back on: the shortcut and triple-tap would stop working mid-session. Turn it back on
+    # straight away, as Clicky does with its own listener.
+    import pynput._util.darwin as _pk_util
+    from Quartz import CGEventTapEnable, kCGEventTapDisabledByTimeout, kCGEventTapDisabledByUserInput
+    _make_tap, _on_event = _pk_util.ListenerMixin._create_event_tap, _pk_util.ListenerMixin._handler
+
+    def _keep_tap(self):
+        self._nova_tap = _make_tap(self)
+        return self._nova_tap
+
+    def _revive_tap(self, proxy, event_type, event, refcon):
+        if event_type in (kCGEventTapDisabledByTimeout, kCGEventTapDisabledByUserInput):
+            CGEventTapEnable(self._nova_tap, True)
+            return event
+        return _on_event(self, proxy, event_type, event, refcon)
+    _pk_util.ListenerMixin._create_event_tap, _pk_util.ListenerMixin._handler = _keep_tap, _revive_tap
     _keys = pk.Controller()
     MAC_HOLD = {pk.Key.ctrl_r: "right ctrl", pk.Key.alt_r: "right alt", pk.Key.shift_r: "right shift"}
     MEDIA = {"play_pause": pk.Key.media_play_pause, "next": pk.Key.media_next, "previous": pk.Key.media_previous,
@@ -43,7 +61,7 @@ else:
              "mute": "volume mute", "volume_up": "volume up", "volume_down": "volume down"}
 
 DEFAULT_HOTKEY = "cmd+shift+space" if IS_MAC else "ctrl+alt+space"
-from core.config import NO_WINDOW  # noqa: E402,F401  (callers import it from here too)
+from core.config import DATA, NO_WINDOW  # noqa: E402,F401  (callers import NO_WINDOW from here too)
 # Nova runs under pythonw on Windows, which has no stdout; hooks and helpers must answer on stdout
 CONSOLE_PYTHON = Path(sys.executable).with_name("python.exe") if os.name == "nt" else Path(sys.executable)
 
@@ -328,8 +346,20 @@ def window_title(target):
 
 
 def window_rect(target):
-    """(left, top, right, bottom) of the user's window on Windows, or None (macOS: the whole screen is used)."""
-    if IS_MAC or not target:
+    """(left, top, right, bottom) of the user's window, or None: screen pixels on Windows; on a Mac, points from
+    the main screen's top-left (as the screenshot's box), the app's frontmost window."""
+    if not target:
+        return None
+    if IS_MAC:
+        from Quartz import (CGWindowListCopyWindowInfo, kCGNullWindowID, kCGWindowListExcludeDesktopElements,
+                            kCGWindowListOptionOnScreenOnly)
+        pid = target.processIdentifier()
+        # front to back, so the first normal window (layer 0) of that app is the one in front; bounds need no permission
+        for w in CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+                                            kCGNullWindowID) or []:
+            b = w.get("kCGWindowBounds")
+            if w.get("kCGWindowOwnerPID") == pid and w.get("kCGWindowLayer") == 0 and b and b["Width"] >= 50:
+                return int(b["X"]), int(b["Y"]), int(b["X"] + b["Width"]), int(b["Y"] + b["Height"])
         return None
     rect = ctypes.wintypes.RECT()
     if not user32.GetWindowRect(target, ctypes.byref(rect)) or rect.right - rect.left < 50:
@@ -339,8 +369,9 @@ def window_rect(target):
 
 def screenshot(path, box=None):
     """Save every screen, or just `box` (screen pixels), as a PNG. macOS asks for Screen Recording permission
-    the first time."""
-    from PIL import ImageGrab
+    the first time. Returns (path, (left, top, k, width, height)): where the image's top-left is on screen, its
+    pixels per screen pixel and its size, so a spot the AI names in the image maps back to the screen."""
+    from PIL import Image, ImageGrab
     if IS_MAC:
         img = ImageGrab.grab()  # shortcut: main display only on macOS; screencapture -D per display if asked
         k, left, top = img.width / screen_width(), 0, 0  # Retina Macs grab twice the pixels Tk reports
@@ -348,10 +379,62 @@ def screenshot(path, box=None):
         img = ImageGrab.grab(all_screens=True)
         k, left, top = 1, user32.GetSystemMetrics(76), user32.GetSystemMetrics(77)  # SM_X/YVIRTUALSCREEN
     if box:
-        img = img.crop((max(0, int((box[0] - left) * k)), max(0, int((box[1] - top) * k)),  # maximized windows
-                        min(img.width, int((box[2] - left) * k)), min(img.height, int((box[3] - top) * k))))  # overhang
+        x0, y0 = max(0, int((box[0] - left) * k)), max(0, int((box[1] - top) * k))  # maximized windows overhang
+        x1, y1 = min(img.width, int((box[2] - left) * k)), min(img.height, int((box[3] - top) * k))
+        if x1 - x0 >= 10 and y1 - y0 >= 10:  # else the window is off the captured screen (a Mac's other display)
+            img = img.crop((x0, y0, x1, y1))
+            left, top = left + x0 / k, top + y0 / k
+    # Claude shrinks bigger images to these limits before looking; shrinking here means the pixel positions it
+    # answers with are in this image's pixels
+    fit = min(1, 1568 / max(img.size), (1.15e6 / (img.width * img.height)) ** 0.5)
+    if fit < 1:
+        img = img.resize((round(img.width * fit), round(img.height * fit)), Image.LANCZOS)
     img.save(path)
-    return path
+    return path, (left, top, k * fit, img.width, img.height)
+
+
+# ---------- macOS privacy permissions (System Settings → Privacy & Security), the way Clicky handles them ----------
+MAC_PANES = {"microphone": "Privacy_Microphone", "input": "Privacy_ListenEvent", "accessibility": "Privacy_Accessibility",
+             "screen": "Privacy_ScreenCapture"}
+MAC_NAMES = {"microphone": "Microphone", "input": "Input Monitoring", "accessibility": "Accessibility",
+             "screen": "Screen Recording"}
+SCREEN_ALLOWED = DATA / "screen-allowed"  # macOS sometimes answers "no" for an app it has allowed: remember a "yes"
+_prompted = set()
+
+
+def mac_permissions():
+    """{name: allowed} for each permission Nova uses on a Mac (MAC_NAMES); {} elsewhere."""
+    if not IS_MAC:
+        return {}
+    from ApplicationServices import AXIsProcessTrusted
+    from AVFoundation import AVCaptureDevice, AVMediaTypeAudio
+    from Quartz import CGPreflightListenEventAccess, CGPreflightScreenCaptureAccess
+    screen = bool(CGPreflightScreenCaptureAccess())
+    if screen and not SCREEN_ALLOWED.exists():
+        SCREEN_ALLOWED.parent.mkdir(parents=True, exist_ok=True)
+        SCREEN_ALLOWED.touch()
+    return {"microphone": AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeAudio) == 3,  # authorized
+            "input": bool(CGPreflightListenEventAccess()), "accessibility": bool(AXIsProcessTrusted()),
+            "screen": screen or SCREEN_ALLOWED.exists()}
+
+
+def ask_permission(name):
+    """macOS's own prompt the first time (it adds Nova to the list), System Settings at that page after that,
+    never both at once. Returns "prompt" or "settings"."""
+    from ApplicationServices import AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt
+    from AVFoundation import AVCaptureDevice, AVMediaTypeAudio
+    from Quartz import CGRequestListenEventAccess, CGRequestScreenCaptureAccess
+    first = name not in _prompted
+    _prompted.add(name)
+    if name == "microphone" and AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeAudio) == 0:  # never asked
+        AVCaptureDevice.requestAccessForMediaType_completionHandler_(AVMediaTypeAudio, lambda ok: None)
+        return "prompt"
+    if first and name != "microphone":
+        {"input": CGRequestListenEventAccess, "screen": CGRequestScreenCaptureAccess,
+         "accessibility": lambda: AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True})}[name]()
+        return "prompt"
+    subprocess.Popen(["open", f"x-apple.systempreferences:com.apple.preference.security?{MAC_PANES[name]}"])
+    return "settings"
 
 
 def memory_gb():

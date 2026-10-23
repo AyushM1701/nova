@@ -14,5 +14,6 @@ uiautomation>=2,<3; sys_platform == "win32"
 pynput>=1.8,<1.9; sys_platform == "darwin"
 pyobjc-framework-Cocoa; sys_platform == "darwin"
 pyobjc-framework-ApplicationServices; sys_platform == "darwin"
+pyobjc-framework-AVFoundation; sys_platform == "darwin"
 icalendar>=6,<7
 recurring-ical-events>=3,<4
