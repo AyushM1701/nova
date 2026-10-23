@@ -45,7 +45,10 @@ if IS_MAC:
         return _on_event(self, proxy, event_type, event, refcon)
     _pk_util.ListenerMixin._create_event_tap, _pk_util.ListenerMixin._handler = _keep_tap, _revive_tap
     _keys = pk.Controller()
-    MAC_HOLD = {pk.Key.ctrl_r: "right ctrl", pk.Key.alt_r: "right alt", pk.Key.shift_r: "right shift"}
+    MAC_HOLD = {pk.Key.ctrl_r: "right ctrl", pk.Key.alt_r: "right alt", pk.Key.shift_r: "right shift",
+                pk.Key.cmd_r: "right cmd", pk.Key.ctrl: "left ctrl", pk.Key.ctrl_l: "left ctrl", pk.Key.alt: "left alt",
+                pk.Key.alt_l: "left alt", pk.Key.shift: "left shift", pk.Key.shift_l: "left shift",
+                pk.Key.cmd: "left cmd", pk.Key.cmd_l: "left cmd"}
     MEDIA = {"play_pause": pk.Key.media_play_pause, "next": pk.Key.media_next, "previous": pk.Key.media_previous,
              "mute": pk.Key.media_volume_mute, "volume_up": pk.Key.media_volume_up,
              "volume_down": pk.Key.media_volume_down}
@@ -80,18 +83,19 @@ def after_tk():
 
 
 class Hotkeys:
-    """Global shortcut plus Esc. Windows swallows the shortcut; macOS needs Input Monitoring permission.
-    Raises ValueError for a shortcut that can't be parsed."""
+    """Global shortcut plus Esc (unless on_esc is None: a second shortcut). Windows swallows the shortcut; macOS
+    needs Input Monitoring permission. Raises ValueError for a shortcut that can't be parsed."""
 
-    def __init__(self, combo, on_hotkey, on_esc):
+    def __init__(self, combo, on_hotkey, on_esc=None):
         self.combo = combo
         if IS_MAC:
             fmt = "+".join(f"<{k}>" if len(k) > 1 else k for k in combo.lower().split("+"))
-            self.listener = pk.GlobalHotKeys({fmt: on_hotkey, "<esc>": on_esc})
+            self.listener = pk.GlobalHotKeys({fmt: on_hotkey, **({"<esc>": on_esc} if on_esc else {})})
             self.listener.start()
         else:
             self.handles = [keyboard.add_hotkey(combo, on_hotkey, suppress=True)]
-            self.handles.append(keyboard.add_hotkey("esc", on_esc))
+            if on_esc:
+                self.handles.append(keyboard.add_hotkey("esc", on_esc))
 
     def stop(self):
         if IS_MAC:
@@ -101,8 +105,15 @@ class Hotkeys:
                 keyboard.remove_hotkey(h)
 
 
-HOLD_KEYS = ("right ctrl", "right alt", "right shift")
-HOLD_DELAY_S = 0.25  # a quick tap, or the key used in a combo, never starts listening
+# "ctrl" is either Ctrl: held on its own it talks, Ctrl+C stays a copy. Cmd is a Mac's (on Windows it opens Start).
+HOLD_KEYS = ("right ctrl", "right alt", "right shift", "ctrl", "alt", "shift") + (("right cmd", "cmd") if IS_MAC else ())
+HOLD_DELAY_S = 1.5  # a tap, the key used in a combo, or a pause before Ctrl+C never starts listening (Settings)
+
+
+def hold_match(key, name):
+    """Whether the key event `name` is the hold key `key`. Windows names the left keys "ctrl" or "left ctrl"."""
+    return (name == key or (key in ("ctrl", "alt", "shift", "cmd") and name in (f"left {key}", f"right {key}"))
+            or (key in ("right alt", "alt") and name == "alt gr"))  # AltGr on many layouts
 
 
 class HoldKey:
@@ -111,8 +122,9 @@ class HoldKey:
     Another key pressed after listening started (Shift held a little long before a capital) means typing, not
     talking: on_cancel drops that recording."""
 
-    def __init__(self, key, on_start, on_stop, on_cancel=lambda: None):
+    def __init__(self, key, on_start, on_stop, on_cancel=lambda: None, delay=HOLD_DELAY_S):
         self.key, self.on_start, self.on_stop, self.on_cancel = key.lower(), on_start, on_stop, on_cancel
+        self.delay = delay
         self.held = self.started = False
         self.timer, self.lock = None, threading.Lock()
         if IS_MAC:
@@ -126,7 +138,7 @@ class HoldKey:
     def event(self, name, down):
         name, then = (name or "").lower(), None
         with self.lock:
-            if name != self.key and not (self.key == "right alt" and name == "alt gr"):  # AltGr on many layouts
+            if not hold_match(self.key, name):
                 if down and self.held and not self.started:  # a combo: leave it to the app
                     self.held = False
                     self.timer and self.timer.cancel()
@@ -135,7 +147,7 @@ class HoldKey:
             elif down:
                 if not self.held:  # held keys repeat their key-down
                     self.held, self.started = True, False
-                    self.timer = threading.Timer(HOLD_DELAY_S, self.fire)
+                    self.timer = threading.Timer(self.delay, self.fire)
                     self.timer.start()
             else:
                 self.held = False

@@ -634,12 +634,23 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 
       <div data-panel="general" class="rows">
         <div id="setMacPerms" style="display:contents" hidden></div>
-        <div class="row"><div class="what"><h2>Shortcut</h2><p>Press it to talk, again to stop early, or while Nova works to cancel. When Nova asks for your OK, it means “allow”.</p></div>
-          <div class="how"><span class="keys" id="setKeys"></span><button class="btn sm" id="setKeyBtn">Change</button></div></div>
-        <div class="row"><div class="what"><h2>Hold to talk</h2><p>Hold this key and speak; let go and Nova stops listening, however long you pause. Pressed with another key it works as usual.</p></div>
-          <div class="how"><select class="input" data-bind="hold_key" aria-label="Hold to talk key"><option value="">Off</option><option value="right ctrl">Right Ctrl</option><option value="right alt">Right Alt / Option</option><option value="right shift">Right Shift</option></select></div></div>
+        <div class="row"><div class="what"><h2>Shortcut</h2><p>Press it to talk, again to stop early, or while Nova works to cancel. When Nova asks for your OK, it means “allow”. “Current mode” follows the mode Nova is in; Assistant or Dictation uses that mode for this request only.</p></div>
+          <div class="how"><span class="keys" id="setKeys"></span><button class="btn sm" id="setKeyBtn">Change</button>
+            <select class="input" data-bind="hotkey_mode" aria-label="Shortcut mode"><option value="current">Current mode</option><option value="assistant">Assistant</option><option value="dictation">Dictation</option></select></div></div>
+        <div class="row"><div class="what"><h2>Second shortcut</h2><p>Another shortcut, often for the other mode. The same keys as the first shortcut work as one shortcut for both modes.</p></div>
+          <div class="how"><span class="keys" id="setKeys2"></span><button class="btn sm" id="setKey2Btn">Set</button><button class="btn sm" id="clearKey2Btn">Off</button>
+            <select class="input" data-bind="hotkey_2_mode" aria-label="Second shortcut mode"><option value="current">Current mode</option><option value="assistant">Assistant</option><option value="dictation">Dictation</option></select></div></div>
+        <div class="row"><div class="what"><h2>Hold to talk</h2><p>Hold this key and speak; let go and Nova stops listening, however long you pause. Pressed quickly with another key (Ctrl+C) it works as usual.</p></div>
+          <div class="how"><select class="input hold-key" data-bind="hold_key" aria-label="Hold to talk key"></select>
+            <select class="input" data-bind="hold_mode" aria-label="Hold to talk mode"><option value="current">Current mode</option><option value="assistant">Assistant</option><option value="dictation">Dictation</option></select></div></div>
+        <div class="row"><div class="what"><h2>How long to hold</h2><p>Nova starts listening after the key is held this long on its own, so a pause before Ctrl+C never starts it.</p></div>
+          <div class="how"><input class="input" type="number" min="0.25" max="5" step="0.25" data-bind="hold_delay_s" aria-label="Seconds to hold"> <span class="faint small">seconds</span></div></div>
+        <div class="row"><div class="what"><h2>Second hold key</h2><p>Hold one key to dictate and another to ask Nova. Pick the same key in both to use one key for both modes.</p></div>
+          <div class="how"><select class="input hold-key" data-bind="hold_key_2" aria-label="Second hold key"></select>
+            <select class="input" data-bind="hold_key_2_mode" aria-label="Second hold key mode"><option value="current">Current mode</option><option value="assistant">Assistant</option><option value="dictation">Dictation</option></select></div></div>
         <div class="row"><div class="what"><h2>Tap Ctrl three times</h2><p>Works like the shortcut, from any app. Off while a game is in front, where Ctrl is part of the game.</p></div>
-          <div class="how"><button class="switch" role="switch" data-bind="triple_tap" aria-label="Tap Ctrl three times"></button></div></div>
+          <div class="how"><button class="switch" role="switch" data-bind="triple_tap" aria-label="Tap Ctrl three times"></button>
+            <select class="input" data-bind="triple_tap_mode" aria-label="Triple tap mode"><option value="current">Current mode</option><option value="assistant">Assistant</option><option value="dictation">Dictation</option></select></div></div>
         <div class="row"><div class="what"><h2>Listen for “Hey Nova”</h2><p>Runs on this computer. Nothing is kept unless it hears “Hey Nova”.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="wake_word" aria-label="Listen for Hey Nova"></button></div></div>
         <div class="row"><div class="what"><h2>How easily “Hey Nova” wakes Nova</h2><p>High (the default) hears a soft or distant voice best. If Nova wakes when you didn't call it, try Normal; Low needs you to say it clearly. The listening runs on this computer.</p></div>
@@ -1413,6 +1424,7 @@ function showValue(path) {
   if (path === "voice.stt_engine") { $$("[data-stt]").forEach(r => r.hidden = !r.dataset.stt.split(" ").includes(get(path))); loadSttExtras(); }
 }
 function bindSettings() {
+  fillHoldKeys();
   for (const el of $$("[data-bind]")) {
     const path = el.dataset.bind;
     if (el.classList.contains("switch")) {
@@ -1436,7 +1448,7 @@ function bindSettings() {
       showValue(path);
     }
   }
-  keycaps(hotkey(), $("#setKeys"));
+  keycaps(hotkey(), $("#setKeys")); showKeys2();
   $("#cfgPath").textContent = S.paths.config;
   $("#autostart").setAttribute("aria-checked", !!S.autostart);
   const lang = $("#langSel"); lang.replaceChildren(...Object.entries(S.languages).map(([v, l]) => h("option", { value: v }, l))); lang.value = get("voice.language");
@@ -1527,6 +1539,17 @@ armed($("#resetBtn"), "Click again to reset", async () => {
     dirty.clear(); set("dictation.dictionary", dict); set("dictation.replacements", repl); save(true); bindSettings(); renderLive(); toast("Settings reset"); } catch (e) { fail(e); }
 });
 $("#setKeyBtn").addEventListener("click", () => recordHotkey($("#setKeys"), $("#setKeyBtn"), combo => { set("hotkey", combo === S.defaultHotkey ? "" : combo); save(true); }));
+// the second shortcut: "Off" until one is set
+function showKeys2() { const el = $("#setKeys2"); if (get("hotkey_2")) keycaps(get("hotkey_2"), el); else el.replaceChildren(h("span", { class: "faint small" }, "Off")); }
+$("#setKey2Btn").addEventListener("click", () => recordHotkey($("#setKeys2"), $("#setKey2Btn"), combo => { set("hotkey_2", combo); save(true); }, showKeys2));
+$("#clearKey2Btn").addEventListener("click", () => { set("hotkey_2", ""); save(true); showKeys2(); });
+// hold keys: a Mac also offers Cmd (Windows' Win key would open Start), and calls Alt "Option"
+function fillHoldKeys() {
+  const mac = S.platform === "mac", alt = mac ? "Option" : "Alt";
+  const keys = [["", "Off"], ...(mac ? [["right cmd", "Right Cmd"], ["cmd", "Cmd (either)"]] : []), ["right ctrl", "Right Ctrl"], ["ctrl", "Ctrl (either)"],
+    ["right alt", `Right ${alt}`], ["alt", `${alt} (either)`], ["right shift", "Right Shift"], ["shift", "Shift (either)"]];
+  for (const sel of $$(".hold-key")) sel.replaceChildren(...keys.map(([v, l]) => h("option", { value: v }, l)));
+}
 
 /* shortcut recorder */
 const CODE = { Space: "space", Backquote: "`", Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]", Semicolon: ";", Quote: "'", Comma: ",", Period: ".", Slash: "/", Backslash: "\\", Enter: "enter", Tab: "tab" };
@@ -1538,11 +1561,11 @@ function comboFrom(e) {
   if (!mods.length && !/^f\d+$/.test(key)) return "";
   return [...mods, key].join("+");
 }
-function recordHotkey(capsEl, btn, done) {
+function recordHotkey(capsEl, btn, done, show = () => keycaps(hotkey(), capsEl)) {
   const holder = capsEl; holder.classList.add("recording");
   const old = btn.textContent; btn.textContent = "Press keys… (Esc to cancel)";
   holder.replaceChildren(h("kbd", {}, "…"));
-  const finish = combo => { window.removeEventListener("keydown", onKey, true); holder.classList.remove("recording"); btn.textContent = old; keycaps(combo || hotkey(), holder); };
+  const finish = combo => { window.removeEventListener("keydown", onKey, true); holder.classList.remove("recording"); btn.textContent = old; if (combo) keycaps(combo, holder); else show(); };
   const onKey = async e => {
     e.preventDefault(); e.stopPropagation();
     if (e.code === "Escape") return finish();

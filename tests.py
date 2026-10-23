@@ -356,14 +356,34 @@ import nova as nova_mod  # noqa: E402
 nova_mod.log = lambda *a, **k: None  # these checks don't belong in your history
 
 # dictation stays on after "that's it"; a loose "switch back to assistant mode" must still switch, not get typed
-def spoken_mode(said):
-    n = re.sub(nova_mod.MODE_FILLER, "", re.sub(r"[^\w\s]", "", said.lower()).strip())
-    return next((m for m, p in nova_mod.MODE_PHRASES.items() if re.fullmatch(p, n)), None)
 for said, want in [("Switch back to assistant mode.", "assistant"), ("Nova, go back to assistant mode please", "assistant"),
                    ("assistant mode", "assistant"), ("Exit dictation.", "assistant"), ("back to assistant mode", "assistant"),
-                   ("switch to dictation mode", "dictation"), ("start dictating", "dictation"),
-                   ("I told her to switch to assistant mode later.", None), ("Please send the report now", None)]:
-    assert spoken_mode(said) == want, (said, spoken_mode(said))
+                   ("Switch to assisted mode.", "assistant"), ("switch to dictation mode", "dictation"),
+                   ("start dictating", "dictation"), ("I told her to switch to assistant mode later.", None),
+                   ("Please send the report now", None)]:
+    assert nova_mod.mode_phrase(said) == want, (said, nova_mod.mode_phrase(said))
+# each shortcut slot has its mode; the same key in two slots with different modes follows the current mode
+assert nova_mod.shortcut_modes([("right ctrl", "dictation"), ("", "assistant")]) == {"right ctrl": "dictation"}
+assert nova_mod.shortcut_modes([("right ctrl", "dictation"), ("right alt", "assistant")]) == {"right ctrl": "dictation", "right alt": "assistant"}
+assert nova_mod.shortcut_modes([("right ctrl", "dictation"), ("right ctrl", "assistant")]) == {"right ctrl": "current"}
+assert nova_mod.shortcut_modes([("ctrl", "dictation"), ("ctrl", "dictation")]) == {"ctrl": "dictation"}
+# hold keys: "ctrl" is either Ctrl, "right ctrl" only the right one
+hm = nova_mod.system.hold_match
+assert hm("ctrl", "ctrl") and hm("ctrl", "left ctrl") and hm("ctrl", "right ctrl") and not hm("ctrl", "shift")
+assert hm("right ctrl", "right ctrl") and not hm("right ctrl", "ctrl") and hm("right alt", "alt gr") and hm("alt", "alt gr")
+assert hm("cmd", "left cmd") and hm("cmd", "right cmd") and not hm("right cmd", "left cmd")
+
+from core.config import defaults  # noqa: E402
+shipped = defaults()  # the shipped settings, not this computer's config.json
+assert nova_mod.system.HOLD_DELAY_S >= 1.5 and shipped["hold_delay_s"] >= 1.5  # long enough to pause before Ctrl+C
+assert shipped["triple_tap_mode"] == "assistant" and shipped["hold_mode"] == "dictation"
+assert shipped["hold_key"] == ("right cmd" if sys.platform == "darwin" else "right ctrl")  # a Mac holds Cmd
+# only a pause ends a dictation, so a mode command often closes the same recording
+for said, want in [("Right. +1, (231), 231-2312 That's it. Exit. Exit dictation.", ("Right. +1, (231), 231-2312 That's it.", "assistant")),
+                   ("That's it. Switch to assistant mode.", ("", "assistant")),
+                   ("Send it to Sam. Exit.", ("Send it to Sam. Exit.", None)),
+                   ("We should exit dictation mode now and talk.", ("We should exit dictation mode now and talk.", None))]:
+    assert nova_mod.split_mode_tail(said) == want, (said, nova_mod.split_mode_tail(said))
 
 
 def nova_stub(timeout):
@@ -981,17 +1001,17 @@ hold = object.__new__(system.HoldKey)  # the state machine alone, without a real
 hold.key, hold.on_start, hold.on_stop = "right ctrl", lambda: calls.append("start"), lambda: calls.append("stop")
 hold.on_cancel = lambda: calls.append("cancel")
 hold.held = hold.started = False
-hold.timer, hold.lock = None, __import__("threading").Lock()
-hold.event("Right Ctrl", True); hold.event("Right Ctrl", False); time.sleep(system.HOLD_DELAY_S + 0.1)  # noqa: E702
+hold.timer, hold.lock, hold.delay = None, __import__("threading").Lock(), 0.2  # Settings' default is 1.5 s
+hold.event("Right Ctrl", True); hold.event("Right Ctrl", False); time.sleep(hold.delay + 0.1)  # noqa: E702
 assert calls == [], f"tap: {calls}"
-hold.event("right ctrl", True); hold.event("c", True); time.sleep(system.HOLD_DELAY_S + 0.1)  # noqa: E702
+hold.event("right ctrl", True); hold.event("c", True); time.sleep(hold.delay + 0.1)  # noqa: E702
 hold.event("c", False); hold.event("right ctrl", False)  # noqa: E702
 assert calls == [], f"combo: {calls}"
-hold.event("right ctrl", True); time.sleep(system.HOLD_DELAY_S + 0.1)  # noqa: E702
+hold.event("right ctrl", True); time.sleep(hold.delay + 0.1)  # noqa: E702
 hold.event("right ctrl", True); hold.event("right ctrl", False)  # noqa: E702  (a held key repeats its key-down)
 assert calls == ["start", "stop"], f"hold: {calls}"
 calls.clear()  # Shift held a little long before a capital: listening started, then typing drops it, nothing sent
-hold.event("right ctrl", True); time.sleep(system.HOLD_DELAY_S + 0.1)  # noqa: E702
+hold.event("right ctrl", True); time.sleep(hold.delay + 0.1)  # noqa: E702
 hold.event("a", True); hold.event("a", False); hold.event("right ctrl", False)  # noqa: E702
 assert calls == ["start", "cancel"], f"typing: {calls}"
 
@@ -1619,7 +1639,7 @@ assert not nova_mod.STOP_RECORD_RE.fullmatch(said("How do I stop recording?"))
 
 # three Ctrl taps work like the shortcut, but never say "allow" to an approval, and not in a game
 pressed, saved_gaming = [], nova_mod.system.gaming
-nova_obj.on_hotkey, nova_mod.system.gaming = lambda: pressed.append(1), lambda: False
+nova_obj.on_hotkey, nova_mod.system.gaming = lambda mode=None: pressed.append(1), lambda: False
 try:
     nova_obj.pending = (None, None)
     nova_obj.on_triple()

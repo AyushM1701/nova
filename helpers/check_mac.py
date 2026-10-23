@@ -39,6 +39,20 @@ listener.join(5)
 assert hasattr(listener, "_nova_tap"), "the patched tap maker didn't run"
 print(f"ok: pynput patch active (tap {'created' if listener._nova_tap is not None else 'refused: no Input Monitoring'})")
 
+# hold to talk on a Mac: Cmd is offered and is the default, as the triple tap uses Cmd; pynput's keys get the
+# names the hold keys match
+from core.config import defaults  # noqa: E402
+assert defaults()["hold_key"] == "right cmd", defaults()["hold_key"]
+assert {"right cmd", "cmd"} <= set(system.HOLD_KEYS), system.HOLD_KEYS
+names = {k: system.MAC_HOLD[k] for k in (keyboard.Key.cmd_r, keyboard.Key.cmd, keyboard.Key.cmd_l, keyboard.Key.ctrl_r,
+                                         keyboard.Key.ctrl, keyboard.Key.alt_r, keyboard.Key.shift_r)}
+assert names[keyboard.Key.cmd_r] == "right cmd" and names[keyboard.Key.cmd] == "left cmd", names
+assert system.hold_match("right cmd", names[keyboard.Key.cmd_r]) and not system.hold_match("right cmd", names[keyboard.Key.cmd])
+assert system.hold_match("cmd", names[keyboard.Key.cmd]) and system.hold_match("ctrl", names[keyboard.Key.ctrl])
+hold = system.HoldKey("right cmd", lambda: None, lambda: None)  # a real pynput listener starts and stops
+hold.stop()
+print("ok: hold keys use Cmd on a Mac")
+
 # the permission check answers for all four, without asking
 perms = system.mac_permissions()
 assert set(perms) == set(system.MAC_NAMES) and all(isinstance(v, bool) for v in perms.values()), perms

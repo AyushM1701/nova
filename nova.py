@@ -54,11 +54,41 @@ PERMISSIONS = {  # Settings → Privacy & safety; the guard applies them (guard.
 
 MODE_PHRASES = {
     "dictation": r"(switch|change|go|get)( back)?( to)?( the)? dictation( mode)?|dictation mode|start dictat(ion|ing)",
-    "assistant": r"(switch|change|go|get)( back)?( to)?( the)? assistant( mode)?|(back to )?assistant mode|"
-                 r"(stop|exit|end|leave|quit) dictat(ion|ing)( mode)?",
+    # Whisper often hears "assistant" as "assisted" or "assistance"
+    "assistant": r"(switch|change|go|get)( back)?( to)?( the)? assist(ant|ants|ance|ed)( mode)?|"
+                 r"(back to )?assist(ant|ants|ance|ed) mode|(stop|exit|end|leave|quit) dictat(ion|ing)( mode)?",
 }
 # "Nova, switch back to assistant mode please": the fillers around a mode phrase, so it isn't typed as dictation
 MODE_FILLER = r"^(?:(?:hey|ok|okay|please|nova)\s+)+|(?:\s+(?:please|now|nova))+$"
+
+
+def shortcut_modes(slots):
+    """{key: mode} for the (key, mode) shortcut slots in Settings, empty keys left out. The same key in two slots
+    with different modes follows the current mode: "one shortcut for both"."""
+    out = {}
+    for key, mode in slots:
+        if key:
+            out[key] = mode if out.get(key, mode) == mode else "current"
+    return out
+
+
+def mode_phrase(sentence):
+    """The mode a whole sentence asks for ("Switch back to assistant mode, please."), or None."""
+    n = re.sub(MODE_FILLER, "", re.sub(r"[^\w\s]", "", sentence.lower()).strip())
+    return next((m for m, p in MODE_PHRASES.items() if re.fullmatch(p, n)), None)
+
+
+def split_mode_tail(text):
+    """"…231-2312. That's it. Exit. Exit dictation.": one recording, since only a pause ends a dictation. Returns
+    the dictated part and the mode its closing sentences ask for, or (text, None). Only whole closing sentences
+    count, so prose that mentions a mode mid-sentence is still typed."""
+    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    mode, cut = None, len(sentences)
+    while cut and (mode_phrase(sentences[cut - 1]) or
+                   re.fullmatch(r"(thats it|exit|stop|done|ok|okay)", re.sub(r"[^\w\s]", "", sentences[cut - 1].lower()).strip())):
+        mode = mode or mode_phrase(sentences[cut - 1])
+        cut -= 1
+    return (" ".join(sentences[:cut]), mode) if mode else (text, None)
 # requests about what's on screen get a screenshot the AI can look at (Cluely-style)
 # "turn this card into a Tailwind component": let the user drag a box around the part they mean
 REGION_RE = re.compile(r"\b(?:this|that|these) (?:area|region|part|section|bit|card|box|panel|piece|widget|component|"
@@ -142,6 +172,8 @@ def friendly(e):
 
 
 class Nova:
+    job_mode = None  # the mode a shortcut asked for, this request only (None: the current mode)
+
     def __init__(self):
         for d in (LOGS, NOTES, DATA):
             d.mkdir(parents=True, exist_ok=True)
@@ -150,7 +182,8 @@ class Nova:
         self.cfg_mtime = self.config_mtime()
         self.mode, self.paused, self.phase = self.cfg["start_mode"], False, "idle"  # idle | listening | busy
         self.stt, self.target, self.pending, self.keys, self.heard = None, None, None, None, ""
-        self.hold, self.holding, self.triple = None, False, None  # hold-to-talk key; Ctrl (Cmd) tapped three times
+        self.holds, self.holding, self.triple = [], False, None  # hold-to-talk keys; Ctrl (Cmd) tapped three times
+        self.keys2 = None  # the second shortcut
         self.engine_obj, self.engine_spec = None, None  # the chosen speech engine, when not faster-whisper
         self.cloud_rest = ("", 0)  # (the speech service that failed, the time it's tried again)
         self.voice = True  # False while handling a request typed in the Nova window: no card, no speech
@@ -243,7 +276,8 @@ class Nova:
         if not self.bind_hotkeys(wanted) and wanted != system.DEFAULT_HOTKEY:
             self.bind_hotkeys(system.DEFAULT_HOTKEY)
             self.cfg_error = f"The shortcut \"{wanted}\" can't be used, so Nova is using {self.pretty()}."
-        self.bind_hold(self.cfg["hold_key"])
+        self.bind_hotkey_2(self.cfg["hotkey_2"])
+        self.bind_holds()
         self.bind_triple(self.cfg["triple_tap"])
         self.start_tray()
         if self.cfg_error:
@@ -350,7 +384,8 @@ class Nova:
 
     def bind_hotkeys(self, combo):
         try:
-            keys = system.Hotkeys(combo, lambda: self.ui(self.on_hotkey), lambda: self.ui(self.on_esc))
+            keys = system.Hotkeys(combo, lambda: self.ui(lambda: self.on_hotkey(self.press_modes().get(self.hotkey))),
+                                  lambda: self.ui(self.on_esc))
         except Exception as e:  # ValueError from an unknown key name
             log("error", error=f"shortcut {combo!r} failed: {e!r}")
             return False
@@ -361,14 +396,36 @@ class Nova:
         self.bar.hint = self.hint()
         return True
 
-    def bind_hold(self, key):
-        if self.hold:
-            self.hold.stop()
-            self.hold = None
-        if key in system.HOLD_KEYS:
+    def bind_hotkey_2(self, combo):
+        """The second shortcut (Settings → General), often one mode while the first follows the current mode."""
+        if self.keys2:
+            self.keys2.stop()
+            self.keys2 = None
+        if combo and combo.lower() != self.hotkey.lower():  # the same keys twice: the first shortcut, "current mode"
             try:
-                self.hold = system.HoldKey(key, lambda: self.ui(self.on_hold), lambda: self.ui(self.on_release),
-                                           lambda: self.ui(self.on_typed))
+                self.keys2 = system.Hotkeys(combo, lambda: self.ui(lambda: self.on_hotkey(self.press_modes().get(combo))))
+            except Exception as e:
+                log("error", error=f"shortcut {combo!r} failed: {e!r}")
+
+    def press_modes(self):
+        c = self.cfg
+        return shortcut_modes([(self.hotkey, c["hotkey_mode"]), (c["hotkey_2"], c["hotkey_2_mode"])])
+
+    def hold_modes(self):
+        c = self.cfg
+        return shortcut_modes([(c["hold_key"], c["hold_mode"]), (c["hold_key_2"], c["hold_key_2_mode"])])
+
+    def bind_holds(self):
+        for hold in self.holds:
+            hold.stop()
+        self.holds = []
+        for key in self.hold_modes():
+            if key not in system.HOLD_KEYS:
+                continue
+            try:  # the mode is looked up on each hold, so changing it in Settings needs no rebinding
+                self.holds.append(system.HoldKey(key, lambda k=key: self.ui(lambda: self.on_hold(self.hold_modes().get(k))),
+                                                 lambda: self.ui(self.on_release), lambda: self.ui(self.on_typed),
+                                                 delay=self.cfg["hold_delay_s"]))
             except Exception as e:  # macOS without Input Monitoring permission
                 log("error", error=f"hold-to-talk {key!r} failed: {e!r}")
 
@@ -388,14 +445,14 @@ class Nova:
             return
         if system.gaming():
             return log("triple_tap", ignored="game")
-        self.on_hotkey()
+        self.on_hotkey(self.cfg["triple_tap_mode"])
 
-    def on_hold(self):
+    def on_hold(self, mode=None):
         if self.phase != "idle" or self.pending:  # an approval needs a deliberate press, not a hold
             return
         if self.paused or self.stt is None:
             return self.on_hotkey()  # says why Nova can't listen
-        self.start_job(hold=True)
+        self.start_job(hold=True, mode=mode)
 
     def on_release(self):
         if self.holding and self.phase == "listening":
@@ -464,14 +521,16 @@ class Nova:
         hotkey = cfg["hotkey"] or system.DEFAULT_HOTKEY
         if cfg["brain"]["audio_memory_min"] != old["brain"]["audio_memory_min"]:
             self.audio_memory()
-        if cfg["hold_key"] != old["hold_key"]:
-            self.bind_hold(cfg["hold_key"])
+        if [cfg[k] for k in ("hold_key", "hold_key_2", "hold_delay_s")] != [old[k] for k in ("hold_key", "hold_key_2", "hold_delay_s")]:
+            self.bind_holds()
         if cfg["triple_tap"] != old["triple_tap"]:
             self.bind_triple(cfg["triple_tap"])
             self.bar.hint = self.hint()
         if hotkey != self.hotkey and not self.bind_hotkeys(hotkey):
             self.card.show("Shortcut not changed", f"\"{hotkey}\" can't be used as a shortcut. "
                            f"Nova still uses {self.pretty()}.", hide_after=8)
+        if cfg["hotkey_2"] != old["hotkey_2"] or hotkey != (old["hotkey"] or system.DEFAULT_HOTKEY):
+            self.bind_hotkey_2(cfg["hotkey_2"])
         self.start_wake()
         self.bar.set_position(cfg["overlay"]["position"])  # bottom, or top (from the notch on a MacBook)
         self.card.top = cfg["overlay"]["position"] == "top"
@@ -508,7 +567,7 @@ class Nova:
     def push_state(self):
         self.outbox.put(self.state())
 
-    def on_hotkey(self):
+    def on_hotkey(self, mode=None):
         if self.pending:
             return self.answer(True)
         if self.phase == "listening":
@@ -519,7 +578,7 @@ class Nova:
             return self.card.show("Nova is paused", "Resume it from the Nova icon.", hide_after=2)
         if self.stt is None:
             return self.card.show("Still loading", "The speech model is loading, try again in a moment.", hide_after=3)
-        self.start_job()
+        self.start_job(mode=mode)
 
     def on_wake(self, clip, floor=None):
         """`clip`: what followed "Nova" (None: just the name). `floor`: the room's noise level when the user was still
@@ -528,9 +587,11 @@ class Nova:
             log("wake", with_request=clip is not None)
             self.start_job(clip, floor=floor)  # "Hey Nova, play music" runs at once; "Hey Nova" alone starts listening
 
-    def start_job(self, clip=None, followup=False, hold=False, floor=None):
+    def start_job(self, clip=None, followup=False, hold=False, floor=None, mode=None):
         self.target = system.foreground()  # where dictation will be typed
         self.holding = hold  # held: listen until the key is let go, however long the pauses
+        # a shortcut set to one mode uses it for this request only; "current" and "Hey Nova" follow the mode
+        self.job_mode = mode if mode in ("assistant", "dictation") else None
         self.voice, self.in_followup = True, followup
         if followup:
             self.card.show("Still listening", "Go on, or say “that's it” to finish.", hide_after=6)
@@ -559,7 +620,7 @@ class Nova:
             self.ui(self.push_state)
             if self.followup and not self.cancel.is_set():  # keep the conversation going without "Hey Nova"
                 self.ui(lambda: self.phase == "idle" and not self.paused and not self.pending
-                        and self.start_job(followup=True))
+                        and self.start_job(followup=True, mode=self.job_mode))
             self.followup = False
 
     def start_wake(self):
@@ -805,7 +866,7 @@ class Nova:
 
     def whisper_translates(self):
         """Dictating into English from another language: Whisper translates as it transcribes, on this computer."""
-        return self.mode == "dictation" and self.cfg["dictation"]["translate_to"] == "English"
+        return (self.job_mode or self.mode) == "dictation" and self.cfg["dictation"]["translate_to"] == "English"
 
     def engine(self):
         """The speech engine chosen in settings, as an object with transcribe(audio, language, prompt), or None for
@@ -865,7 +926,7 @@ class Nova:
 
     # ---------- worker thread: one request ----------
     def voice_job(self, clip=None, floor=None):
-        mode, v, d = self.mode, self.cfg["voice"], self.cfg["dictation"]
+        mode, v, d = self.job_mode or self.mode, self.cfg["voice"], self.cfg["dictation"]
         silence, cap = (d["silence_ms"], d["max_record_s"]) if mode == "dictation" else (v["silence_ms"], v["max_record_s"])
         if self.holding:
             silence = None
@@ -912,6 +973,12 @@ class Nova:
         log("heard", mode=mode, text=text, source="voice")
         if mode == "assistant" and wake.is_done(text) and not (self.asked and wake.approval(text)):  # "ok thanks": stop
             return self.end_conversation(text)
+        if mode == "dictation":
+            head, switch = split_mode_tail(text)
+            if switch:  # what came before is typed, then the mode switches
+                if head:
+                    self.dictate(head)
+                text = f"{switch} mode"
         if not self.command(text):
             (self.dictate if mode == "dictation" else self.assist)(text)
         if mode == "assistant" and self.cfg["voice"]["conversation"] and not self.cancel.is_set():
@@ -1023,11 +1090,11 @@ class Nova:
     def command(self, text, typed=False):
         """Voice commands that never reach the AI or get typed. Whole-utterance matches only."""
         n = re.sub(r"[^\w\s]", "", text.lower()).strip()
-        for mode, pattern in MODE_PHRASES.items():
-            if re.fullmatch(pattern, re.sub(MODE_FILLER, "", n)):
-                self.ui(lambda: self.set_mode(mode))
-                self.note(f"{mode.title()} mode", f"{mode.title()} mode.")
-                return True
+        mode = mode_phrase(text)
+        if mode:
+            self.ui(lambda: self.set_mode(mode))
+            self.note(f"{mode.title()} mode", f"{mode.title()} mode.")
+            return True
         if re.fullmatch(r"(start a )?new (conversation|chat)|reset( the)? conversation", n):
             if self.brain:
                 self.brain.reset()
@@ -1041,7 +1108,7 @@ class Nova:
                 self.save_setting("dictation.dictionary", words + [word])
             self.note("Dictionary", f"Added {word}.")
             return True
-        if self.mode != "assistant" and not typed:
+        if (self.job_mode or self.mode) != "assistant" and not typed:
             return False
         browser = re.fullmatch(rf"(stop using|remove|disable|turn off|add|enable|start using|set up|turn on|use) "
                                rf"({web.NAMES_RE})(?: browser)?", n)

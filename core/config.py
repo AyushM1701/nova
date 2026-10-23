@@ -6,6 +6,7 @@ so new settings from an update appear automatically.
 import contextlib
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -86,7 +87,10 @@ def overrides(cfg, base):
 
 
 def defaults():
-    return json.loads(DEFAULTS.read_text(encoding="utf-8"))
+    d = json.loads(DEFAULTS.read_text(encoding="utf-8"))
+    if sys.platform == "darwin":  # a Mac holds Cmd where Windows holds Ctrl, as the triple tap does
+        d["hold_key"] = d["hold_key"].replace("ctrl", "cmd")
+    return d
 
 
 def user_config():
