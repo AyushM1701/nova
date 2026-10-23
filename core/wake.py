@@ -18,7 +18,7 @@ import time
 import numpy as np
 import sounddevice as sd
 
-from core import wakeword
+from core import loopback, wakeword
 from core.audio import BLOCK, MIN_SPEECH, RATE
 from core.config import log
 
@@ -146,10 +146,11 @@ class Detector:
     loudness gate to get past); when it hears "Hey Nova", the clip is raised to a normal level and Whisper checks it,
     so other talk can't wake Nova. feed() returns None, or ("wake", the request's audio after the name, or None)."""
 
-    def __init__(self, transcribe, sensitivity="high", copies=STAGGER, gain=True, personal=None):
+    def __init__(self, transcribe, sensitivity="high", copies=STAGGER, gain=True, personal=None, played=None):
         boost, threshold, self.similar = SENSITIVITY.get(sensitivity, SENSITIVITY["high"])
         self.transcribe, self.spotter, self.copies, self.gain = transcribe, spotter(boost, threshold), copies, gain
-        self.personal = personal  # the model trained on the user's own "Hey Nova" (core/wakeword.py), if there is one
+        self.personal = personal  # the accent-trained detector (core/wakeword.py), once the user has enrolled
+        self.played = played  # what the computer is playing (loopback.Tail), to ignore a meeting or video's voices
         self.recent = collections.deque(maxlen=int(PRE_S * RATE / BLOCK))
         self.peaks = collections.deque(maxlen=int(AGC_S * RATE / BLOCK))
         self.seg, self.quiet, self.floor = None, 0, None
@@ -203,6 +204,9 @@ class Detector:
         hit = self.check(clip, mine, keyword)
         if hit is None:
             return None
+        if self.from_speakers(clip):  # a meeting, call or video on this computer said it (or something like it)
+            log("wake_ignored", reason="the computer's own audio")
+            return None
         after, rest = hit
         # still talking ("Hey Nova, what's the…"): Nova records the rest, from this audio and this room's noise level
         return ("wake", after, self.floor) if not paused else ("wake", after if rest else None, None)
@@ -210,22 +214,41 @@ class Detector:
     def check(self, clip, mine, keyword):
         """Stage 2. Each stage 1 has its own check: the personal model wakes only for the user's voice, and Whisper
         (whose spelling check lets "Hey, no problem" or "ANOVA" through) only checks what the keyword model flagged."""
-        hit = mine and self.yours(clip)
-        if hit:  # which model woke Nova, for judging the personal one (Nova logs the wake itself)
-            log("wake_check", by="personal model")
-            return hit
-        return self.confirm(clip) if keyword else None
+        return (mine and self.yours(clip)) or (self.confirm(clip) if keyword else None)
 
     def yours(self, clip):
         """Stage 2 when the personal model fired: the user's own voice, up to the last moment the model was sure, is
         enough. Whisper isn't asked to hear the words (it writes many accents' "Hey Nova" as "you know what"), only
         what came after. (the audio after the name, what Whisper heard after it), or None if it isn't their voice."""
         end = self.sure * BLOCK
-        if not self.personal.voice.matches(clip[:end]):
+        # something must be said: on a quiet microphone the model can fire on near-silence, and the voiceprint
+        # (recorded through the same microphone) matched that room's silence at 0.9. Whisper hears no words there;
+        # sound too soft to be speech isn't worth asking it (about a second each on a CPU)
+        if float(np.abs(clip[:end]).max()) < MIN_SPEECH or not self.transcribe(clip[:end]):
+            if wakeword.shadow():
+                log("wake_shadow", spoken=False, would_wake=False)
             return None
+        alike = self.personal.voice.similarity(clip[:end])
+        rounded = None if alike is None else round(alike, 2)
+        if wakeword.shadow():  # trying it out: never wake, keep what would have (to measure, then train against)
+            speakers = self.from_speakers(clip)
+            saved = wakeword.keep_shadow(clip, alike)
+            log("wake_shadow", alike=rounded, from_speakers=speakers,
+                would_wake=alike is not None and alike >= wakeword.VOICE and not speakers, clip=saved)
+            return None
+        if alike is None or alike < wakeword.VOICE:
+            return None
+        # it wakes Nova: keep the clip too, so a wake the user didn't want can be found and trained against
+        log("wake_check", by="personal model", alike=rounded, clip=wakeword.keep_shadow(clip, alike))
         after = clip[end:]
         rest = " ".join(w for w, _ in self.transcribe(after)) if len(after) > RATE // 4 else ""
         return after, rest.strip(" .,!?")
+
+    def from_speakers(self, clip):
+        """True when the mic's loudness only followed what the computer was playing in these seconds: the voice came
+        out of its own speakers (a Teams meeting, a video), not from someone in the room."""
+        computer = self.played.recent() if self.played else None
+        return computer is not None and loopback.follows(clip[-3 * RATE:], computer) >= FOLLOWS
 
     def confirm(self, clip):
         """Stage 2: Whisper hears the clip, raised to a normal level so a soft voice isn't taken for silence.
@@ -263,22 +286,35 @@ def sounds_like(words, at_least):
     return end if best >= at_least else None
 
 
-def listen(transcribe, on_wake, enabled, running=lambda: True, sensitivity=lambda: "high"):
+def listen(transcribe, on_wake, enabled, running=lambda: True, sensitivity=lambda: "high", played=None):
     """Run until `running()` is False (own thread). on_wake(None) = start listening, on_wake(audio) = this
     audio is the request. `enabled()` is False while Nova is busy, so its own voice can't wake it.
     Returning closes the microphone, so turning the wake word off really stops listening.
-    Needs the keyword model (models.download("kws")); Nova fetches it before calling this."""
-    personal = None
-    if wakeword.installed():  # trained on this computer with helpers/train_wake.py
-        try:
-            personal = wakeword.Personal()
-        except Exception as e:  # an older or broken model file: the keyword model still listens
-            log("error", error=f"the personal \"Hey Nova\" model didn't load: {e!r}")
+    Needs the keyword model (models.download("kws")); Nova fetches it before calling this. `played`: what the
+    computer is playing (loopback.Tail), so a voice from its own speakers can't wake Nova."""
     while running():
-        _listen(transcribe, on_wake, enabled, running, sensitivity, personal)
+        _listen(transcribe, on_wake, enabled, running, sensitivity, played)
 
 
-def _listen(transcribe, on_wake, enabled, running, sensitivity, personal=None):
+_personal = {"model": None, "failed": None}  # failed: the voiceprint's time stamp when loading last failed
+
+
+def personal_model():
+    """The accent-trained detector (core/wakeword.py), once its files are here and someone has taught it their
+    voice. Asked for each new Detector, so enrolling while Nova runs turns it on after that request. After a failed
+    load it tries again once the voiceprint changes (enrolling again also fetches missing files)."""
+    if _personal["model"] is None and wakeword.installed() and wakeword.enrolled():
+        stamp = wakeword.VOICEPRINT.stat().st_mtime_ns
+        if stamp != _personal["failed"]:
+            try:
+                _personal["model"] = wakeword.Personal()
+            except Exception as e:  # a broken model file: the keyword model still listens
+                _personal["failed"] = stamp
+                log("error", error=f"the accent-trained \"Hey Nova\" didn't load: {e!r}")
+    return _personal["model"]
+
+
+def _listen(transcribe, on_wake, enabled, running, sensitivity, played=None):
     """One microphone stream. Returns when it stops sending sound (a device that went away or changed, the Mac
     waking from sleep), so listen() opens a fresh one instead of waiting on it forever."""
     blocks, detector, level, heard_at = queue.Queue(), None, None, time.monotonic()
@@ -297,7 +333,7 @@ def _listen(transcribe, on_wake, enabled, running, sensitivity, personal=None):
                 continue
             if detector is None or sensitivity() != level:
                 level = sensitivity()
-                detector = Detector(transcribe, level, personal=personal)
+                detector = Detector(transcribe, level, personal=personal_model(), played=played)
             hit = detector.feed(block)
             if hit:
                 on_wake(hit[1], hit[2])

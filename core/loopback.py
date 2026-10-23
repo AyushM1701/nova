@@ -21,6 +21,9 @@ KEEP_S, CHUNK_S = 15 * 60, 12  # transcript window; seconds of audio per transcr
 ASK_S = 120  # transcribed on request (a CPU without eager transcription): ten minutes of music took about a minute
 RATE = 16000
 MAC_HELPER, MAC_SOURCE = DATA / "bin" / "mac-audio-tap", ROOT / "helpers" / "mac_audio_tap.swift"
+# PortAudio (pyaudiowpatch) starting, opening or stopping in two threads at once corrupts memory and kills Nova:
+# the "Hey Nova" speaker check and the computer-audio memory both start a capture when Nova starts
+_PORTAUDIO = threading.Lock()
 
 
 def available():
@@ -70,12 +73,14 @@ def blocks(running):
             proc.kill()
         return
     import pyaudiowpatch as pa
-    p = pa.PyAudio()
+    with _PORTAUDIO:
+        p = pa.PyAudio()
     try:
-        dev = p.get_default_wasapi_loopback()
-        rate, channels = int(dev["defaultSampleRate"]), dev["maxInputChannels"]
-        stream = p.open(format=pa.paFloat32, channels=channels, rate=rate, input=True,
-                        input_device_index=dev["index"], frames_per_buffer=rate // 10)
+        with _PORTAUDIO:
+            dev = p.get_default_wasapi_loopback()
+            rate, channels = int(dev["defaultSampleRate"]), dev["maxInputChannels"]
+            stream = p.open(format=pa.paFloat32, channels=channels, rate=rate, input=True,
+                            input_device_index=dev["index"], frames_per_buffer=rate // 10)
         block = rate // 10
         try:
             while running():
@@ -86,9 +91,11 @@ def blocks(running):
                 data = np.frombuffer(stream.read(block, exception_on_overflow=False), dtype=np.float32)
                 yield to16k(data.reshape(-1, channels).mean(axis=1), rate)
         finally:
-            stream.close()
+            with _PORTAUDIO:
+                stream.close()
     finally:
-        p.terminate()
+        with _PORTAUDIO:
+            p.terminate()
 
 
 def follows(mic, computer, hop=160):

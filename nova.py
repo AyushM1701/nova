@@ -33,7 +33,7 @@ import pystray  # noqa: E402
 
 from core import (audio, cleanup, clipboard, cloud_stt, deepgram, fallback, icon, intents, loopback,  # noqa: E402
                   calendar_ics, learn, meetings, models, phone, region, screen_text, system, tts, update,
-                  wake, whisper_cpp)
+                  wake, wakeword, whisper_cpp)
 from core import browser as web  # noqa: E402
 from core.bar import Bar  # noqa: E402
 from core.brain import discover_projects, find_cli, make_brain, project_folders  # noqa: E402
@@ -68,6 +68,21 @@ SELECTION_RE = re.compile(r"\b(?:selected|highlighted|this (?:function|method|cl
 AUDIO_RE = re.compile(r"\b(?:said|say|saying|says|speaker|talk|talked|talking|mention|mentioned|video|meeting|call|"
                       r"lecture|tutorial|podcast|transcript|they|he|she|hear|heard|playing|audio|song)\b", re.I)
 BRIEFING_RE = r"(?:start|begin) my day|(?:morning|daily) (?:briefing|rundown)|brief me|what'?s on (?:for )?today"
+# Nova's own meeting recorder (lowercased, punctuation gone): "record this meeting", "record our conversation",
+# "listen, I'm talking with my sister, record everything we're saying" (anything may come before the request).
+# Without these the AI wrote its own recording script, and Nova waited on it until it was stopped by hand.
+# A question about recording ("how do I record a call?") is left for the AI to answer, and so is anything that says
+# not to record, or to record later ("don't record this", "remind me to record the meeting").
+_RECORDED = r"(?:meeting|call|conversation|chat|discussion|lecture|class|interview)"
+RECORD_RE = re.compile(
+    r"(?!.*\b(?:how|dont|not|never|stop|remind|later|tomorrow|tonight)\b)"
+    r"(?!(?:what|whats|why|where|when|which|is|are|does|do|did)\b)(?:.*\s)?"
+    rf"(?:(?:start |begin )?record(?:ing)? (?:this |the |my |our |a |the whole )?{_RECORDED}"
+    r"|record (?:everything|all of this|all of it|all this|what|whatever) (?:we|were|we are|you|they|theyre|they are)"
+    r" (?:say|saying|are saying|talk about|are talking about|discuss|are discussing)"
+    rf"|start (?:a |the )?{_RECORDED} recording)(?: for me| please| now| from now on)*")
+STOP_RECORD_RE = re.compile(rf"(?:please )?stop recording(?: (?:this |the |our )?{_RECORDED})?(?: now| please)*"
+                            rf"|(?:end|stop) (?:the |this |our )?{_RECORDED} recording(?: now| please)*")
 BRIEFING = ("Give me a spoken rundown of about 20 seconds to start my day, without changing anything: for each known "
             "project, its current git branch and whether it has uncommitted changes; unfinished tasks or TODOs in my "
             "notes folder from the last few days; and anything in your memory I asked to follow up on. Lead with "
@@ -138,6 +153,7 @@ class Nova:
         self.voice = True  # False while handling a request typed in the Nova window: no card, no speech
         self.ui_queue, self.outbox, self.clients = queue.Queue(), queue.Queue(), []
         self.clips, self.followup, self.in_followup = clipboard.History(), False, False  # recent copies (memory only); ask-back pending
+        self.unpaste = None  # puts back what the user had copied, a second after a dictation is pasted
         self.asked = False  # the last answer ended with a question, so a bare "okay" means yes, not goodbye
         self.sysaudio, self.listening = None, False  # the computer's audio, remembered; "listen to my computer" on
         self.recorder, self.meeting, self.reminded = None, None, set()  # a meeting being recorded; calendar reminders
@@ -287,9 +303,11 @@ class Nova:
                 log("error", error=f"the {engine} voice failed to load, using the system voice: {e!r}")
 
     def check_updates(self):
-        """A minute after starting, then daily: is there a newer Nova on GitHub? Say so once per version."""
+        """A minute after starting, then daily: is there a newer Nova on GitHub? Say so once per version. Also
+        deletes logs older than 30 days, as promised, while Nova runs for weeks without a restart."""
         time.sleep(60)
         while True:
+            prune_logs()
             found = update.newer() if self.cfg.get("update_check", True) else ""
             if found and found != self.update:
                 self.update = found
@@ -558,15 +576,21 @@ class Nova:
                     log("error", error=f"\"Hey Nova\" detector didn't download yet: {e!r}")
                 failed = True
                 time.sleep(300)
+        # what the computer plays, so a Teams meeting or a video saying something like "Hey Nova" can't wake it.
+        # shortcut: Windows only; on a Mac the capture helper would keep the screen-recording indicator on
+        played = loopback.Tail().start() if loopback.available() and not system.IS_MAC else None
         try:
             wake.listen(self.stt.quick, lambda clip, floor=None: self.ui(lambda: self.on_wake(clip, floor)),
                         lambda: self.phase == "idle" and not self.paused and not self.pending,
                         lambda: self.cfg["wake_word"],  # turning it off in settings closes the microphone
-                        lambda: self.cfg["wake_sensitivity"])
+                        lambda: self.cfg["wake_sensitivity"], played)
         except Exception as e:  # no microphone, device unplugged: the shortcut still works
             log("error", error=f"wake word stopped: {e!r}")
             message = friendly(e)
             self.ui(lambda: self.card.show("\"Hey Nova\" stopped listening", message, hide_after=8, kind="error"))
+        finally:
+            if played:
+                played.stop()
 
     def on_esc(self):
         """Esc in any app: deny an approval, or stop Nova listening or talking. A request still at work isn't stopped
@@ -641,6 +665,9 @@ class Nova:
 
     def quit(self):
         self.abort()
+        if self.unpaste:  # quitting within a second of a paste: the user's clipboard still comes back
+            self.unpaste.cancel()
+            self.restore_clipboard(*self.unpaste.args)
         if self.recorder:  # what was recorded is kept and transcribed when Nova starts again
             self.recorder.stop()
         if isinstance(self.engine_obj, whisper_cpp.Server):
@@ -712,6 +739,8 @@ class Nova:
             self.set_mode(msg["mode"])
         elif op == "pause":
             self.toggle_pause()
+        elif op == "enroll_voice":
+            self.enroll_voice()
         elif op == "reset" and self.brain:
             self.brain.reset()
             self.outbox.put({"event": "note", "title": "New conversation", "text": "Okay, starting fresh."})
@@ -1026,12 +1055,11 @@ class Nova:
                                     rf"{re.escape(key)}(?: routine| mode)?", n):
                 self.assist(f"Run my \"{name}\" routine: {steps}")
                 return True
-        if re.fullmatch(r"(?:start )?record(?:ing)? (?:this |the |my )?(?:meeting|call)|start (?:a )?meeting recording", n):
-            self.ui(self.meeting_start)
-            return True
-        if re.fullmatch(r"stop recording(?: (?:this |the )?(?:meeting|call))?|(?:end|stop) (?:the |this )?(?:meeting|call) "
-                        r"recording", n):
+        if STOP_RECORD_RE.fullmatch(n):  # first: "stop recording the meeting" also reads like asking to record
             self.ui(self.meeting_stop)
+            return True
+        if RECORD_RE.fullmatch(n):
+            self.ui(self.meeting_start)
             return True
         audio_on = re.fullmatch(r"(?:start )?listen(?:ing)? to (?:my |the )?(?:computer|system audio|audio|this video|"
                                 r"the video|this meeting|the meeting|this call|the call|this lecture|the lecture)", n)
@@ -1156,13 +1184,27 @@ class Nova:
             return self.ui(lambda: self.card.show("Copied, not typed", "Press Cmd+V to paste it. To let Nova type for "
                                                   "you, allow it under Accessibility in System Settings → Privacy & "
                                                   "Security.", hide_after=10, kind="error"))
-        saved = clipboard.snapshot()  # images, copied files and rich text survive the paste
+        # the last paste's restore, if it hasn't run yet
+        waiting = self.unpaste if self.unpaste and not self.unpaste.finished.is_set() else None
+        if waiting:
+            waiting.cancel()
+        # images, copied files and rich text survive the paste; right after another paste, what the user copied
+        # before that one (not its dictation) is what comes back
+        saved = waiting.args[0] if waiting else clipboard.snapshot()
         clipboard.set_text(text)
+        ours = clipboard.change_count()
         system.focus(self.target)
         time.sleep(0.08)
         system.paste()
-        time.sleep(0.3)
-        clipboard.restore(saved)
+        # a busy app (Slack, Teams, a remote desktop) reads the clipboard late: restoring at once would paste what was
+        # copied before, maybe a password. Restored in a second, off this thread, so the next request isn't held up
+        self.unpaste = threading.Timer(1.0, self.restore_clipboard, (saved, ours))
+        self.unpaste.start()
+
+    @staticmethod
+    def restore_clipboard(saved, ours):
+        if clipboard.change_count() == ours:  # the user copied something meanwhile: that stays
+            clipboard.restore(saved)
 
     def context(self, text):
         """What the AI should know: the app the user is in, their screen if they ask about it, and what they
@@ -1399,6 +1441,43 @@ class Nova:
                 self.outbox.put({"event": reply_event, **fields, "error": friendly(e)})
             self.outbox.put({"event": "meetings"})
         threading.Thread(target=run, daemon=True).start()
+
+    def enroll_voice(self):
+        """Settings → "Teach Nova your Hey Nova": the user says it a few times through Nova's own microphone, and
+        their voiceprint switches on the accent-trained detector (core/wakeword.py). Nova is busy meanwhile, so the
+        tries can't wake it. Progress goes to the window as {event: 'enroll'}; Esc or the shortcut cancels."""
+        progress = lambda **fields: self.outbox.put({"event": "enroll", **fields})  # noqa: E731
+        if self.phase != "idle" or self.pending or self.stt is None:
+            return progress(error="Nova is busy. Try again in a moment.")
+
+        def work():
+            try:
+                for name in ("wake-mel", "wake-embedding", "embedding"):
+                    if not models.installed(name):
+                        progress(text="Getting the files it needs (about 30 MB, once)…")
+                        models.download(name, lambda line: None)
+                clips = []
+                for k in range(wakeword.TRIES):
+                    if self.cancel.is_set():
+                        return progress(error="Cancelled. Your earlier voiceprint, if any, is unchanged.")
+                    self.stop_rec.clear()  # the shortcut ends one try early, not all of them
+                    prompt = f"Say “Hey Nova” the way you usually do ({k + 1} of {wakeword.TRIES})"
+                    progress(step=k + 1, of=wakeword.TRIES, text=prompt)
+                    self.ui(lambda p=prompt: self.card.show("Teaching Nova your voice", p, kind="speaking"))
+                    system.beep(start=True)
+                    clip = audio.record(600, 4, self.stop_rec, self.on_level)
+                    if clip is not None:
+                        clips.append(clip)
+                result = wakeword.enroll(clips)
+            except Exception as e:  # too few heard, offline, no microphone: the window says why
+                log("error", error=f"enrolling the voice: {e!r}")
+                self.ui(self.card.hide)
+                return progress(error=str(e) if isinstance(e, ValueError) else friendly(e))
+            log("enroll", **result)
+            self.ui(lambda: self.card.show("Nova knows your voice", "Say “Hey Nova” any time.", hide_after=5))
+            progress(done=True, **result)
+        self.ui(lambda: self.show_bar("listening"))
+        self.spawn(work, "listening")
 
     def on_meeting_op(self, op, msg):
         mid = msg.get("id", "")
@@ -1796,7 +1875,9 @@ class Nova:
                     msg = json.loads(data.decode("utf-8"))
                 except ValueError:
                     continue
-                if isinstance(msg, dict) and secrets.compare_digest(str(msg.get("key", "")), self.events_key):
+                # bytes: compare_digest refuses strings with non-ASCII characters, which would stop this listener
+                if isinstance(msg, dict) and secrets.compare_digest(str(msg.get("key", "")).encode(),
+                                                                    self.events_key.encode()):
                     self.ui(lambda m=msg: self.on_event(m))
             except OSError:
                 continue

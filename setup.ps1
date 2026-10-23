@@ -213,7 +213,10 @@ try {
     Step "Downloading Nova's voices and `"Hey Nova`" (about 110 MB, once)"
     Push-Location $Root
     foreach ($model in @(@("piper", "Piper voice", 64, "data\tts"), @("kitten", "Kitten voice", 25, "data\tts"),
-                         @("kws", "`"Hey Nova`"", 18, "data\models"))) {
+                         @("kws", "`"Hey Nova`"", 18, "data\models"),
+                         # for accents the keyword model misses, once you teach Nova your voice (Settings, General)
+                         @("wake-mel", "`"Hey Nova`" for your accent", 1, "data\models\wakeword"),
+                         @("wake-embedding", "`"Hey Nova`" for your accent", 1, "data\models\wakeword"))) {
         $name, $label, $size = $model[0], $model[1], $model[2]
         $part = Join-Path $Root "$($model[3])\$name.part"  # core/models.py downloads into <name>.part first
         $detail.Text = "$label (about $size MB)"

@@ -197,7 +197,10 @@ def steps(win):
     # Piper speaks by default and Kitten is the light choice; Kokoro (330 MB) downloads only if picked in Settings
     step(4, "Downloading Nova's voices and \"Hey Nova\" (about 110 MB, once)")
     for name, label, size, folder in (("piper", "Piper voice", 64, "tts"), ("kitten", "Kitten voice", 25, "tts"),
-                                      ("kws", "\"Hey Nova\"", 18, "models")):
+                                      ("kws", "\"Hey Nova\"", 18, "models"),
+                                      # for accents the keyword model misses, once you teach Nova your voice
+                                      ("wake-mel", "\"Hey Nova\" for your accent", 1, "models/wakeword"),
+                                      ("wake-embedding", "\"Hey Nova\" for your accent", 1, "models/wakeword")):
         stop = threading.Event()
         part = ROOT / "data" / folder / f"{name}.part"  # core/models.py downloads into <name>.part first
         threading.Thread(target=show_part, args=(win, stop, part, label, size), daemon=True).start()

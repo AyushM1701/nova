@@ -1335,20 +1335,87 @@ else:
 det = object.__new__(wake_mod.Detector)
 det.mark = det.sure = 60
 det.transcribe = lambda audio: [("play", 0.2), ("music", 0.5)]
-clip = np.zeros(60 * 480 + 16000, np.float32)
-heard_voice = []
-det.personal = type("P", (), {"voice": type("V", (), {"matches": lambda self, a: heard_voice.append(len(a)) or True})()})()
+clip = np.random.default_rng(2).normal(0, 0.05, 60 * 480 + 16000).astype(np.float32)  # something audible
+heard_voice, kept = [], []
+det.personal = type("P", (), {"voice": type("V", (), {"similarity": lambda self, a: heard_voice.append(len(a)) or 0.99})()})()
+det.played, saved_shadow, saved_keep = None, wakeword.shadow, wakeword.keep_shadow
+wakeword.shadow, wakeword.keep_shadow = (lambda: False), (lambda c, alike: kept.append(alike) or "x.wav")
 after, words = det.yours(clip)
 assert len(after) == 16000 and words == "play music", (len(after), words)
 assert heard_voice == [60 * 480]  # the voice is checked on everything up to where the model was last sure
-det.personal.voice.matches = lambda a: False
+assert kept == [0.99]  # a real wake keeps its clip too, so an unwanted one can be found and trained against
+kept.clear()
+det.personal.voice.similarity = lambda a: 0.4
 assert det.yours(clip) is None
+det.personal.voice.similarity = lambda a: None  # no voiceprint yet
+assert det.yours(clip) is None
+# silence the model fired on, even in a matching "voice" (the microphone's own room sound): nothing said, no wake
+det.personal.voice.similarity, said = (lambda a: 0.99), det.transcribe
+det.transcribe = lambda audio: []
+assert det.yours(clip) is None
+det.transcribe = said
+asked_whisper = []  # a silent clip (a muted or very quiet mic) is turned away before Whisper is asked
+det.transcribe = lambda audio: asked_whisper.append(1) or said(audio)
+assert det.yours(np.zeros_like(clip)) is None and not asked_whisper
+det.transcribe = said
+# shadow mode: a would-be wake never wakes Nova, but its clip is kept to train against
+wakeword.shadow, det.personal.voice.similarity = (lambda: True), (lambda a: 0.99)
+assert det.yours(clip) is None and kept == [0.99]
+wakeword.shadow = lambda: False  # until the end of these checks: the real switch may be on on this computer
+# a voice that only came out of the computer's speakers (a Teams meeting) doesn't count; one in the room does
+speech = np.random.default_rng(3).normal(0, 1, 16000 * 3).astype(np.float32) * np.repeat(
+    np.random.default_rng(4).uniform(0, 0.3, 30), 1600).astype(np.float32)
+det.played = type("T", (), {"recent": lambda self: np.concatenate([np.zeros(8000, np.float32), speech])})()
+assert det.from_speakers(speech * 0.2)
+assert not det.from_speakers(np.random.default_rng(5).normal(0, 0.1, 16000 * 3).astype(np.float32) * np.repeat(
+    np.random.default_rng(6).uniform(0, 0.3, 30), 1600).astype(np.float32))
+det.played = type("T", (), {"recent": lambda self: None})()  # nothing playing
+assert not det.from_speakers(speech)
+det.played = None
+# enrolling: too few tries heard is refused; enough makes the voiceprint and keeps the tries (in a scratch folder here)
+if wake_models.installed("embedding") and (Path(__file__).resolve().parent / "test_audio" / "hey-nova.wav").exists():
+    with wave.open(str(Path(__file__).resolve().parent / "test_audio" / "hey-nova.wav"), "rb") as w:
+        one = np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(np.float32) / 32767
+    pad = lambda a: np.concatenate([np.zeros(8000, np.float32), a, np.zeros(8000, np.float32)])  # noqa: E731
+    saved_paths = wakeword.VOICEPRINT, wakeword.RECORDINGS
+    with tempfile.TemporaryDirectory() as scratch:
+        wakeword.VOICEPRINT, wakeword.RECORDINGS = Path(scratch) / "voiceprint.npz", Path(scratch) / "tries"
+        try:
+            try:
+                wakeword.enroll([pad(one), np.zeros(16000, np.float32)])
+                raise AssertionError("two tries, one of them silent, shouldn't make a voiceprint")
+            except ValueError:
+                pass
+            result = wakeword.enroll([pad(one)] * 4)
+            assert result["tries"] == 4 and wakeword.VOICEPRINT.exists() and len(list(wakeword.RECORDINGS.glob("*.wav"))) == 4
+        finally:
+            wakeword.VOICEPRINT, wakeword.RECORDINGS = saved_paths
+# a detector that failed to load is tried again once the voiceprint changes (enrolling again), not only at restart
+with tempfile.TemporaryDirectory() as scratch:
+    saved_state = (dict(wake_mod._personal), wakeword.VOICEPRINT, wakeword.installed, wakeword.Personal, wake_mod.log)
+    wakeword.VOICEPRINT, wakeword.installed = Path(scratch) / "voiceprint.npz", lambda: True
+    wake_mod.log = lambda *a, **k: None  # the simulated failure isn't a real one for Nova's log
+    wakeword.VOICEPRINT.write_bytes(b"x")
+    loads = []
+    wakeword.Personal = lambda: loads.append(1) or (_ for _ in ()).throw(OSError("broken file"))
+    wake_mod._personal.update(model=None, failed=None)
+    try:
+        assert wake_mod.personal_model() is None and wake_mod.personal_model() is None and loads == [1]
+        os.utime(wakeword.VOICEPRINT, ns=(1, 1))  # enrolled again
+        wakeword.Personal = lambda: loads.append(1) or "loaded"
+        assert wake_mod.personal_model() == "loaded" and loads == [1, 1]
+    finally:
+        wake_mod._personal.clear()
+        wake_mod._personal.update(saved_state[0])
+        wakeword.VOICEPRINT, wakeword.installed, wakeword.Personal, wake_mod.log = saved_state[1:]
 # another voice the personal model flagged never reaches Whisper's looser check; the keyword model's flags do
 whisper_asked = []
+det.personal.voice.similarity = lambda a: 0.4  # not the user's voice
 det.confirm = lambda c: whisper_asked.append(1) or (c, "")
 assert det.check(clip, mine=True, keyword=False) is None and not whisper_asked
 assert det.check(clip, mine=True, keyword=True) is not None and whisper_asked == [1]
 del det.confirm
+wakeword.shadow, wakeword.keep_shadow = saved_shadow, saved_keep
 
 # a microphone that stops sending sound (unplugged, changed, after sleep) is opened again, not waited on forever
 opened = []
@@ -1523,6 +1590,23 @@ assert mem.transcript().count("heard") == 1 and FakeSTT.calls == 1
 nova_obj = object.__new__(nova_mod.Nova)
 nova_obj.cfg = merged(json.load(open("config.default.json", encoding="utf-8")), {"voice": {"stt_engine": "parakeet"}})
 nova_obj.mode, nova_obj.engine_spec, nova_obj.cloud_rest = "assistant", None, ("", 0)
+# asking to record starts Nova's own recorder, never a script the AI writes; asking how to record goes to the AI
+said = lambda text: re.sub(r"[^\w\s]", "", text.lower()).strip()  # noqa: E731  (as Nova.command sees it)
+for text in ("Record this meeting.", "Start recording the call", "Record our conversation, please",
+             "Listen, I'm talking with my sister. Record everything we are saying.", "record everything we're saying",
+             "Can you record this conversation for me?", "Nova, record the whole meeting", "Start a conversation recording",
+             "I want to record this lecture"):
+    assert nova_mod.RECORD_RE.fullmatch(said(text)), text
+for text in ("How do I record this meeting?", "What's the best way to record a call?", "Record a video of my screen",
+             "Did you record our conversation?", "Can you tell me how to record a call", "Record a voice memo",
+             "Remind me to record the meeting tomorrow at 9", "Remind me to record the meeting",
+             "Don't record this conversation", "Do not record this call", "Please never record my calls",
+             "Stop recording the meeting", "Stop recording our conversation", "Record the call later"):
+    assert not nova_mod.RECORD_RE.fullmatch(said(text)), text
+for text in ("Stop recording", "Stop recording our conversation.", "End the meeting recording", "stop recording now"):
+    assert nova_mod.STOP_RECORD_RE.fullmatch(said(text)), text
+assert not nova_mod.STOP_RECORD_RE.fullmatch(said("How do I stop recording?"))
+
 # three Ctrl taps work like the shortcut, but never say "allow" to an approval, and not in a game
 pressed, saved_gaming = [], nova_mod.system.gaming
 nova_obj.on_hotkey, nova_mod.system.gaming = lambda: pressed.append(1), lambda: False
@@ -1677,5 +1761,90 @@ assert take_point("Done.\nPOINT: none", (0, 0, 1, 10, 10)) == ("Done.", None)
 assert system.mac_permissions() == {} or system.IS_MAC  # nothing to ask for outside a Mac
 assert take_point("POINT: 5,5 x", None) == ("", None)  # no screenshot this time: nothing to map to
 assert take_point("Use the POINT: 5,5 trick", (0, 0, 1, 10, 10))[1] is None  # only a line of its own
+
+# Auto asks before running a script the AI just wrote (writing it doesn't ask, so two steps would skip every rule);
+# a script nobody touched lately runs as before
+with tempfile.TemporaryDirectory() as tmp:
+    for name in ("cleanup.py", "x.ps1", "old.py"):
+        Path(tmp, name).write_text("x", encoding="utf-8")
+    os.utime(Path(tmp, "old.py"), (time.time() - 3600,) * 2)
+    for cmd, want in [("python cleanup.py", "confirm"), (r"pwsh -NoProfile -File .\x.ps1", "confirm"),
+                      (r".\x.ps1", "confirm"), ("py -3 cleanup.py", "confirm"), ("python old.py", "allow"),
+                      ("node missing.js", "allow"), ("python -m pytest", "allow")]:
+        tier, why = classify_command(cmd, str(Path(__file__).parent), "auto", cwd=tmp)
+        assert tier == want, (cmd, tier, why)
+    assert "written or changed" in classify_command("python cleanup.py", None, "auto", cwd=tmp)[1]
+    assert classify_command("python cleanup.py", None, "bypass", cwd=tmp)[0] == "allow"  # Bypass never asks
+
+# a dictation's paste: the user's clipboard comes back a second later (a slow app still pastes the dictation, not
+# what was copied before), only if nothing new was copied meanwhile; two pastes in a row bring back the original
+board = {"now": "password123", "count": 0, "pasted": []}
+
+
+def fake_set(text):
+    board.update(now=text, count=board["count"] + 1)
+
+
+real_clip = {n: getattr(nova_mod.clipboard, n) for n in ("snapshot", "set_text", "change_count", "restore")}
+real_sys = (nova_mod.system.focus, nova_mod.system.paste, nova_mod.system.mac_permissions)
+nova_mod.clipboard.snapshot, nova_mod.clipboard.set_text = lambda: board["now"], fake_set
+nova_mod.clipboard.change_count, nova_mod.clipboard.restore = lambda: board["count"], fake_set
+nova_mod.system.focus, nova_mod.system.mac_permissions = lambda target: None, lambda: {"accessibility": True}
+nova_mod.system.paste = lambda: board["pasted"].append(board["now"])
+try:
+    paster = object.__new__(nova_mod.Nova)
+    paster.unpaste, paster.target = None, None
+    paster.paste("hello")
+    assert board["now"] == "hello"  # not put back at once
+    paster.paste("world")  # the next dictation, within the second
+    paster.unpaste.join(3)
+    assert board["pasted"] == ["hello", "world"] and board["now"] == "password123", board
+    paster.paste("again")
+    fake_set("copied by the user")  # copied something new meanwhile: it stays
+    paster.unpaste.join(3)
+    assert board["now"] == "copied by the user", board
+finally:
+    for n, f in real_clip.items():
+        setattr(nova_mod.clipboard, n, f)
+    nova_mod.system.focus, nova_mod.system.paste, nova_mod.system.mac_permissions = real_sys
+
+# the local event listener keeps going after a key it can't compare (non-ASCII), and still takes the right one
+srv = socket.socket()
+srv.bind(("127.0.0.1", 0))
+srv.listen()
+inst, got = object.__new__(nova_mod.Nova), []
+inst.events_key, inst.ui = "k" * 32, got.append
+threading.Thread(target=inst.serve_instances, args=(srv,), daemon=True).start()
+for body in ({"key": "é", "event": "x"}, {"key": "k" * 32, "event": "x"}):
+    with socket.create_connection(srv.getsockname()) as c:
+        c.sendall(json.dumps(body).encode())
+for _ in range(60):
+    if got:
+        break
+    time.sleep(0.05)
+assert len(got) == 1, got
+srv.close()
+
+# logs older than 30 days go every day, not only when Nova starts (it can run for weeks)
+pruned, waits = [], []
+
+
+def fake_wait(seconds):
+    waits.append(seconds)
+    if len(waits) > 2:
+        raise StopIteration
+
+
+real_prune, real_time = nova_mod.prune_logs, nova_mod.time
+nova_mod.prune_logs, nova_mod.time = lambda: pruned.append(1), types.SimpleNamespace(sleep=fake_wait)
+try:
+    daily = object.__new__(nova_mod.Nova)
+    daily.cfg, daily.update = {"update_check": False}, ""
+    daily.check_updates()
+except StopIteration:
+    pass
+finally:
+    nova_mod.prune_logs, nova_mod.time = real_prune, real_time
+assert len(pruned) == 2 and waits[1:] == [24 * 3600, 24 * 3600], (pruned, waits)  # once a day
 
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it

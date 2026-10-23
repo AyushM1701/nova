@@ -7,7 +7,9 @@ alongside "Hey Nova" from every voice Nova has (Kokoro, Kitten, Piper and Piper'
 with noise, room echo, other speeds and loudness, against look-alikes ("you know what", "a nova", "bossa nova"),
 ordinary sentences and real recorded speech (LibriSpeech's dev-clean set). It reports how often it would wake on
 recordings it never saw, and how often it would wake by mistake per hour of speech, then writes
-data/models/wakeword/hey_nova.npz. Recordings, generated audio and the model never leave this computer.
+data/models/wakeword/hey_nova.npz (Nova then uses it instead of the one it ships) and a voiceprint from the same
+recordings. To ship it with Nova, copy the .npz to models/hey_nova.npz: it holds the classifier only, no voice.
+Recordings, generated audio and the voiceprint never leave this computer.
 """
 import re
 import sys
@@ -36,38 +38,17 @@ LOOKALIKES = ["You know what?", "And over.", "A nova.", "Anova", "Hey, no proble
 LIBRITTS = ("LibriTTS voices", "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/"
             "vits-piper-en_US-libritts_r-medium.tar.bz2", DATA / "tts" / "vits-piper-en_US-libritts_r-medium", "75 MB")
 LIBRISPEECH = "https://www.openslr.org/resources/12/dev-clean.tar.gz"  # 5.4 hours of read English, CC BY 4.0
-# how alike a voice (its spoken part) must be to yours. Measured when this was built, with the recordings set in
-# their own room's sound: 59% of them over 0.85, 84% over 0.80; strangers LibriSpeech's speech the model mistook for
-# "Hey Nova" topped out at 0.85, and 1.1 an hour of them were over 0.80
-VOICE = 0.85
+VOICE = wakeword.VOICE
 rng = np.random.default_rng(7)
 
 
 # ---------- your recordings ----------
-def utterances(audio):
-    """The "Hey Nova"s in one recording: stretches of sound split at pauses of 0.35 s or more."""
-    frame = 320
-    rms = np.sqrt(np.mean(audio[:len(audio) // frame * frame].reshape(-1, frame) ** 2, axis=1))
-    loud = rms > max(0.12 * rms.max(), 3 * np.percentile(rms, 10))
-    out, start, quiet = [], None, 0
-    for i, on in enumerate(np.append(loud, False)):
-        if on:
-            start, quiet = (i if start is None else start), 0
-        elif start is not None:
-            quiet += 1
-            if quiet * frame / RATE >= 0.35 or i == len(loud):
-                a, b = max(0, (start - 8) * frame), min(len(audio), (i - quiet + 8) * frame)
-                if 0.35 <= (b - a) / RATE <= 2.5:
-                    out.append(audio[a:b])
-                start = None
-    return out or [audio[-int(2.5 * RATE):]]
-
-
 def personal(folder):
     clips = []
     for f in sorted(Path(folder).iterdir()):
         if f.suffix.lower() in (".m4a", ".wav", ".mp3", ".ogg", ".flac", ".aac", ".webm"):
-            clips += [(f.name, u) for u in utterances(meetings.decode(f))]
+            audio = meetings.decode(f)
+            clips += [(f.name, u) for u in wakeword.utterances(audio) or [audio[-int(2.5 * RATE):]]]
     return clips
 
 
@@ -284,9 +265,9 @@ def main(folder):
     # ---------- the model Nova uses: trained on all your recordings ----------
     w = train(np.concatenate([pos_synth, mine_windows([c for _, c in mine], 40)]), negatives)
     wakeword.DIR.mkdir(parents=True, exist_ok=True)
-    np.savez(wakeword.MODEL, threshold=best, voiceprint=voiceprint_of(list(voices.values())), voice_threshold=VOICE,
-             recordings=len(mine), **w)
-    print(f"wrote {wakeword.MODEL} ({time.time() - t0:.0f} s in all)")
+    np.savez_compressed(wakeword.OWN, threshold=best, **{k: v.astype(np.float32) for k, v in w.items()})
+    np.savez(wakeword.VOICEPRINT, voiceprint=voiceprint_of(list(voices.values())), tries=len(mine))
+    print(f"wrote {wakeword.OWN} and your voiceprint ({time.time() - t0:.0f} s in all)")
 
 
 def voiceprint_of(embeddings):

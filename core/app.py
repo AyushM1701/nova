@@ -383,6 +383,11 @@ class Api:
         system.set_autostart(bool(on), Path(sys.executable), ROOT / "nova.py", DATA / "nova.ico")
         return system.autostart_enabled()
 
+    def voice_enrolled(self):
+        """Whether this computer has a "Hey Nova" voiceprint (Nova records it: send("enroll_voice"))."""
+        from core import wakeword
+        return {"enrolled": wakeword.enrolled()}
+
     # ---------- history ----------
     def history(self, limit=600):
         return read_history(SHOWN, limit)

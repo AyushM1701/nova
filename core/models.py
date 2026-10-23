@@ -34,6 +34,11 @@ DOWNLOADS = {
     "embedding": ("Speaker voices", f"{SHERPA}/speaker-recongition-models/"
                   "3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx",
                   MODELS / "3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx", "28 MB"),
+    # openWakeWord's speech features (Apache-2.0), for the accent-trained "Hey Nova" (core/wakeword.py)
+    "wake-mel": ("\"Hey Nova\" features (1 of 2)", "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/"
+                 "melspectrogram.onnx", MODELS / "wakeword" / "melspectrogram.onnx", "1 MB"),
+    "wake-embedding": ("\"Hey Nova\" features (2 of 2)", "https://github.com/dscripka/openWakeWord/releases/download/"
+                       "v0.5.1/embedding_model.onnx", MODELS / "wakeword" / "embedding_model.onnx", "1 MB"),
 }
 # Parakeet v3 and its Orukeet fine-tune understand these 25 languages; Hindi isn't one of them
 LANGUAGES = set("bg hr cs da nl en et fi fr de el hu it lv lt mt pl pt ro sk sl es sv ru uk".split())

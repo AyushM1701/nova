@@ -67,7 +67,9 @@ def check(api_key, model):
 
 def run_command(command, ask, home=str(ROOT), mode="accept_edits"):
     """Run one command for the backup brain, after the same safety rules (and permission mode) Claude's get."""
-    tier, why = classify_command(command, home, mode)
+    workspace = ROOT / "workspace"  # where Claude and Codex run too, so the guard's "..\data" rule applies alike
+    workspace.mkdir(exist_ok=True)
+    tier, why = classify_command(command, home, mode, cwd=str(workspace))
     if tier == "block" and why == PLAN:
         return PLAN + "."
     if tier == "block":
@@ -75,8 +77,6 @@ def run_command(command, ask, home=str(ROOT), mode="accept_edits"):
     if tier == "confirm" and not ask({"tool": "Bash", "summary": command[:400], "reason": why}):
         return "The user declined this command. Don't try another way; ask them what they'd like."
     args = ["bash", "-lc", command] if IS_MAC else ["powershell", "-NoProfile", "-Command", command]
-    workspace = ROOT / "workspace"  # where Claude and Codex run too, so the guard's "..\data" rule applies alike
-    workspace.mkdir(exist_ok=True)
     try:
         r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
                            cwd=workspace, creationflags=NO_WINDOW)

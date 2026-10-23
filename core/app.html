@@ -644,6 +644,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><button class="switch" role="switch" data-bind="wake_word" aria-label="Listen for Hey Nova"></button></div></div>
         <div class="row"><div class="what"><h2>How easily “Hey Nova” wakes Nova</h2><p>High (the default) hears a soft or distant voice best. If Nova wakes when you didn't call it, try Normal; Low needs you to say it clearly. The listening runs on this computer.</p></div>
           <div class="how"><div class="seg" role="radiogroup" data-bind="wake_sensitivity" data-options="low:Low,normal:Normal,high:High"></div></div></div>
+        <div class="row"><div class="what"><h2>Teach Nova your “Hey Nova”</h2><p id="enrollNote">If Nova often misses your “Hey Nova”, say it 8 times here. Nova also listens with a detector trained on Indian English, which wakes only for your voice; the voiceprint stays on this computer.</p></div>
+          <div class="how"><button class="btn sm" id="enrollBtn">Start</button></div></div>
         <div class="row"><div class="what"><h2>Start in</h2><p>The mode Nova opens in. Switch any time with the sidebar or by saying “switch to dictation”.</p></div>
           <div class="how"><div class="seg" role="radiogroup" data-bind="start_mode" data-options="assistant:Assistant,dictation:Dictation"></div></div></div>
         <div class="row"><div class="what"><h2>Open Nova when you sign in</h2><p>Nova waits quietly in the tray (the ^ by the clock) or the menu bar.</p></div>
@@ -1446,7 +1448,16 @@ function bindSettings() {
   addRoutine = pairsEditor($("#routines"), "routines", "deep code mode", "pause music, open VS Code in portfolio, run npm run dev");
   $("#claudeHook").setAttribute("aria-checked", !!S.claudeHook);
   $("#watchCmd").textContent = `python "${S.paths.root}${S.platform === "mac" ? "/" : "\\"}helpers${S.platform === "mac" ? "/" : "\\"}watch.py" npm run build`;
+  drawEnroll();
 }
+/* "Teach Nova your Hey Nova": Nova records the tries itself (nova.py enroll_voice) and reports as {event: 'enroll'} */
+const ENROLL_NOTE = $("#enrollNote").textContent;
+async function drawEnroll() {
+  try { const st = await api().voice_enrolled(); $("#enrollBtn").textContent = st.enrolled ? "Record again" : "Start"; } catch (e) { /* the window keeps its default */ }
+}
+$("#enrollBtn").addEventListener("click", async () => {
+  try { await api().send("enroll_voice"); $("#enrollBtn").disabled = true; $("#enrollNote").textContent = "Getting ready…"; } catch (e) { fail(e); }
+});
 $("#autostart").addEventListener("click", async e => {
   const btn = e.currentTarget, want = btn.getAttribute("aria-checked") !== "true";
   try { S.autostart = await api().autostart(want); btn.setAttribute("aria-checked", S.autostart); toast(local(S.autostart ? "Nova will open when you sign in" : "Nova won't open at sign in")); } catch (err) { fail(err); }
@@ -2191,6 +2202,13 @@ const handlers = {
   },
   meetings() { if (S.page === "meetings") { if (MT.id) refreshMeeting(); else loadMeetings(); } },
   meeting_live(ev) { MT.live = ev; renderRecording(); },
+  enroll(ev) {
+    const note = $("#enrollNote"), btn = $("#enrollBtn");
+    if (ev.error || ev.done) { btn.disabled = false; note.textContent = ENROLL_NOTE; }
+    if (ev.error) return fail(ev.error);
+    if (ev.done) { drawEnroll(); return toast(ev.ok ? `Nova learned your voice from ${ev.tries} tries` : "Saved, but the tries sounded quite different from each other. Record again somewhere quieter, alone, if Nova misses you.", !ev.ok); }
+    note.textContent = ev.text;
+  },
   meeting_progress(ev) {  // only the row or page it's about: reloading every meeting per tick froze the window
     MT.progress[ev.id] = ev.text;
     if (S.page !== "meetings") return;

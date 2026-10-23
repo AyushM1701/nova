@@ -158,6 +158,11 @@ PLAN = ("Plan mode is on, so nothing may change yet. Finish investigating, descr
 UNFAMILIAR = ("isn't on the known-safe list", "writes a file through a redirect", "unrecognised tool")
 # Auto still asks for code typed straight into a command: the easy way around every rule above
 INLINE_CODE = r"\b(python3?|py|node|deno|bun|ruby|perl|php)(\.exe)?\s+(-c|-e|--eval|-p)\b"
+# ...and a script file run the same way ("python cleanup.py", "pwsh -File x.ps1", ".\x.ps1"): one the AI wrote a
+# moment ago is the same code in two steps (writing it to the Desktop or a project doesn't ask in Auto)
+SCRIPT_RUN = (r"(?:^|[;&|\s(])(?:(?:python3?|py|node|deno|bun|ruby|perl|php|bash|sh|zsh|pwsh|powershell)(?:\.exe)?"
+              r"(?:\s+-\S+)*\s+|\.[\\/]|&\s*)[\"']?([^\s\"';|&]+\.(?:py|pyw|js|mjs|cjs|ts|rb|pl|php|sh|ps1|bat|cmd))\b")
+FRESH_S = 600  # written or changed this many seconds ago or less: "just written"
 # known-safe commands that still change something, which Plan mode holds back too
 CHANGES = (r"\bgit\s+(add|commit|pull|switch|checkout|stash|fetch|tag|branch\s+\S)|\b(start-process|start|saps|"
            r"invoke-item|ii|explorer(\.exe)?|open|npm|pnpm|yarn|npx|pytest|mkdir|md|new-item|set-clipboard|scb|pbcopy"
@@ -195,6 +200,9 @@ def classify_command(cmd, home=None, mode="accept_edits", cwd=None):
         return "confirm", "changes something (Manual mode asks before every change)"
     if mode == "auto" and re.search(INLINE_CODE, cmd.lower()):
         return with_mode(tier, why, mode, unfamiliar=False)
+    fresh = mode == "auto" and tier == "confirm" and _fresh_script(cmd, cwd)
+    if fresh:
+        return "confirm", f"runs {fresh}, a script written or changed in the last few minutes"
     return with_mode(tier, why, mode)
 
 
@@ -263,6 +271,18 @@ def _command(cmd, home=None, cwd=None):
         if not any(re.match(p, seg) for p in ALLOW) and not (helper and re.match(helper, seg.replace("\\", "/"))):
             return "confirm", f"isn't on the known-safe list ({seg[:60]})"
     return "allow", "known safe command"
+
+
+def _fresh_script(cmd, cwd):
+    """The first script file `cmd` runs that was written or changed in the last FRESH_S seconds, or None."""
+    for path in re.findall(SCRIPT_RUN, cmd, re.I):
+        try:
+            full = os.path.join(cwd or os.getcwd(), os.path.expandvars(os.path.expanduser(path)))
+            if time.time() - os.path.getmtime(full) < FRESH_S:
+                return path
+        except OSError:  # not a file here (yet): the other rules decide
+            pass
+    return None
 
 
 def _wide(folder):
