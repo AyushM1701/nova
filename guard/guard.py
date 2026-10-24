@@ -434,6 +434,7 @@ def _args(segment):
 
 def _thing(path, cwd):
     """'the dist folder in portfolio (14 files)' or 'notes.txt in portfolio'."""
+    path = path.replace("\\", os.sep)  # PowerShell on a Mac takes ".\dist" too, but macOS paths use "/"
     full = os.path.normpath(os.path.join(cwd, os.path.expanduser(os.path.expandvars(path))))
     name, where = os.path.basename(full) or full, os.path.basename(os.path.dirname(full)) or os.path.dirname(full)
     if os.path.isdir(full):
