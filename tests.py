@@ -2612,4 +2612,15 @@ if Path(__file__).with_name(".git").exists() and shutil.which("git"):
                               cwd=Path(__file__).parent).stdout
         assert attr.strip().endswith(": set"), attr
 
+# a rescue copy that can't be written (antivirus lock, full disk) never stops the dictation itself
+with tempfile.TemporaryDirectory() as tmp:
+    locked = Path(tmp) / "last.wav"
+    locked.mkdir()  # a folder where the file should go: writing it fails like a locked file does
+    real_log, rescue.log = rescue.log, lambda *a, **k: None  # this check doesn't belong in your activity log
+    try:
+        assert rescue.keep(np.zeros(1600, dtype=np.float32), locked) is False
+    finally:
+        rescue.log = real_log
+    assert rescue.keep(np.zeros(1600, dtype=np.float32), Path(tmp) / "ok.wav") is True
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it

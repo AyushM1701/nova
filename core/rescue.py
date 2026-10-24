@@ -4,19 +4,25 @@ import wave
 
 import numpy as np
 
-from core.config import DATA
+from core.config import DATA, log
 
 RESCUE = DATA / "last-dictation.wav"
 RATE = 16000
 
 
 def keep(clip, path=RESCUE):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(path), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(RATE)
-        w.writeframes((np.clip(clip, -1, 1) * 32767).astype("<i2").tobytes())
+    """True if saved. A copy that can't be written (antivirus lock, full disk) is skipped: the dictation goes on."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "wb") as f, wave.open(f, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(RATE)
+            w.writeframes((np.clip(clip, -1, 1) * 32767).astype("<i2").tobytes())
+        return True
+    except OSError as e:
+        log("error", error=f"couldn't keep a rescue copy of the dictation: {e!r}")
+        return False
 
 
 def pending(path=RESCUE):
