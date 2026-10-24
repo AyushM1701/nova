@@ -13,7 +13,9 @@ Free and open source. No account, no subscription, no Nova server. Speech recogn
 
 **[Download for Windows](https://github.com/AyushM1701/nova/releases/latest/download/nova-main.zip)** · **[Install on Mac](#install)** · [What it can do](#everything-it-does) · [Is it safe?](#safety)
 
-<!-- Add a 20-second demo here: docs/demo.gif, "Hey Nova, what's this error?" then a dictated email. It sells better than any paragraph. -->
+<a href="docs/media/nova-hero.mp4"><img src="docs/media/nova-demo.gif" width="880" alt="Nova demo: the user says “Hey Nova, open Spotify and play something chill”, the bar listens, the card thinks, and Nova answers out loud while Spotify starts"></a>
+
+<sub>▶ [Watch the 1-minute demo, with sound](docs/media/nova-hero.mp4) · [Setup walkthrough](docs/media/nova-setup.mp4)</sub>
 
 </div>
 
@@ -84,6 +86,8 @@ Free and open source. No account, no subscription, no Nova server. Speech recogn
 
 You need about 3 GB of free space and an internet connection for the first setup. Setup installs everything else it needs and asks before installing anything system-wide. You don't need git or a terminal.
 
+Prefer to watch? The [one-minute setup walkthrough](docs/media/nova-setup.mp4) shows every step on Windows.
+
 ### Step-by-step (no git needed)
 
 **Windows 10/11**
@@ -149,7 +153,7 @@ Only tagged releases reach the Update button, never unreleased work on `main`. T
 | "add Kubernetes to my dictionary" | Teaches the speech recognizer a word. Fixing a misheard word right after dictating teaches it too (Settings → Dictation) |
 | Hold **Left Ctrl** (**Left Cmd** on a Mac) for 1.5 s (key and time set in Settings → General) | Hold-to-dictate: Nova types what you say until you let go, however long you pause. A second hold key can ask Nova instead |
 | Tap **Ctrl** three times (Mac: **Cmd**) | Same as the shortcut, from any app. Ignored while a game is in front: one installed by Steam, Epic, Xbox, GOG, EA, Ubisoft or Riot, any full-screen game on Windows, or an app filed as a game on a Mac. Turn it off in Settings → General |
-| "record this meeting" / "record our conversation" / "record everything we're saying" / "stop recording" | Records your microphone and the computer's audio (no bot joins), then writes a transcript with speaker labels and minutes from your notes. See the Meetings page, where you can also export it as subtitles (SRT) or text, or open its Markdown note. "Don't record this" or "how do I record a call?" go to the AI instead |
+| "record this meeting" / "record our conversation" / "record everything we're saying" / "stop recording" | Records your microphone and the computer's audio (no bot joins), then writes a transcript with speaker labels and minutes from your notes. While it records, a card reminds you every 15 minutes. See the Meetings page, where you can also export it as subtitles (SRT) or text, or open its Markdown note. "Don't record this" or "how do I record a call?" go to the AI instead |
 | Settings → General → **Teach Nova your "Hey Nova"** | If Nova often misses your "Hey Nova" (it was first tuned on American English), say it 8 times there. A second detector, trained on Indian-English "Hey Nova"s, then listens too. It needs something spoken and ignores voices from the computer's own speakers. It's new: tell us if it wakes when you didn't call it |
 | "turn it up a bit", "volume 40", "skip this song", "open VS Code", "open YouTube", "what time is it?", "set a timer for 5 minutes", "lock my computer" | Done instantly on your computer: no AI call, no quota used |
 | Select text, then "make this shorter" (dictation mode) | Rewrites the selection in place |
@@ -280,6 +284,7 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 - **"No AI connected":** open the Nova window → Settings → AI, and install or sign in to Claude Code or Codex there.
 - **Setup stopped:** the setup window says why; the full output is in `data/setup.log`.
 - **Logs:** Nova window → Settings → Advanced → Logs. Every request, reply and guard decision is in `logs/nova-YYYY-MM-DD.jsonl`.
+- **Nova closed by itself:** if a library Nova uses crashes, the details are in `logs/crash.txt`. Include that file when you report it.
 
 ## Project layout
 
@@ -297,7 +302,12 @@ core/calendar_ics.py  your calendar, read-only, from its ICS address
 core/learn.py         learns dictionary words from the corrections you make after dictating
 core/loopback.py      the computer's own audio (Windows loopback; helpers/mac_audio_tap.swift on macOS)
 core/wake.py          "Hey Nova" wake word
-core/cleanup.py       dictation cleanup: fillers, self-corrections, Hinglish
+core/cleanup.py       dictation cleanup: fillers, self-corrections, Hinglish, snippets, tone per app
+core/local_llm.py     dictation cleanup by a model on this computer (Ollama, llama.cpp, LM Studio)
+core/rescue.py        keeps each dictation's audio until it's typed (crash recovery)
+core/stats.py         words dictated, speaking speed and time saved, for the Home page
+core/schedule.py      scheduled routines ("every weekday at 9, run start my day")
+core/walkthrough.py   the first-run walkthrough's clips: downloaded once, checked against the release's checksum
 core/brain.py         Claude Code and Codex adapters
 core/bar.py           the bottom-centre bar
 core/overlay.py       the card for replies and approvals
