@@ -1419,7 +1419,7 @@ function renderSchedules() {  // added by voice (core/schedule.py), removed here
   const when = s => { const k = Object.keys(DAY_SETS).find(n => DAY_SETS[n] === s.days.join("")); return `Every ${k || s.days.map(d => DAY_NAMES[d]).join(", ")} at ${s.at}`; };
   $("#schedules").replaceChildren(...(list.length ? list.map((s, i) => {
     const rm = h("button", { class: "icon-btn", "aria-label": "Delete", html: I.x });
-    rm.addEventListener("click", async () => { await fresh("schedules"); set("schedules", (get("schedules") || []).filter(x => !(x.run === s.run && x.at === s.at))); save(); renderSchedules(); });
+    rm.addEventListener("click", async () => { await fresh("schedules"); set("schedules", (get("schedules") || []).filter(x => !(x.run === s.run && x.at === s.at && x.days.join("") === s.days.join("")))); save(); renderSchedules(); });
     return h("li", {}, h("span", { style: "flex:1" }, `${when(s)}: ${s.run}`), rm);
   }) : [h("li", { style: "display:block" }, h("p", { class: "muted" }, "Nothing scheduled yet."))]));
 }

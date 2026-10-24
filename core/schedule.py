@@ -11,7 +11,7 @@ DAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
 DAYS = {"day": list(range(7)), "weekday": list(range(5)), "weekend": [5, 6],
         **{name: [i] for i, name in enumerate(DAY_NAMES)}}
 SCHEDULE_RE = re.compile(r"^\W*every (" + "|".join(DAYS) + r")s? at (\d{1,2})(?::(\d{2}))? ?([ap])?\.?m?\.?,? "
-                         r"(?:run )?(.+?)[.!]?$", re.I)
+                         r"run (.+?)[.!]?$", re.I)  # "run" is required: "every Monday at 9 I have…" is a request
 
 
 def parse(text):
@@ -30,7 +30,7 @@ def parse(text):
 
 
 def key(s):
-    return f"{s['run']}|{s['at']}"
+    return f"{s['run']}|{s['at']}|{''.join(map(str, s['days']))}"
 
 
 def due(schedules, now, last):
