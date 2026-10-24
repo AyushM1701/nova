@@ -2329,4 +2329,19 @@ assert srt(M) == ("1\n00:00:00,000 --> 00:00:02,500\nAyush: Hi all.\n\n"
                   "2\n01:01:01,200 --> 01:01:03,000\nSpeaker: Bye.\n")
 assert srt({"transcript": []}) == ""
 
+# crash-safe dictation: the audio is kept until it's typed
+import numpy as np  # noqa: E402
+from core import rescue  # noqa: E402
+with tempfile.TemporaryDirectory() as tmp:
+    p = Path(tmp) / "last.wav"
+    assert rescue.pending(p) is None
+    clip = np.sin(np.linspace(0, 100, 16000)).astype(np.float32) * 0.5
+    rescue.keep(clip, p)
+    back = rescue.pending(p)
+    assert back is not None and len(back) == 16000 and np.abs(back - clip).max() < 1e-3
+    rescue.clear(p)
+    assert rescue.pending(p) is None and not p.exists()
+    p.write_bytes(b"garbage")
+    assert rescue.pending(p) is None and not p.exists()   # corrupt: removed, not retried every start
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it

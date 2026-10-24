@@ -32,8 +32,8 @@ if (DATA / "models-ready").exists():  # the speech models are downloaded: never 
 import pystray  # noqa: E402
 
 from core import (audio, cleanup, clipboard, cloud_stt, deepgram, fallback, icon, intents, loopback,  # noqa: E402
-                  calendar_ics, learn, meetings, models, phone, region, screen_text, stats, system, tts,
-                  update, wake, wakeword, whisper_cpp)
+                  calendar_ics, learn, meetings, models, phone, region, rescue, screen_text, stats, system,
+                  tts, update, wake, wakeword, whisper_cpp)
 from core import browser as web  # noqa: E402
 from core.bar import Bar  # noqa: E402
 from core.brain import discover_projects, find_cli, make_brain, project_folders  # noqa: E402
@@ -319,6 +319,7 @@ class Nova:
         else:
             self.ui(self.card.hide)
         log("start", mode=self.mode, brain=self.brain and self.brain.exe, stt_device=self.stt.device)
+        self.recover_dictation()
         self.ui(self.start_wake)
         self.ui(self.push_state)
         try:
@@ -973,27 +974,54 @@ class Nova:
                 return
         self.ui(lambda: self.show_bar("thinking"))
         self.spoken_s = len(clip) / audio.RATE
-        text = self.transcribe(clip, stream, "translate" if self.whisper_translates() else "transcribe")
-        if from_wake:  # the cut can leave the tail of "Nova" in the clip ("Hej, Nova!"): drop it
-            rest = wake.match(text)
-            text = rest if rest is not None else text
-            if not text.strip(" .,!?"):  # nothing after the name after all: listen for the request now
-                return self.voice_job(None)
-        if self.cancel.is_set() or not text:
-            return
-        log("heard", mode=mode, text=text, source="voice")
-        if mode == "assistant" and wake.is_done(text) and not (self.asked and wake.approval(text)):  # "ok thanks": stop
-            return self.end_conversation(text)
         if mode == "dictation":
-            head, switch = split_mode_tail(text)
-            if switch:  # what came before is typed, then the mode switches
-                if head:
-                    self.dictate(head)
-                text = f"{switch} mode"
-        if not self.command(text):
-            (self.dictate if mode == "dictation" else self.assist)(text)
-        if mode == "assistant" and self.cfg["voice"]["conversation"] and not self.cancel.is_set():
-            self.followup = True  # listen again once this answer is done
+            rescue.keep(clip)  # until it's typed: Nova closing from here on doesn't lose it
+        try:
+            text = self.transcribe(clip, stream, "translate" if self.whisper_translates() else "transcribe")
+            if from_wake:  # the cut can leave the tail of "Nova" in the clip ("Hej, Nova!"): drop it
+                rest = wake.match(text)
+                text = rest if rest is not None else text
+                if not text.strip(" .,!?"):  # nothing after the name after all: listen for the request now
+                    return self.voice_job(None)
+            if self.cancel.is_set() or not text:
+                return
+            log("heard", mode=mode, text=text, source="voice")
+            if mode == "assistant" and wake.is_done(text) and not (self.asked and wake.approval(text)):  # "ok thanks": stop
+                return self.end_conversation(text)
+            if mode == "dictation":
+                head, switch = split_mode_tail(text)
+                if switch:  # what came before is typed, then the mode switches
+                    if head:
+                        self.dictate(head)
+                    text = f"{switch} mode"
+            if not self.command(text):
+                (self.dictate if mode == "dictation" else self.assist)(text)
+            if mode == "assistant" and self.cfg["voice"]["conversation"] and not self.cancel.is_set():
+                self.followup = True  # listen again once this answer is done
+        finally:
+            rescue.clear()
+
+    def recover_dictation(self):
+        """A dictation Nova closed before typing (data/last-dictation.wav): onto the clipboard, never typed, because
+        the app in front now isn't where the user was dictating."""
+        clip = rescue.pending()
+        if clip is None:
+            return
+        try:
+            raw = self.transcribe(clip)
+            text, _ = cleanup.clean(raw, self.cfg["dictation"])  # local rules: the AI may not be up yet
+        except Exception as e:
+            log("error", error=f"recovering the last dictation failed: {e!r}")
+            return
+        finally:
+            rescue.clear()
+        if not text.strip():
+            return
+        clipboard.set_text(text)
+        log("dictation", raw=raw, text=text, how="recovered")
+        paste = "Cmd+V" if system.IS_MAC else "Ctrl+V"
+        self.ui(lambda: self.card.show("Your last dictation is on the clipboard", f"Nova closed before typing it. "
+                                       f"Press {paste} to paste it.", hide_after=15))
 
     def vocabulary(self):
         """Words Whisper should expect: the user's projects ("open my Endpaper project"), the dictionary, and the
