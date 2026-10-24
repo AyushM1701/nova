@@ -73,6 +73,7 @@
     "folder": "Meetings",
     "computer_audio": true,
     "remind": true,
+    "detect": true,
     "claude_model": "sonnet",
     "codex_model": "",
     "actions": {}

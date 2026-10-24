@@ -145,6 +145,7 @@ WALK_PROMPT = ("The user wants to: {goal}. You are guiding them one step at a ti
                "\"SAY: \" and one short instruction for the next single click, and \"POINT: x,y label\" for where to "
                "click. If the goal is reached, reply with \"SAY: \" and a one-line wrap-up, then a line \"DONE\".")
 MAX_STEPS, CLICK_WAIT_S = 15, 60
+OFFER_GAP_S = 300  # one "record this meeting?" card per meeting, whether the calendar or the mic noticed it
 # first-run setup's "Show me" (Clicky's onboarding demo): away from the edges, where the arrow is easy to see
 DEMO = ("This is Nova's first-run demo. The attached screenshot is the user's screen ({width}x{height} pixels). Pick ONE "
         "specific, recognisable thing on it: an app, a file name, a button label, a heading, a picture. Pick it near "
@@ -203,6 +204,7 @@ class Nova:
         self.asked = False  # the last answer ended with a question, so a bare "okay" means yes, not goodbye
         self.sysaudio, self.listening = None, False  # the computer's audio, remembered; "listen to my computer" on
         self.recorder, self.meeting, self.reminded = None, None, set()  # a meeting being recorded; calendar reminders
+        self.offered = 0.0  # when Nova last offered to record a meeting
         self.meeting_jobs = queue.Queue()  # recordings and files wait their turn to be transcribed
         self.update = ""  # a newer version on GitHub, once the daily check finds one
         # helpers/watch.py and the Claude Code Stop hook prove they're local helpers with this key
@@ -281,7 +283,7 @@ class Nova:
     def run(self):
         for target in (self.serve_approvals, self.serve_app, self.send_events, self.load_stt, self.watch_clipboard,
                        self.serve_browser_tools, self.repair_browsers, self.check_updates, self.meeting_worker,
-                       self.watch_calendar, self.watch_schedules):
+                       self.watch_calendar, self.watch_schedules, self.watch_meetings):
             threading.Thread(target=target, daemon=True).start()
         wanted = self.hotkey
         if not self.bind_hotkeys(wanted) and wanted != system.DEFAULT_HOTKEY:
@@ -1697,6 +1699,25 @@ class Nova:
     def redo_minutes(self, mid, clean):
         return meetings.update(mid, minutes=meetings.minutes(meetings.load(mid), clean), status="done")["minutes"]
 
+    def watch_meetings(self):
+        """Windows: when a meeting app starts using the microphone, offer once to take notes (no calendar needed)."""
+        offered_for = None
+        while True:
+            time.sleep(10)
+            if not self.cfg["meetings"]["detect"] or self.recorder:
+                continue
+            try:
+                app = meetings.meeting_app(meetings.in_use(system.mic_entries()),
+                                           system.window_title(system.foreground()))
+            except Exception as e:  # never let a registry oddity stop the watcher
+                log("error", error=f"meeting detection: {e!r}")
+                continue
+            if app != offered_for and app and time.time() - self.offered > OFFER_GAP_S:
+                self.offered = time.time()
+                self.ui(lambda app=app: self.card.show(f"{app} is using your microphone", "Say “record this meeting” "
+                                                       "to take notes. No bot joins.", hide_after=30))
+            offered_for = app if app else None  # leaving the call resets it: the next call is offered again
+
     def watch_schedules(self):
         """Run scheduled routines when they're due (core/schedule.py), once a day each, when Nova is free."""
         while True:
@@ -1733,6 +1754,9 @@ class Nova:
                     key = (e["title"], e["start"])
                     if key not in self.reminded and abs((e["start"] - now).total_seconds()) <= 60 and not self.recorder:
                         self.reminded.add(key)
+                        if time.time() - self.offered < OFFER_GAP_S:  # the meeting app's card just said it
+                            continue
+                        self.offered = time.time()
                         self.ui(lambda e=e: self.card.show(f"“{e['title']}” is starting", "Say “record this "
                                                            "meeting”, or press Record on Nova's Meetings page.",
                                                            hide_after=30))

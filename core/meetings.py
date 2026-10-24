@@ -140,6 +140,36 @@ def delete(mid):
         file(mid).with_suffix(".wav").unlink(missing_ok=True)
 
 
+# ---------- noticing a meeting (Windows): which app is using the microphone ----------
+MEETING_APPS = {"zoom": "Zoom", "teams": "Teams", "webex": "Webex", "slack": "Slack", "discord": "Discord",
+                "facetime": "FaceTime"}
+BROWSERS = ("chrome", "msedge", "brave", "opera", "vivaldi", "firefox")
+MEETING_TABS = {"meet -": "Google Meet", "google meet": "Google Meet", "zoom": "Zoom", "teams": "Teams"}
+
+
+def in_use(entries):
+    """Apps using the microphone now, from Windows' privacy records {key name: (LastUsedTimeStart, LastUsedTimeStop)}:
+    a start with no stop means in use. 'C:#Program Files#Zoom#bin#Zoom.exe' -> 'Zoom.exe'."""
+    return [name.rsplit("#", 1)[-1] for name, (start, stop) in entries.items() if start and not stop]
+
+
+def meeting_app(users, title):
+    """The meeting app among the microphone's users, by name; a browser counts only when the window in front is a
+    meeting tab. Nova's own Python (the wake word) never counts."""
+    for user in (u.lower() for u in users):
+        if user.startswith("python"):
+            continue
+        if any(b in user for b in BROWSERS):
+            tab = next((name for key, name in MEETING_TABS.items() if key in title.lower()), None)
+            if tab:
+                return tab
+            continue
+        app = next((name for key, name in MEETING_APPS.items() if key in user), None)
+        if app:
+            return app
+    return None
+
+
 # ---------- Markdown: the note the assistant can read ----------
 def stamp(seconds):
     s = int(seconds)

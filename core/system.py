@@ -346,6 +346,32 @@ def bring_front(hwnd):
             user32.AttachThreadInput(here, front, False)
 
 
+MIC_STORE = r"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone"
+
+
+def mic_entries():
+    """Windows' privacy records of apps that used the microphone: {key name: (LastUsedTimeStart, LastUsedTimeStop)},
+    Store apps and desktop apps (NonPackaged). Empty on a Mac.
+    shortcut: macOS has no per-app microphone list without extra entitlements; the calendar reminder covers Macs."""
+    if IS_MAC:
+        return {}
+    out = {}
+    for path in (MIC_STORE, MIC_STORE + r"\NonPackaged"):
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as key:
+                for i in range(winreg.QueryInfoKey(key)[0]):
+                    name = winreg.EnumKey(key, i)
+                    try:
+                        with winreg.OpenKey(key, name) as app:
+                            out[name] = (winreg.QueryValueEx(app, "LastUsedTimeStart")[0],
+                                         winreg.QueryValueEx(app, "LastUsedTimeStop")[0])
+                    except OSError:  # NonPackaged itself, or an app that never used it
+                        pass
+        except OSError:
+            pass
+    return out
+
+
 def mouse_down():
     """True while the left mouse button is down (a walkthrough moves on when the user clicks)."""
     if IS_MAC:

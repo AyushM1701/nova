@@ -58,6 +58,7 @@ Free and open source. No account, no subscription, no Nova server. Speech recogn
 - **Walks you through it:** "walk me through exporting this as a PDF" and Nova's arrow shows each click on your screen, moving on after you click. Esc stops it.
 - **Routines:** "start my day" gives a short spoken rundown (each project's branch and uncommitted changes, open tasks in your notes, follow-ups from memory). Add your own in Settings → Routines, e.g. "deep code mode" = "pause music, open VS Code in portfolio, run npm run dev". Schedule them by voice: "every weekday at 9, run start my day".
 - **Keeps an eye on long jobs:** run `python <nova folder>/helpers/watch.py npm run build` and keep working; Nova says when it's done, or explains why it failed and offers to fix it. Turn on Settings → AI → "Tell me when Claude Code finishes" to hear when a Claude Code task you started in a terminal is done.
+- **Notices your meetings (Windows):** when Zoom, Teams or a Google Meet tab starts using your microphone, Nova offers to take notes.
 - **Listens to your computer (Windows):** say "listen to my computer" (or use the tray menu) during a video, lecture or call, then ask "what did they just say?" or "grab the command they mentioned". The transcript covers the last 15 minutes and stays in memory; "stop listening" ends it.
 - **Uses your real browser (Windows):** Opera GX, Brave, Vivaldi or Opera, inside your own profile with your logins, through a small Nova extension that only talks to Nova on this computer. "Open my GitHub notifications and summarise them", "fill this form with my address", "in Brave, find the cheapest flight to Goa". Nova asks before clicks and keys that look like submitting, buying, posting or sending (it judges by the button, so a page can disguise one), and never types passwords, card numbers or one-time codes. Turn it on in Settings → Browsers (or the tray menu → Browsers…); a Nova panel in the browser shows the same live conversation, with Allow / Deny.
 - **Your notes in Claude Code:** one click in Settings → AI lets Claude Code or Codex search your Nova notes, meetings and memory in any session, on your computer.
@@ -260,6 +261,7 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 | `brain.fallback_model` | `gemini-flash-latest` | The backup brain's Gemini model (the key itself lives in `data/fallback.key`) |
 | `update_check` | `true` | Check GitHub once a day for a newer Nova |
 | `safety.mode` | `auto` | `auto`, `manual`, `accept_edits`, `plan` or `bypass` (see [Safety](#safety)) |
+| `meetings.detect` | `true` | Windows: offer to take notes when a meeting app starts using the microphone |
 | `phone.enabled` | `false` | Serve the phone page on your network (Settings → Phone) |
 | `brain.screen_context` | `true` | Tell the AI which app you're in, and send a screenshot when you ask about your screen |
 

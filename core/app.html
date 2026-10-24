@@ -778,6 +778,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <p class="muted small" id="calStatus" style="margin-top:10px"></p></div>
         <div class="row"><div class="what"><h2>Remind me when a meeting starts</h2><p>A card with how to start recording. Needs the calendar above.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="meetings.remind" aria-label="Remind me when a meeting starts"></button></div></div>
+        <div class="row"><div class="what"><h2>Offer to take notes when a meeting starts</h2><p>When Zoom, Teams, Webex, Slack, Discord or a Google Meet tab starts using your microphone, a card offers to record. Windows only; no calendar needed.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="meetings.detect" aria-label="Offer to take notes when a meeting starts"></button></div></div>
         <div class="row" style="display:block"><div class="what"><h2>Your AI actions</h2><p>One-click actions for any meeting, next to Summarize and Follow-up email. Name it, then say what it should do.</p></div>
           <div class="pair-head"><span>Name</span><span></span><span>What it should do</span><span></span></div>
           <div class="pairs" id="mtActionPairs"></div>

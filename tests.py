@@ -2493,4 +2493,16 @@ with tempfile.TemporaryDirectory() as tmp:
     finally:
         nmcp.NOTES, nmcp.update_config, nmcp.load_config = real_notes, real_update, real_load
 
+# meeting detection (Windows): which apps are using the microphone, and is one of them a meeting?
+from core.meetings import in_use, meeting_app  # noqa: E402
+assert in_use({"C:#Program Files#Zoom#bin#Zoom.exe": (133, 0), "C:#Python#python.exe": (133, 0),
+               "MSTeams_8wekyb3d8bbwe": (133, 0), "C:#old#Discord.exe": (133, 140), "never": (0, 0)}) \
+    == ["Zoom.exe", "python.exe", "MSTeams_8wekyb3d8bbwe"]
+assert meeting_app(["Zoom.exe"], "") == "Zoom"
+assert meeting_app(["MSTeams_8wekyb3d8bbwe"], "") == "Teams"
+assert meeting_app(["python.exe", "pythonw.exe"], "") is None            # Nova's own wake word
+assert meeting_app(["chrome.exe"], "Meet - abc-defg-hij - Google Chrome") == "Google Meet"
+assert meeting_app(["msedge.exe"], "YouTube - Microsoft Edge") is None   # a browser counts only in a meeting tab
+assert meeting_app([], "Meet - x") is None
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
