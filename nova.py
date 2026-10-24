@@ -138,8 +138,10 @@ WHERE_RE = re.compile(r"\bwhere(?:'?s| is| are| do i (?:click|find)| can i find)
                       r"tab|icon|field|toggle|switch|link|bar|panel)\b|\bwhere (?:do|should) i click\b|\bshow me where\b",
                       re.I)
 # "walk me through exporting a PDF": Nova points at one click at a time and moves on when the user clicks (Clicky)
-WALK_RE = re.compile(r"\b(?:walk me through|step by step|show me how (?:to|do i)|guide me (?:through|to)|teach me how)\b",
-                     re.I)
+# "walk me through" always means on screen; "show me how" / "step by step" only with a cue that it's about the screen
+# ("…here", "…in this app"), so "explain step by step how DNS works" stays an ordinary answer
+WALK_RE = re.compile(r"\b(?:walk me through|guide me through)\b|\b(?:show me how|step by step)\b.*\b(?:here|on (?:my|the|this) "
+                     r"screen|in (?:this|the) (?:app|page|window|settings|menu|site|program))\b", re.I)
 WALK_PROMPT = ("The user wants to: {goal}. You are guiding them one step at a time on the attached screenshot "
                "({width}x{height} pixels) of their window. Steps already done: {done}. This is step {step}. Reply with "
                "\"SAY: \" and one short instruction for the next single click, and \"POINT: x,y label\" for where to "
@@ -160,6 +162,17 @@ ACT_RE = re.compile(r"\b(?:open|close|click|type|write|fix|change|edit|delete|re
                     r"save|copy|paste|move|rename|add|update|set|turn|play|search|download|book|buy|order|submit|post|"
                     r"email|schedule|go to|remember|note|commit|push|deploy|build|refactor|rewrite|apply|share|upload|"
                     r"print|undo)\b", re.I)
+
+
+def watch_click(clicked, stop, cancel):
+    """Set `clicked` on the next press of the left button (a button already held doesn't count)."""
+    was_down = True
+    while not stop.is_set() and not cancel.is_set():
+        down = system.mouse_down()
+        if down and not was_down:
+            return clicked.set()
+        was_down = down
+        time.sleep(0.03)
 
 
 def screen_question(text):
@@ -1422,33 +1435,38 @@ class Nova:
         """A walkthrough: screenshot the window, ask the AI for the next single click, point at it, wait for the
         user to click, repeat until the AI says DONE (or MAX_STEPS, Esc, or a minute without a click)."""
         said = []
-        for step in range(1, MAX_STEPS + 1):
-            image, shot = system.screenshot(WORKSPACE / "screen.png", system.window_rect(system.foreground()))
-            shown, spoken, _ = self.brain.run(WALK_PROMPT.format(goal=goal, step=step, done="; ".join(said) or "none",
-                                                                 width=shot[3], height=shot[4]),
-                                              {}, {}, self.on_step, image=image, tools=False)
-            if self.cancel.is_set():
-                return self.ui(self.pointer.hide)
-            shown, done = last_step(shown)
-            shown, spot = take_point(shown, shot)
-            if spot:
-                self.ui(lambda: self.pointer.fly(*spot, hold_s=None))
-            self.say("Walkthrough", spoken)
-            if done:
-                return self.ui(self.pointer.hide)
-            # shortcut: any left click moves on (not only one on the target), like Clicky; check the click's
-            # position if steps start skipping ahead
-            clicked, deadline, was_down = False, time.monotonic() + CLICK_WAIT_S, True
-            while not clicked and time.monotonic() < deadline and not self.cancel.is_set():
-                down = system.mouse_down()
-                clicked, was_down = down and not was_down, down
-                self.cancel.wait(0.03)
+        try:
+            for step in range(1, MAX_STEPS + 1):
+                image, shot = system.screenshot(WORKSPACE / "screen.png", system.window_rect(system.foreground()))
+                shown, spoken, _ = self.brain.run(WALK_PROMPT.format(goal=goal, step=step, width=shot[3],
+                                                                     height=shot[4], done="; ".join(said) or "none"),
+                                                  {}, {}, self.on_step, image=image, tools=False)
+                if self.cancel.is_set():
+                    return
+                shown, done = last_step(shown)
+                shown, spot = take_point(shown, shot)
+                if spot:
+                    self.ui(lambda: self.pointer.fly(*spot, hold_s=None))
+                clicked, stop = threading.Event(), threading.Event()
+                if not done:  # listening starts now: users click as soon as the arrow lands, while Nova still talks
+                    threading.Thread(target=watch_click, args=(clicked, stop, self.cancel), daemon=True).start()
+                self.say("Walkthrough", spoken)
+                if done:
+                    return
+                # shortcut: any left click moves on (not only one on the target), like Clicky; check the click's
+                # position if steps start skipping ahead
+                deadline = time.monotonic() + CLICK_WAIT_S
+                while not clicked.is_set() and time.monotonic() < deadline and not self.cancel.is_set():
+                    self.cancel.wait(0.03)
+                stop.set()
+                self.ui(self.pointer.hide)
+                if not clicked.is_set():
+                    return None if self.cancel.is_set() else self.say("Walkthrough", "Okay, stopping the walkthrough.")
+                said.append(spoken)
+                self.cancel.wait(0.8)  # the app redraws after the click before the next screenshot
+            self.say("Walkthrough", "That's as far as I can guide you for now.")
+        finally:  # the arrow stays put during a step (hold_s=None): never leave it on screen
             self.ui(self.pointer.hide)
-            if not clicked:
-                return None if self.cancel.is_set() else self.say("Walkthrough", "Okay, stopping the walkthrough.")
-            said.append(spoken)
-            self.cancel.wait(0.8)  # the app redraws after the click before the next screenshot
-        self.say("Walkthrough", "That's as far as I can guide you for now.")
 
     def pick_region(self):
         """Ask the user to drag a box around what they mean. Returns it, or None if they press Esc."""

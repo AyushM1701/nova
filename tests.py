@@ -2351,8 +2351,12 @@ assert last_step("SAY: Click File.\nPOINT: 10,20 File") == ("SAY: Click File.\nP
 assert last_step("SAY: That's it, you're done.\nDONE") == ("SAY: That's it, you're done.", True)
 assert last_step("**DONE**") == ("", True)
 assert nova_mod.WALK_RE.search("walk me through exporting a PDF")
-assert nova_mod.WALK_RE.search("show me how to turn on dark mode")
+assert nova_mod.WALK_RE.search("show me how to turn on dark mode here")
+assert nova_mod.WALK_RE.search("step by step, show me how to export this on my screen")
 assert not nova_mod.WALK_RE.search("show me the weather")
+for question in ("explain step by step how DNS works", "show me how to center a div in CSS",
+                 "teach me how recursion works"):  # questions get answers, not a walkthrough
+    assert not nova_mod.WALK_RE.search(question), question
 
 
 class WalkBrain:
@@ -2509,5 +2513,35 @@ assert meeting_app(["python.exe", "pythonw.exe"], "") is None            # Nova'
 assert meeting_app(["chrome.exe"], "Meet - abc-defg-hij - Google Chrome") == "Google Meet"
 assert meeting_app(["msedge.exe"], "YouTube - Microsoft Edge") is None   # a browser counts only in a meeting tab
 assert meeting_app([], "Meet - x") is None
+
+# a click made while Nova is still saying the step counts (the natural moment: as soon as the arrow lands)
+real_sys = (nova_mod.system.mouse_down, nova_mod.system.screenshot, nova_mod.system.window_rect,
+            nova_mod.system.foreground, nova_mod.CLICK_WAIT_S)
+button = {"down": False}
+nova_mod.system.mouse_down = lambda: button["down"]
+nova_mod.system.screenshot = lambda path, box=None: ("shot.png", (0, 0, 1, 100, 100))
+nova_mod.system.window_rect = lambda target: (0, 0, 100, 100)
+nova_mod.system.foreground = lambda: None
+nova_mod.CLICK_WAIT_S = 1
+
+
+def click_while_talking(title, spoken, body=""):
+    if spoken == "Click File.":
+        time.sleep(0.1)
+        button["down"] = True
+        time.sleep(0.15)
+        button["down"] = False
+        time.sleep(0.1)
+
+
+try:
+    wb, wp = WalkBrain(["SAY: Click File.\nPOINT: 10,20 File", "SAY: Done.\nDONE"]), WalkPointer()
+    n = types.SimpleNamespace(brain=wb, pointer=wp, cancel=threading.Event(), ui=lambda fn: fn(), on_step=lambda s: None,
+                              say=click_while_talking)
+    nova_mod.Nova.walk(n, "walk me through exporting a PDF")
+    assert len(wb.prompts) == 2, wb.prompts            # the click during the spoken step moved it on
+finally:
+    (nova_mod.system.mouse_down, nova_mod.system.screenshot, nova_mod.system.window_rect, nova_mod.system.foreground,
+     nova_mod.CLICK_WAIT_S) = real_sys
 
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
