@@ -84,6 +84,7 @@
     ]
   },
   "routines": {},
+  "schedules": [],
   "browser": {
     "default": "opera-gx",
     "enabled": []

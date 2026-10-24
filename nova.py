@@ -32,8 +32,8 @@ if (DATA / "models-ready").exists():  # the speech models are downloaded: never 
 import pystray  # noqa: E402
 
 from core import (audio, cleanup, clipboard, cloud_stt, deepgram, fallback, icon, intents, loopback,  # noqa: E402
-                  calendar_ics, learn, meetings, models, phone, region, rescue, screen_text, stats, system,
-                  tts, update, wake, wakeword, whisper_cpp)
+                  calendar_ics, learn, meetings, models, phone, region, rescue, schedule, screen_text, stats,
+                  system, tts, update, wake, wakeword, whisper_cpp)
 from core import browser as web  # noqa: E402
 from core.bar import Bar  # noqa: E402
 from core.brain import discover_projects, find_cli, make_brain, project_folders  # noqa: E402
@@ -280,7 +280,7 @@ class Nova:
     def run(self):
         for target in (self.serve_approvals, self.serve_app, self.send_events, self.load_stt, self.watch_clipboard,
                        self.serve_browser_tools, self.repair_browsers, self.check_updates, self.meeting_worker,
-                       self.watch_calendar):
+                       self.watch_calendar, self.watch_schedules):
             threading.Thread(target=target, daemon=True).start()
         wanted = self.hotkey
         if not self.bind_hotkeys(wanted) and wanted != system.DEFAULT_HOTKEY:
@@ -1166,6 +1166,12 @@ class Nova:
         if re.fullmatch(BRIEFING_RE, n):
             self.assist(BRIEFING)
             return True
+        planned = schedule.parse(text)  # "every weekday at 9, run start my day"
+        if planned:
+            self.save_setting("schedules", [s for s in self.cfg["schedules"] if schedule.key(s) != schedule.key(planned)]
+                              + [planned])
+            self.note("Scheduled", f"Okay. {schedule.describe(planned).capitalize()}, I'll {planned['run']}.")
+            return True
         for name, steps in self.cfg["routines"].items():  # "switch to deep code mode" runs the user's routine
             key = re.sub(r"[^\w\s]", "", name.lower()).strip()
             if key and re.fullmatch(rf"(?:(?:run|start|do|begin|switch to|go to|enter|activate) )?(?:my |the )?"
@@ -1679,6 +1685,27 @@ class Nova:
 
     def redo_minutes(self, mid, clean):
         return meetings.update(mid, minutes=meetings.minutes(meetings.load(mid), clean), status="done")["minutes"]
+
+    def watch_schedules(self):
+        """Run scheduled routines when they're due (core/schedule.py), once a day each, when Nova is free."""
+        while True:
+            try:
+                last = json.loads(schedule.LAST.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                last = {}
+            now = datetime.datetime.now()
+            for s in schedule.due(self.cfg["schedules"], now, last):
+                if self.phase != "idle" or self.pending or self.paused:
+                    break  # busy: try again in 30 s, still inside the schedule's hour
+                last[schedule.key(s)] = now.date().isoformat()
+                schedule.LAST.parent.mkdir(parents=True, exist_ok=True)
+                schedule.LAST.write_text(json.dumps(last), encoding="utf-8")
+                log("scheduled", run=s["run"], at=s["at"])
+                self.target, self.voice = system.foreground(), True
+                self.ui(lambda s=s: self.spawn(lambda: self.command(s["run"], typed=True) or self.assist(s["run"]),
+                                               "busy"))
+                break  # one at a time: the next waits until this one is done
+            time.sleep(30)
 
     def watch_calendar(self):
         """Remind once when a calendar meeting starts, so recording it is one sentence away."""

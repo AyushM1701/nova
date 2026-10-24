@@ -2396,4 +2396,22 @@ finally:
     if real_sys[0]:
         nova_mod.system.mouse_down = real_sys[0]
 
+# scheduled routines: "every weekday at 9, run start my day"
+from core import schedule  # noqa: E402
+assert schedule.parse("every weekday at 9, run start my day") == {"days": [0, 1, 2, 3, 4], "at": "09:00",
+                                                                  "run": "start my day"}
+assert schedule.parse("Every day at 6:30 pm start deep code mode.") == {"days": [0, 1, 2, 3, 4, 5, 6],
+                                                                        "at": "18:30", "run": "start deep code mode"}
+assert schedule.parse("every monday at 9am run standup notes")["days"] == [0]
+assert schedule.parse("every weekend at 10 run plan the week")["days"] == [5, 6]
+assert schedule.parse("what's the weather") is None
+assert schedule.parse("every weekday at 25, run x") is None
+S = {"days": [0, 1, 2, 3, 4], "at": "09:00", "run": "start my day"}
+mon = datetime.datetime(2026, 10, 26, 9, 0, 30)
+assert schedule.due([S], mon, {}) == [S]
+assert schedule.due([S], mon, {"start my day|09:00": "2026-10-26"}) == []      # already ran today (even before a restart)
+assert schedule.due([S], mon.replace(hour=9, minute=59), {}) == [S]           # woke up late: still runs, once
+assert schedule.due([S], mon.replace(hour=10, minute=1), {}) == []            # past the 60-minute window
+assert schedule.due([S], datetime.datetime(2026, 10, 24, 9, 0), {}) == []     # Saturday
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
