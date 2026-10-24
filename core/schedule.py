@@ -1,6 +1,5 @@
 """Scheduled routines: "every weekday at 9, run start my day". Nova checks every 30 seconds and runs what's due
 once a day; a computer that wakes up within the hour still runs it, once."""
-import datetime
 import re
 
 from core.config import DATA

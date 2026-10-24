@@ -860,7 +860,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="pairs" id="routines"></div>
           <button class="btn sm" id="addRoutine" style="margin-top:12px"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add routine</button></div>
         <div class="row" style="display:block"><div class="what"><h2>Scheduled</h2><p>Say “every weekday at 9, run start my day” and Nova runs it at that time while it's on. If the computer was asleep, it runs once when it wakes within the hour.</p></div>
-          <ul class="feed" id="schedules" style="margin-top:10px"></ul></div>
+          <ul id="schedules" style="margin-top:10px;list-style:none;padding:0"></ul></div>
         <div class="row" style="display:block"><div class="what"><h2>Watch a long command</h2><p>Run it through Nova and keep working; Nova tells you when it finishes, and if it fails, why, and offers to fix it.</p></div>
           <p class="mono" style="margin-top:10px" id="watchCmd"></p></div>
       </div>
@@ -1463,8 +1463,9 @@ function renderSchedules() {  // added by voice (core/schedule.py), removed here
   $("#schedules").replaceChildren(...(list.length ? list.map((s, i) => {
     const rm = h("button", { class: "icon-btn", "aria-label": "Delete", html: I.x });
     rm.addEventListener("click", async () => { await fresh("schedules"); set("schedules", (get("schedules") || []).filter(x => !(x.run === s.run && x.at === s.at && x.days.join("") === s.days.join("")))); save(); renderSchedules(); });
-    return h("li", {}, h("span", { style: "flex:1" }, `${when(s)}: ${s.run}`), rm);
-  }) : [h("li", { style: "display:block" }, h("p", { class: "muted" }, "Nothing scheduled yet."))]));
+    return h("li", { style: "display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)" },
+      h("span", { style: "flex:1;min-width:0" }, `${when(s)}: ${s.run}`), rm);
+  }) : [h("li", {}, h("p", { class: "muted" }, "Nothing scheduled yet."))]));
 }
 $("#addRoutine").addEventListener("click", () => addRoutine());
 $("#claudeHook").addEventListener("click", async e => {

@@ -7,6 +7,7 @@ Click the tray icon for the Nova window: chat, history, dictionary and settings.
 Everything Nova keeps (config, logs, notes, speech models) stays on this computer.
 """
 import datetime
+import faulthandler
 import json
 import os
 import queue
@@ -2189,6 +2190,10 @@ def main():
         except OSError:
             print("Nova is already running (look for its icon near the clock / in the menu bar).")
         return
+    # a native crash (audio, GPU, UI libraries) kills Nova before Python can log it, and pythonw has no console:
+    # its traceback goes to logs/crash.txt instead, so a crash leaves evidence
+    LOGS.mkdir(parents=True, exist_ok=True)
+    faulthandler.enable(open(LOGS / "crash.txt", "a", encoding="utf-8"), all_threads=True)
     nova = Nova()
     threading.Thread(target=nova.serve_instances, args=(lock,), daemon=True).start()
     nova.run()

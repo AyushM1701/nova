@@ -2754,10 +2754,10 @@ cmd = ("powershell -NoProfile -STA -Command \"Add-Type -AssemblyName System.Wind
        "WScript.Shell; \\$p=Get-Process notepad | ?{\\$_.MainWindowTitle -like '*HI my name*'} | select -First 1\"")
 assert "wildcard" not in classify_command(cmd, H, "auto")[1], classify_command(cmd, H, "auto")
 assert classify_command("cat ~/.ss?/id_rsa", H, "auto")[0] != "allow"       # a real wildcard still asks
-assert classify("Write", {"file_path": H + "\\workspace\\record_conversation.py", "content": "x"}, H + "\\workspace",
-                [], H, H + "\\workspace\\notes", "accept_edits")[0] == "allow"
-assert classify("Write", {"file_path": H + "\\core\\app.py", "content": "x"}, H + "\\workspace", [], H,
-                H + "\\workspace\\notes", "accept_edits")[0] == "confirm"   # Nova's own code still asks
+assert classify("Write", {"file_path": native(H + "\\workspace\\record_conversation.py"), "content": "x"},
+                native(H + "\\workspace"), [], native(H), native(H + "\\workspace\\notes"), "accept_edits")[0] == "allow"
+assert classify("Write", {"file_path": native(H + "\\core\\app.py"), "content": "x"}, native(H + "\\workspace"), [],
+                native(H), native(H + "\\workspace\\notes"), "accept_edits")[0] == "confirm"  # Nova's own code still asks
 
 # a recording that's still going says so every 15 minutes: one ran for 2 hours with nothing on screen
 cards, t0 = [], time.time()
