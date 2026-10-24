@@ -42,8 +42,8 @@ print(f"ok: pynput patch active (tap {'created' if listener._nova_tap is not Non
 # hold to talk on a Mac: Cmd is offered and is the default, as the triple tap uses Cmd; pynput's keys get the
 # names the hold keys match
 from core.config import defaults  # noqa: E402
-assert defaults()["hold_key"] == "right cmd", defaults()["hold_key"]
-assert {"right cmd", "cmd"} <= set(system.HOLD_KEYS), system.HOLD_KEYS
+assert defaults()["hold_key"] == "left cmd", defaults()["hold_key"]
+assert {"left cmd", "right cmd", "cmd"} <= set(system.HOLD_KEYS), system.HOLD_KEYS
 names = {k: system.MAC_HOLD[k] for k in (keyboard.Key.cmd_r, keyboard.Key.cmd, keyboard.Key.cmd_l, keyboard.Key.ctrl_r,
                                          keyboard.Key.ctrl, keyboard.Key.alt_r, keyboard.Key.shift_r)}
 assert names[keyboard.Key.cmd_r] == "right cmd" and names[keyboard.Key.cmd] == "left cmd", names

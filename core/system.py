@@ -106,13 +106,15 @@ class Hotkeys:
 
 
 # "ctrl" is either Ctrl: held on its own it talks, Ctrl+C stays a copy. Cmd is a Mac's (on Windows it opens Start).
-HOLD_KEYS = ("right ctrl", "right alt", "right shift", "ctrl", "alt", "shift") + (("right cmd", "cmd") if IS_MAC else ())
+HOLD_KEYS = ("left ctrl", "right ctrl", "right alt", "right shift", "ctrl", "alt", "shift") + (
+    ("left cmd", "right cmd", "cmd") if IS_MAC else ())
 HOLD_DELAY_S = 1.5  # a tap, the key used in a combo, or a pause before Ctrl+C never starts listening (Settings)
 
 
 def hold_match(key, name):
     """Whether the key event `name` is the hold key `key`. Windows names the left keys "ctrl" or "left ctrl"."""
     return (name == key or (key in ("ctrl", "alt", "shift", "cmd") and name in (f"left {key}", f"right {key}"))
+            or (key.startswith("left ") and name == key[5:])  # "left ctrl": Windows reports the left one as "ctrl"
             or (key in ("right alt", "alt") and name == "alt gr"))  # AltGr on many layouts
 
 

@@ -552,7 +552,10 @@ from core.config import defaults  # noqa: E402
 shipped = defaults()  # the shipped settings, not this computer's config.json
 assert nova_mod.system.HOLD_DELAY_S >= 1.5 and shipped["hold_delay_s"] >= 1.5  # long enough to pause before Ctrl+C
 assert shipped["triple_tap_mode"] == "assistant" and shipped["hold_mode"] == "dictation"
-assert shipped["hold_key"] == ("right cmd" if sys.platform == "darwin" else "right ctrl")  # a Mac holds Cmd
+assert shipped["hold_key"] == ("left cmd" if sys.platform == "darwin" else "left ctrl")  # a Mac holds Cmd
+# the left key on its own: Windows names it "ctrl" or "left ctrl"; the right one never counts
+assert "left ctrl" in nova_mod.system.HOLD_KEYS and hm("left ctrl", "ctrl") and hm("left ctrl", "left ctrl")
+assert not hm("left ctrl", "right ctrl") and hm("left cmd", "left cmd") and not hm("left cmd", "right cmd")
 # only a pause ends a dictation, so a mode command often closes the same recording
 for said, want in [("Right. +1, (231), 231-2312 That's it. Exit. Exit dictation.", ("Right. +1, (231), 231-2312 That's it.", "assistant")),
                    ("That's it. Switch to assistant mode.", ("", "assistant")),

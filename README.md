@@ -21,7 +21,7 @@ Free and open source. No account, no subscription, no Nova server. Speech recogn
 
 **🗣️ Ask it anything, out loud.** "Open Spotify and play something chill." "In my portfolio project, fix the navbar on mobile." "What's this error on my screen?" Nova sends the request to **Claude Code** or **OpenAI Codex** (the Claude or ChatGPT plan you already have) and answers out loud. It sees the app you're in, remembers what you tell it, and you can talk over it to change direction.
 
-**⌨️ Dictate into any app.** Hold Right Ctrl (Right Cmd on a Mac) and talk. Clean text appears wherever your cursor is: Gmail, Slack, VS Code, WhatsApp, a terminal. Nova removes "um" and "uh", applies "no wait" corrections, writes Hindi and Hinglish in English letters, and learns your names and jargon. Dictation works with no AI connected at all.
+**⌨️ Dictate into any app.** Hold Left Ctrl (Left Cmd on a Mac) and talk. Clean text appears wherever your cursor is: Gmail, Slack, VS Code, WhatsApp, a terminal. Nova removes "um" and "uh", applies "no wait" corrections, writes Hindi and Hinglish in English letters, and learns your names and jargon. Dictation works with no AI connected at all.
 
 **📝 Record meetings without a bot.** "Record this meeting." Nova captures your mic and your computer's audio, transcribes it on your computer, labels who spoke and, with an AI connected, writes the minutes. Nobody in the call sees a bot join.
 
@@ -147,7 +147,7 @@ Only tagged releases reach the Update button, never unreleased work on `main`. T
 | "switch to dictation" / "switch to assistant" | Change mode |
 | "new conversation" | Forget the follow-up context |
 | "add Kubernetes to my dictionary" | Teaches the speech recognizer a word. Fixing a misheard word right after dictating teaches it too (Settings → Dictation) |
-| Hold **Right Ctrl** (**Right Cmd** on a Mac) for 1.5 s (key and time set in Settings → General) | Hold-to-dictate: Nova types what you say until you let go, however long you pause. A second hold key can ask Nova instead |
+| Hold **Left Ctrl** (**Left Cmd** on a Mac) for 1.5 s (key and time set in Settings → General) | Hold-to-dictate: Nova types what you say until you let go, however long you pause. A second hold key can ask Nova instead |
 | Tap **Ctrl** three times (Mac: **Cmd**) | Same as the shortcut, from any app. Ignored while a game is in front: one installed by Steam, Epic, Xbox, GOG, EA, Ubisoft or Riot, any full-screen game on Windows, or an app filed as a game on a Mac. Turn it off in Settings → General |
 | "record this meeting" / "record our conversation" / "record everything we're saying" / "stop recording" | Records your microphone and the computer's audio (no bot joins), then writes a transcript with speaker labels and minutes from your notes. See the Meetings page, where you can also export it as subtitles (SRT) or text, or open its Markdown note. "Don't record this" or "how do I record a call?" go to the AI instead |
 | Settings → General → **Teach Nova your "Hey Nova"** | If Nova often misses your "Hey Nova" (it was first tuned on American English), say it 8 times there. A second detector, trained on Indian-English "Hey Nova"s, then listens too. It needs something spoken and ignores voices from the computer's own speakers. It's new: tell us if it wakes when you didn't call it |
@@ -233,7 +233,7 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 |---|---|---|
 | `hotkey` | Ctrl+Alt+Space / Cmd+Shift+Space | e.g. `"ctrl+shift+n"` |
 | `hotkey_2` | off | A second shortcut, e.g. one for each mode |
-| `hold_key` / `hold_key_2` | `right ctrl` (`right cmd` on a Mac) / off | Hold to talk: `"right ctrl"`, `"right alt"`, `"right shift"`, or `"ctrl"`, `"alt"`, `"shift"` (either side); on a Mac also `"right cmd"`, `"cmd"` |
+| `hold_key` / `hold_key_2` | `left ctrl` (`left cmd` on a Mac) / off | Hold to talk: `"left ctrl"`, `"right ctrl"`, `"right alt"`, `"right shift"`, or `"ctrl"`, `"alt"`, `"shift"` (either side); on a Mac also `"left cmd"`, `"right cmd"`, `"cmd"` |
 | `hold_delay_s` | `1.5` | Seconds a hold key is held on its own before Nova listens |
 | `hotkey_mode`, `hotkey_2_mode`, `hold_mode`, `hold_key_2_mode`, `triple_tap_mode` | `current`, `dictation`, `dictation`, `assistant`, `assistant` | What each one starts: `"current"` (the mode Nova is in), `"assistant"` or `"dictation"` (for that request only). The same key in two slots follows the current mode |
 | `wake_word` | `true` | Listen for "Hey Nova" |

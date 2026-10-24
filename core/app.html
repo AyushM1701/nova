@@ -1691,7 +1691,7 @@ $("#clearKey2Btn").addEventListener("click", () => { set("hotkey_2", ""); save(t
 // hold keys: a Mac also offers Cmd (Windows' Win key would open Start), and calls Alt "Option"
 function fillHoldKeys() {
   const mac = S.platform === "mac", alt = mac ? "Option" : "Alt";
-  const keys = [["", "Off"], ...(mac ? [["right cmd", "Right Cmd"], ["cmd", "Cmd (either)"]] : []), ["right ctrl", "Right Ctrl"], ["ctrl", "Ctrl (either)"],
+  const keys = [["", "Off"], ...(mac ? [["left cmd", "Left Cmd"], ["right cmd", "Right Cmd"], ["cmd", "Cmd (either)"]] : []), ["left ctrl", "Left Ctrl"], ["right ctrl", "Right Ctrl"], ["ctrl", "Ctrl (either)"],
     ["right alt", `Right ${alt}`], ["alt", `${alt} (either)`], ["right shift", "Right Shift"], ["shift", "Shift (either)"]];
   for (const sel of $$(".hold-key")) sel.replaceChildren(...keys.map(([v, l]) => h("option", { value: v }, l)));
 }
