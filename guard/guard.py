@@ -98,7 +98,9 @@ CONFIRM = [
     # which a plain "curl <page>" never needs
     (r"\b(curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod)\b" + UNTIL_END +
      r"(\$|`|\(\s*(gc|get-content|cat|type)\b|\s-body\b|\s-infile\b)", "sends data over the network"),
-    (r"\bcurl\b" + UNTIL_END + r"\s(-o|--output|--remote-name\S*|--config)\b", "downloads a file"),
+    # ...and PowerShell's and Windows' own downloaders, which Auto would otherwise let through as unfamiliar
+    (r"\bcurl\b" + UNTIL_END + r"\s(-o|--output|--remote-name\S*|--config)\b|\s-outf\w*\b|\bcertutil\b" + UNTIL_END +
+     r"-urlcache\b|\bbitsadmin\b|\bstart-bitstransfer\b", "downloads a file"),
     (r"\b(set-executionpolicy|schtasks|register-scheduledtask|new-service)\b|\bsc(\.exe)?\s+(create|config|delete)\b",
      "changes system configuration"),
     (r"\s-enc(odedcommand)?\b|frombase64string", "runs an encoded command"),
@@ -166,8 +168,10 @@ UNFAMILIAR = ("isn't on the known-safe list", "writes a file through a redirect"
 INLINE_CODE = r"\b(python3?|py|node|deno|bun|ruby|perl|php)(\.exe)?\s+(-c|-e|--eval|-p)\b"
 # ...and a script file run the same way ("python cleanup.py", "pwsh -File x.ps1", ".\x.ps1"): one the AI wrote a
 # moment ago is the same code in two steps (writing it to the Desktop or a project doesn't ask in Auto)
+# (a program too: "iwr … -OutFile x.exe" then ".\x.exe" or "Start-Process x.exe" is downloading and running it)
 SCRIPT_RUN = (r"(?:^|[;&|\s(])(?:(?:python3?|py|node|deno|bun|ruby|perl|php|bash|sh|zsh|pwsh|powershell)(?:\.exe)?"
-              r"(?:\s+-\S+)*\s+|\.[\\/]|&\s*)[\"']?([^\s\"';|&]+\.(?:py|pyw|js|mjs|cjs|ts|rb|pl|php|sh|ps1|bat|cmd))\b")
+              r"(?:\s+-\S+)*\s+|(?:start-process|start|saps|invoke-item|ii)\s+(?:-filepath\s+)?|\.[\\/]|&\s*)"
+              r"[\"']?([^\s\"';|&]+\.(?:py|pyw|js|mjs|cjs|ts|rb|pl|php|sh|ps1|bat|cmd|exe|com|scr|msi))\b")
 PYTHON_MODULE = r"\b(?:python3?|py)(?:\.exe)?(?:\s+-(?!m\b)\S+)*\s+-m\s+([\w.]+)"
 TEST_FILE = (r"conftest\.py|test_.*\.py|.*_test\.py|pytest\.ini|tox\.ini|setup\.cfg|pyproject\.toml"
              r"|.*\.(test|spec)\.[cm]?[jt]sx?|(jest|vitest|playwright)\.config\.\w+")
@@ -375,7 +379,8 @@ def classify(tool, inp, cwd, roots, home, notes, mode="accept_edits"):
         if re.search(r"[?#]", url) or len(url) > 120:
             return with_mode("confirm", "sends data in a web address", mode, unfamiliar=False)
         return "allow", "reads a web page"
-    if "nova-browser" in tool or "nova_browser" in tool:  # Nova applies its own rules to the real page element
+    # Nova applies its own rules to the real page element; only its own server's tools, not a look-alike name
+    if re.match(r"mcp__nova[-_]browser__", tool):
         return "allow", "browser action checked by Nova"
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         full = os.path.realpath(os.path.join(cwd, os.path.expandvars(path)))

