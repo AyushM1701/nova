@@ -29,6 +29,7 @@ WAKE_RE = re.compile(r"^\W*(?:(?:hey|hej|hei|hi|hay|ay|a|eh|he|ok|okay|hello)[\s
 NAME_RE = re.compile(r"nov|noah|nava|noba|nowa|^\W*va\b", re.I)  # the word that ends the name ("no va" -> "va")
 END_SILENCE_MS = 700  # this much quiet after the phrase: the user has stopped talking
 STALLED_S = 3  # a live microphone sends a block every 30 ms, even in silence
+RETRY_S = 3  # with no microphone, how often to try opening one again
 
 
 def match(text):
@@ -146,10 +147,11 @@ class Detector:
     loudness gate to get past); when it hears "Hey Nova", the clip is raised to a normal level and Whisper checks it,
     so other talk can't wake Nova. feed() returns None, or ("wake", the request's audio after the name, or None)."""
 
-    def __init__(self, transcribe, sensitivity="high", copies=STAGGER, gain=True, personal=None, played=None):
+    def __init__(self, transcribe, sensitivity="high", copies=STAGGER, gain=True, personal=None, played=None, mic=""):
         boost, threshold, self.similar = SENSITIVITY.get(sensitivity, SENSITIVITY["high"])
         self.transcribe, self.spotter, self.copies, self.gain = transcribe, spotter(boost, threshold), copies, gain
         self.personal = personal  # the accent-trained detector (core/wakeword.py), once the user has enrolled
+        self.mic = mic  # the microphone it hears, whose level the user's tries set (wakeword.too_quiet)
         self.played = played  # what the computer is playing (loopback.Tail), to ignore a meeting or video's voices
         self.recent = collections.deque(maxlen=int(PRE_S * RATE / BLOCK))
         self.peaks = collections.deque(maxlen=int(AGC_S * RATE / BLOCK))
@@ -230,13 +232,21 @@ class Detector:
             return None
         alike = self.personal.voice.similarity(clip[:end])
         rounded = None if alike is None else round(alike, 2)
+        why = "" if alike is not None and alike >= wakeword.VOICE else "not the enrolled voice"
+        # a fan or a video across the room in a voice like theirs, or a microphone their level isn't known on
+        why = why or wakeword.too_quiet(clip[:end], self.mic)
+        # the computer is playing something (a video, a call): its voices can sound like the user's, so the words
+        # have to be the phrase too, as Whisper hears them
+        if not why and self.played and self.played.recent() is not None and self.confirm(clip) is None:
+            why = "the computer is playing sound and Whisper didn't hear the phrase"
+        if not why and self.from_speakers(clip):
+            why = "the computer's own audio"
         if wakeword.shadow():  # trying it out: never wake, keep what would have (to measure, then train against)
-            speakers = self.from_speakers(clip)
-            saved = wakeword.keep_shadow(clip, alike)
-            log("wake_shadow", alike=rounded, from_speakers=speakers,
-                would_wake=alike is not None and alike >= wakeword.VOICE and not speakers, clip=saved)
+            log("wake_shadow", alike=rounded, would_wake=not why, reason=why, clip=wakeword.keep_shadow(clip, alike))
             return None
-        if alike is None or alike < wakeword.VOICE:
+        if why:
+            if alike is not None and alike >= wakeword.VOICE:  # their voice, turned away: worth counting in Settings
+                log("wake_ignored", reason=why, alike=rounded, peak=round(wakeword.peak(clip[:end]), 4))
             return None
         # it wakes Nova: keep the clip too, so a wake the user didn't want can be found and trained against
         log("wake_check", by="personal model", alike=rounded, clip=wakeword.keep_shadow(clip, alike))
@@ -292,8 +302,18 @@ def listen(transcribe, on_wake, enabled, running=lambda: True, sensitivity=lambd
     Returning closes the microphone, so turning the wake word off really stops listening.
     Needs the keyword model (models.download("kws")); Nova fetches it before calling this. `played`: what the
     computer is playing (loopback.Tail), so a voice from its own speakers can't wake Nova."""
+    failed = False
     while running():
-        _listen(transcribe, on_wake, enabled, running, sensitivity, played)
+        try:
+            _listen(transcribe, on_wake, enabled, running, sensitivity, played)
+            failed = False
+        except sd.PortAudioError as e:  # no microphone this moment (unplugged, a headset reconnecting): try again
+            # shortcut: PortAudio keeps the device list from Nova's start; Windows' default input follows the system,
+            # a Mac may need Nova restarted for a microphone first plugged in after it started
+            if not failed:
+                log("error", error=f"\"Hey Nova\" microphone unavailable, retrying: {e!r}")
+            failed = True
+            time.sleep(RETRY_S)
 
 
 _personal = {"model": None, "failed": None}  # failed: the voiceprint's time stamp when loading last failed
@@ -333,7 +353,7 @@ def _listen(transcribe, on_wake, enabled, running, sensitivity, played=None):
                 continue
             if detector is None or sensitivity() != level:
                 level = sensitivity()
-                detector = Detector(transcribe, level, personal=personal_model(), played=played)
+                detector = Detector(transcribe, level, personal=personal_model(), played=played, mic=wakeword.mic_name())
             hit = detector.feed(block)
             if hit:
                 on_wake(hit[1], hit[2])

@@ -43,8 +43,8 @@ def log(event, **fields):
         hook(entry)
 
 
-def read_history(kinds, limit=600):
-    """The newest log entries of these kinds, newest first."""
+def read_history(kinds, limit=None):
+    """The newest log entries of these kinds, newest first (all of them when `limit` is None)."""
     items = []
     for f in sorted(LOGS.glob("nova-*.jsonl"), reverse=True):
         for line in reversed(f.read_text(encoding="utf-8", errors="replace").splitlines()):
@@ -54,7 +54,7 @@ def read_history(kinds, limit=600):
                 continue
             if entry.get("event") in kinds:
                 items.append(entry)
-                if len(items) >= limit:
+                if limit and len(items) >= limit:
                     return items
     return items
 

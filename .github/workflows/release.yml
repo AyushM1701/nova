@@ -1,0 +1,31 @@
+# Publishes a Nova release when a tag v<VERSION> is pushed. Only releases reach the Update button (core/update.py),
+# so a commit on main reaches nobody until it's tagged. The zip's SHA256SUMS lets each install check its download.
+#   git tag v1.5.4 && git push origin v1.5.4
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The tag matches VERSION
+        run: test "v$(tr -d '[:space:]' < VERSION)" = "$GITHUB_REF_NAME"
+
+      - name: Build the downloads and their checksums
+        run: |
+          git archive --format=zip --prefix=nova-main/ -o nova-main.zip HEAD
+          git archive --format=tar.gz --prefix=nova-main/ -o nova-main.tar.gz HEAD
+          sha256sum nova-main.zip nova-main.tar.gz > SHA256SUMS
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" nova-main.zip nova-main.tar.gz SHA256SUMS --title "Nova ${GITHUB_REF_NAME#v}" --generate-notes

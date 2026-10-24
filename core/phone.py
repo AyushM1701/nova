@@ -36,21 +36,25 @@ TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/heic": "heic", "image/h
          "image/webp": "webp", "application/pdf": "pdf", "text/plain": "txt"}
 PAGE = Path(__file__).with_name("phone.html")
 TOKEN = DATA / "phone-token"
+SIRI = DATA / "siri-token"  # Siri's own key: it can only send requests, never connect, see the conversation or Allow
 NETWORK = DATA / "phone-network"  # the router of the network Phone was turned on in
 CHECK_S = 30  # how often Phone checks which network this computer is on
 PAUSED = ("Phone is paused on this Wi-Fi: it isn't the network you turned Phone on in, and anyone on it could "
           "read the pairing key. Tailscale still works. To use Phone here, turn it off and on again.")
+UNKNOWN = ("Phone is paused on Wi-Fi: Nova can't tell which network this computer is on, so it can't tell your home "
+           "network from a café's. Tailscale still works.")
 # the page only talks to the Nova that served it; nothing loads from the internet
 CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
        "connect-src 'self' ws: wss:; frame-ancestors 'none'")
 
 
-def token(new=False):
-    """The pairing key; new=True replaces it, so every paired phone has to scan again."""
-    if new or not TOKEN.exists():
+def token(new=False, path=None):
+    """The pairing key (or Siri's, path=SIRI); new=True replaces it, so every paired phone has to scan again."""
+    path = path or TOKEN
+    if new or not path.exists():
         DATA.mkdir(parents=True, exist_ok=True)
-        write_private(TOKEN, secrets.token_urlsafe(24))
-    return TOKEN.read_text(encoding="utf-8").strip()
+        write_private(path, secrets.token_urlsafe(24))
+    return path.read_text(encoding="utf-8").strip()
 
 
 def addresses():
@@ -99,9 +103,10 @@ def hosts():
     if not home and now:  # Phone was on before Nova knew networks: this one is home
         NETWORK.write_text(now, encoding="utf-8")
         home = now
-    if not home or now == home:  # shortcut: no router found either time (wired with no ARP entry), trust it
+    if now and now == home:
         return ["0.0.0.0"], ""
-    return [ip for ip in _tailscale_ips() if _tailscale(ip)] or ["127.0.0.1"], PAUSED
+    # no router found (wired with no ARP entry, or the check failed): paused, not open to whatever network this is
+    return [ip for ip in _tailscale_ips() if _tailscale(ip)] or ["127.0.0.1"], PAUSED if now else UNKNOWN
 
 
 def _tailscale_ips():
@@ -234,7 +239,7 @@ class Phone:
 
     async def _ask(self, connection, query):
         """Run one request like a typed one and answer with the line to speak, once Nova replies."""
-        if not secrets.compare_digest(query.get("key", [""])[0].encode(), token().encode()):  # bytes: any key is just wrong
+        if not secrets.compare_digest(query.get("key", [""])[0].encode(), token(path=SIRI).encode()):  # bytes: any key is just wrong
             return connection.respond(401, "This Siri shortcut isn't paired with Nova. Set it up again from the Nova "
                                            "app on your phone.\n")
         text = query.get("text", [""])[0].strip()[:4000]
@@ -242,7 +247,7 @@ class Phone:
             return connection.respond(400, "Tell me what you'd like Nova to do.\n")
         waiter = {"text": text, "future": self.loop.create_future(), "active": False}
         self.waiters.append(waiter)
-        self._handle({"op": "ask", "text": text}, lambda msg: None)
+        self._handle({"op": "ask", "text": text, "siri": True}, lambda msg: None)
         try:
             answer = await asyncio.wait_for(waiter["future"], SIRI_WAIT_S)
         except asyncio.TimeoutError:  # Siri gives up on a link after about a minute
@@ -258,7 +263,7 @@ class Phone:
         for w in self.waiters:
             if w["future"].done():
                 continue
-            if kind == "heard" and not w["active"] and event.get("via") == "phone" and event.get("text") == w["text"]:
+            if kind == "heard" and not w["active"] and event.get("via") == "siri" and event.get("text") == w["text"]:
                 w["active"] = True
                 return
             if (kind == "reply" and event.get("request") == w["text"]
@@ -274,6 +279,7 @@ class Phone:
             if not (isinstance(hello, dict) and secrets.compare_digest(str(hello.get("token", "")).encode(), token().encode())):
                 return await ws.close(4001, "not paired")
             self.clients.add(ws)
+            await ws.send(json.dumps({"type": "siri", "key": token(path=SIRI)}))  # for the Siri link; the pairing key stays here
             reply = lambda msg: self.send(ws, msg)  # noqa: E731
             self._handle({"op": "connected"}, reply)
             async for raw in ws:

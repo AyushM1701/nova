@@ -168,6 +168,13 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
 .try .phrase svg { color: var(--faint); opacity: 0; transition: opacity .15s, transform .15s; }
 .try .phrase:hover svg { opacity: 1; transform: translateX(2px); color: var(--accent); }
 .try .phrase.static { cursor: default; }
+.try.can { display: block; }
+.try.can ul { display: grid; grid-template-columns: 1fr 1fr; column-gap: 28px; }
+.try.can li:nth-child(2) { border-top: 1px solid var(--line); }
+.try.can .phrase { align-items: flex-start; }
+.try.can .phrase b { display: block; font-weight: 560; }
+.try.can .phrase .muted { display: block; font-size: 13px; margin-top: 2px; }
+.try.can .phrase svg { margin-top: 3px; }
 .try h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--muted); font-weight: 550; font-size: 13px; }
 .week { color: var(--muted); }
 .week b { color: var(--text); font-weight: 650; }
@@ -263,6 +270,14 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .ask .bar { height: 3px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .ask .bar i { display: block; height: 100%; background: var(--amber); transform-origin: left; }
 .ask .btns { display: flex; gap: 8px; align-items: center; }
+.ask .what { font-size: 15px; font-weight: 560; line-height: 1.45; }
+.ask .why { color: var(--muted); font-size: 13px; margin-top: -6px; }
+.ask details summary { width: fit-content; cursor: pointer; color: var(--muted); font-size: 13px; list-style: none; display: flex; align-items: center; gap: 6px; border-radius: 6px; }
+.ask details summary::-webkit-details-marker { display: none; }
+.ask details summary::before { content: ""; width: 6px; height: 6px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform .15s ease-out; }
+.ask details[open] summary::before { transform: rotate(45deg); }
+.ask details summary:hover { color: var(--text); }
+.ask details pre { margin-top: 8px; }
 .ask.resolved { background: transparent; border-color: var(--line); }
 .ask.resolved .t { color: var(--muted); }
 .composer-wrap { padding: 12px 28px 18px; }
@@ -426,7 +441,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
   #modeSeg svg { display: block; }
   #pauseBtn { width: 36px; padding: 0; }
   .page { padding: 32px 28px 56px; }
-  .try { grid-template-columns: 1fr; }
+  .try, .try.can ul { grid-template-columns: 1fr; }
+  .try.can li:nth-child(2) { border-top: 0; }
 }
 /* Windows contrast themes replace every background, so on/off and "chosen" need system colours of their own */
 @media (forced-colors: active) {
@@ -520,6 +536,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <ul id="tryDictation"></ul>
         </div>
       </div>
+      <h2>More Nova can do</h2>
+      <div class="try can"><ul id="canDo"></ul></div>
       <h2>This week</h2>
       <p class="week" id="week"></p>
       <h2 style="display:flex;align-items:center">Recent <span class="grow" style="flex:1"></span><button class="btn ghost sm" data-go="history">See all</button></h2>
@@ -655,7 +673,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><button class="switch" role="switch" data-bind="wake_word" aria-label="Listen for Hey Nova"></button></div></div>
         <div class="row"><div class="what"><h2>How easily “Hey Nova” wakes Nova</h2><p>High (the default) hears a soft or distant voice best. If Nova wakes when you didn't call it, try Normal; Low needs you to say it clearly. The listening runs on this computer.</p></div>
           <div class="how"><div class="seg" role="radiogroup" data-bind="wake_sensitivity" data-options="low:Low,normal:Normal,high:High"></div></div></div>
-        <div class="row"><div class="what"><h2>Teach Nova your “Hey Nova”</h2><p id="enrollNote">If Nova often misses your “Hey Nova”, say it 8 times here. Nova also listens with a detector trained on Indian English, which wakes only for your voice; the voiceprint stays on this computer.</p></div>
+        <div class="row"><div class="what"><h2>Teach Nova your “Hey Nova”</h2><p id="enrollNote">If Nova often misses your “Hey Nova”, say it 8 times here. Nova also listens with a detector trained on Indian English, which wakes only for your voice; the voiceprint stays on this computer.</p><p class="small" id="enrollStatus" style="margin-top:8px" hidden></p></div>
           <div class="how"><button class="btn sm" id="enrollBtn">Start</button></div></div>
         <div class="row"><div class="what"><h2>Start in</h2><p>The mode Nova opens in. Switch any time with the sidebar or by saying “switch to dictation”.</p></div>
           <div class="how"><div class="seg" role="radiogroup" data-bind="start_mode" data-options="assistant:Assistant,dictation:Dictation"></div></div></div>
@@ -784,7 +802,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
       </div>
 
       <div data-panel="browsers" class="rows" hidden>
-        <div class="row" style="display:block"><div class="what"><h2>Your browsers</h2><p>Nova can read pages, open tabs, click and type in the browsers you turn on here, inside your own profile with your logins. It asks before anything that submits, buys, posts or sends, and never types passwords, card numbers or one-time codes. Say “in Brave” to use another browser for one request.</p></div>
+        <div class="row" style="display:block"><div class="what"><h2>Your browsers</h2><p>Nova can read pages, open tabs, click and type in the browsers you turn on here, inside your own profile with your logins. It asks before clicks and keys that look like submitting, buying, posting or sending (it judges by the button, so a page can disguise one), and never types passwords, card numbers or one-time codes. Say “in Brave” to use another browser for one request.</p></div>
           <div class="engines" id="setBrowsers"></div><div class="log mono" id="browserLog" hidden></div></div>
       </div>
 
@@ -818,7 +836,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <p class="small" id="permWarn" style="margin-top:10px;color:var(--danger)" hidden>Bypass runs everything without asking, including deleting files, installing software and pushing code. Only wiping disks, turning off security and reading saved passwords stay blocked. Switch back when you're done.</p></div>
         <div class="row"><div class="what"><h2>Share what you're looking at</h2><p>Tells the AI which app you're in. When you ask about your screen (“what's this error?”, “summarize this page”, “what's on my whole screen?”) it also gets a screenshot and the window's text, including what's scrolled out of view. Off means the AI only gets your words.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="brain.screen_context" aria-label="Share what you're looking at"></button></div></div>
-        <div class="row"><div class="what"><h2>Remember what the computer played for</h2><p>So you can ask “what did they just say?” about a video or call without starting anything first. Kept in memory only, never saved, and transcribed only when you ask (or as it plays on a GPU). 0 turns it off. Windows; on a Mac, say “listen to my computer”.</p></div>
+        <div class="row" data-win-only="On a Mac, recording it all the time would keep the screen-recording indicator on. Say “listen to my computer” when you need it."><div class="what"><h2>Remember what the computer played for</h2><p>So you can ask “what did they just say?” about a video or call without starting anything first. Kept in memory only, never saved, and transcribed only when you ask (or as it plays on a GPU). 0 turns it off.</p></div>
           <div class="how"><input class="input short num" type="number" min="0" max="30" data-bind="brain.audio_memory_min" aria-label="Minutes"><span class="muted">minutes</span></div></div>
         <div class="row"><div class="what"><h2>Remember what you copy</h2><p>The last 20 things you copied, kept in memory only and gone when Nova quits, so you can say “paste the link I copied earlier”. Anything that looks like a password or key is skipped. The AI only sees them when you mention copying or the clipboard.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="brain.clipboard_history" aria-label="Remember what you copy"></button></div></div>
@@ -834,9 +852,11 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><button class="btn sm" data-open="config">Open</button></div></div>
         <div class="row"><div class="what"><h2>Logs</h2><p>Every request, reply and safety decision, one file per day.</p></div>
           <div class="how"><button class="btn sm" data-open="logs">Open folder</button></div></div>
+        <div class="row"><div class="what"><h2>Report a problem</h2><p>Saves a diagnostics zip and opens a new GitHub issue to attach it to. The zip has which features ran, errors and your settings. What you said, Nova's replies, commands and your personal lists stay out, and nothing is sent unless you attach it.</p></div>
+          <div class="how"><button class="btn sm" id="diagBtn">Save diagnostics</button></div></div>
         <div class="row"><div class="what"><h2>Notes</h2><p>Where Nova saves notes you dictate to it.</p></div>
           <div class="how"><button class="btn sm" data-open="notes">Open folder</button></div></div>
-        <div class="row"><div class="what"><h2>Check for updates</h2><p id="versionNote">Once a day Nova asks GitHub whether a newer version is out. Only the version number is fetched; nothing about you is sent.</p></div>
+        <div class="row"><div class="what"><h2>Check for updates</h2><p id="versionNote">Once a day Nova asks GitHub for its latest release. Updates install only from tagged releases and must match their published checksum. Nothing about you is sent.</p></div>
           <div class="how"><button class="btn sm" id="checkUpdate">Check now</button><button class="switch" role="switch" data-bind="update_check" aria-label="Check for updates"></button></div></div>
         <div class="row"><div class="what"><h2>Setup</h2><p>Go through the first-run steps again: microphone, AI, shortcut.</p></div>
           <div class="how"><button class="btn sm" id="rerunSetup">Run setup</button></div></div>
@@ -943,6 +963,11 @@ const MAC_WORDS = [
 function local(s) { return S.platform === "mac" ? MAC_WORDS.reduce((t, [win, mac]) => t.replaceAll(win, mac), s) : s; }
 function macify() {
   document.documentElement.classList.add("mac");
+  // a Windows-only setting says so on a Mac, with what to do instead, rather than sitting there doing nothing
+  $$("[data-win-only]").forEach(row => {
+    $(".what", row).append(h("p", { class: "small" }, row.dataset.winOnly));
+    $(".how", row).replaceChildren(h("span", { class: "tag" }, "Windows only"));
+  });
   const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   for (let n; (n = walk.nextNode());) n.data = local(n.data);
   $$("[aria-label]").forEach(el => el.setAttribute("aria-label", local(el.getAttribute("aria-label"))));
@@ -1142,7 +1167,20 @@ function send(op, data) { return api().send(op, data || null).catch(fail); }
 /* ---------- home ---------- */
 const TRY_A = ["What's the weather in Goa?","Open Spotify and play something chill", "In my portfolio project, fix the navbar on mobile", "What's this error on my screen?", "Copy my resume to the clipboard", "Turn on dark mode"];
 const TRY_D = ["“Meet at 6, no wait, 7” becomes “Meet at 7.”", "“Um, so, I think we should ship it” loses the filler", "Select text, then say “make this more formal”", "Hinglish is written in Roman letters"];
+// the features people otherwise only find in the README, each opening where it's set up
+const CAN = [["Rewrite what you selected", "Select text, press the shortcut and say “make this more formal”.", "settings:dictation"],
+  ["Ask about your screen", "“What's this error on my screen?” Nova looks at the window you're in.", "settings:privacy"],
+  ["Memory", "“Remember I use pnpm.” See and delete what it knows on the Memory page.", "memory"],
+  ["Routines", "“Start my day”, or one phrase of your own that does several steps.", "settings:routines"],
+  ["Meetings", "Record a meeting and get notes with action items.", "meetings"],
+  ["Listen to your computer", "“Listen to my computer”, then “what did they just say?” about a video or call.", "settings:privacy"],
+  ["Your real browser", "Nova works inside your own browser, with your logins, and asks before buttons that look like sending or buying.", "settings:browsers"],
+  ["Phone and Siri", "Ask, and Allow or Deny, from your phone. Or “Hey Siri, ask Nova”.", "settings:phone"],
+  ["Backup brain", "A free Gemini key takes over when Claude Code or Codex reaches its limit.", "settings:ai"],
+  ["Change Nova by asking", "“Use Ctrl+Shift+N as my shortcut” or “keep replies up for 10 seconds”.", "settings:general"]];
 function renderHome() {
+  $("#canDo").replaceChildren(...CAN.map(([what, line, where]) => h("li", {}, h("button", { class: "phrase", "data-go": where },
+    h("span", {}, h("b", {}, what), h("span", { class: "muted" }, local(line))), h("span", { html: I.arrow, style: "flex:none" })))));
   const hr = new Date().getHours();
   $("#greet").textContent = hr < 5 ? "Working late" : hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
   $("#tryAssistant").replaceChildren(...TRY_A.map(t => h("li", {}, h("button", { class: "phrase", title: "Send in Chat", onclick: () => { go("chat"); ask(t); } }, h("span", {}, t), h("span", { html: I.arrow, style: "flex:none" })))));
@@ -1167,7 +1205,8 @@ function describe(e) {
     const r = e.request || {}, why = plainReason(r.reason || "");
     const verdict = e.allowed ? "Allowed" : e.timed_out ? "Denied (no answer)" : "Denied";
     const what = String(r.tool || "").startsWith("browser.") ? "a browser action" : "a command";
-    return { icon: I.shield, kind: e.allowed ? "" : "warn", text: `${verdict} ${what}${why ? ` that ${why}` : ""}`, code: r.summary || "", copy: r.summary || "" };
+    const text = r.plain ? `${verdict}: ${r.plain}` : `${verdict} ${what}${why ? ` that ${why}` : ""}`;
+    return { icon: I.shield, kind: e.allowed ? "" : "warn", text, code: r.summary || "", copy: r.summary || "" };
   }
   return { icon: I.alert, kind: "warn", text: e.error || "", sub: "", copy: e.error || "" };
 }
@@ -1252,12 +1291,20 @@ function askMsg(ev) {
   const deny = h("button", { class: "btn sm", onclick: () => send("approve", { ok: false, id: ev.id }) }, "Deny");
   const el = addMsg(h("div", { class: "ask", role: "alert" },
     h("div", { class: "t", html: I.shield + `<span>${esc(ev.who)} needs your OK</span>` }),
-    h("div", {}, `It wants to run something that ${ev.reason}:`),
-    h("pre", { class: "mono" }, ev.summary),
+    ...askWhat(ev, (what, why, cmd) => [h("div", { class: "what" }, what), why && h("div", { class: "why" }, why),
+      h("details", { open: cmd.open, ontoggle: e => cmd.remember(e.target.open) }, h("summary", {}, "Show command"), h("pre", { class: "mono" }, ev.summary))]),
     h("div", { class: "bar" }, bar),
     h("div", { class: "btns" }, allow, deny, h("span", { class: "faint small", style: "margin-left:6px" }, `or press ${keysText(hotkey())} / Esc`))));
   const tick = () => { if (!el.isConnected || el.classList.contains("resolved")) return; bar.style.transform = `scaleX(${Math.max(0, 1 - (Date.now() - started) / total)})`; requestAnimationFrame(tick); };
-  tick(); S.asks.push(el); allow.focus({ preventScroll: true });
+  el.askId = ev.id; tick(); S.asks.push(el); allow.focus({ preventScroll: true });
+}
+// the card leads with what happens in plain words; the exact command is one click away (and stays open for those
+// who opened it once). Without a plain sentence the command shows anyway: the rule's reason alone is too vague.
+function askWhat(ev, parts) {
+  let open = false; try { open = localStorage.getItem("nova-show-command") === "1"; } catch {}
+  const remember = v => { try { localStorage.setItem("nova-show-command", v ? "1" : "0"); } catch {} };
+  return parts(ev.plain || `It wants to run something that ${ev.reason}.`, ev.plain ? `Nova asks because it ${ev.reason}.` : "",
+    { open: open || !ev.plain, remember: v => ev.plain && remember(v) }).filter(Boolean);
 }
 function resolveAsk(allowed, timedOut) {
   const el = S.asks.shift(); if (!el) return;
@@ -1465,7 +1512,15 @@ function bindSettings() {
 /* "Teach Nova your Hey Nova": Nova records the tries itself (nova.py enroll_voice) and reports as {event: 'enroll'} */
 const ENROLL_NOTE = $("#enrollNote").textContent;
 async function drawEnroll() {
-  try { const st = await api().voice_enrolled(); $("#enrollBtn").textContent = st.enrolled ? "Record again" : "Start"; } catch (e) { /* the window keeps its default */ }
+  let st; try { st = await api().voice_enrolled(); } catch (e) { return; }  // the window keeps its default
+  $("#enrollBtn").textContent = st.enrolled ? "Record again" : "Start";
+  const out = $("#enrollStatus"); out.hidden = !st.enrolled; if (!st.enrolled) return;
+  const times = n => `${n} time${n === 1 ? "" : "s"}`;
+  out.textContent = st.new_mic
+    ? `You're using “${st.mic}”, and your tries were recorded on another microphone, so this detector is off for now. Record again to use it with this one. The usual “Hey Nova” still works.`
+    : st.tryout_until != null
+    ? `Trying it out${st.tryout_until ? " until " + new Date(st.tryout_until * 1000).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : ""}: it notes what would have woken Nova (${times(st.would)} in the last 7 days) without waking it. The usual “Hey Nova” works meanwhile.`
+    : `Last 7 days: woke Nova ${times(st.woke)}, and ignored ${times(st.ignored)} that sounded like you but were too quiet, on another microphone, or from the computer's own sound.`;
 }
 $("#enrollBtn").addEventListener("click", async () => {
   try { await api().send("enroll_voice"); $("#enrollBtn").disabled = true; $("#enrollNote").textContent = "Getting ready…"; } catch (e) { fail(e); }
@@ -1522,6 +1577,11 @@ $("#getNatural").addEventListener("click", async e => {
   loadVoices();
 });
 $$("[data-open]").forEach(b => b.addEventListener("click", () => api().open(b.dataset.open).catch(fail)));
+$("#diagBtn").addEventListener("click", async e => {
+  const btn = e.currentTarget; btn.disabled = true;
+  try { toast(`Saved ${await api().diagnostics()}. Attach it to the GitHub issue that just opened.`); } catch (err) { fail(err); }
+  btn.disabled = false;
+});
 $("#rerunSetup").addEventListener("click", () => openOnboarding());
 $("#updateBtn").addEventListener("click", async e => {
   const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Downloading…";
@@ -2173,10 +2233,9 @@ function renderOnb() {
     loadEngines(box, log, update); update();
   } else if (id === "browsers") {
     const box = h("div", { class: "engines" }), log = h("div", { class: "log mono", hidden: true });
-    step.append(h("h1", {}, "Use Nova in your browser"), h("p", { class: "lede" }, "Nova can open tabs, read pages, click and type for you in the browsers you pick, with your own logins. It asks before anything that submits, buys or sends, and never types passwords or card numbers."), box, log);
+    step.append(h("h1", {}, "Use Nova in your browser"), h("p", { class: "lede" }, "Nova can open tabs, read pages, click and type for you in the browsers you pick, with your own logins. It asks before clicks and keys that look like submitting, buying, posting or sending (it judges by the button, so a page can disguise one), and never types passwords or card numbers."), box, log);
     loadBrowsers(box, log, true);
     next.textContent = "Set up and continue";
-    S.applyBrowsers = true;
   } else if (id === "keys") {
     const tap = h("div", { class: "big-keys", html: talkKeys() });
     const caps = h("span", { class: "keys" }); keycaps(hotkey(), caps);
@@ -2222,6 +2281,7 @@ const handlers = {
     if (ev.paused) S.bar = "paused";
     if (wasBusy && ev.phase === "idle") endWork();
     renderLive(); renderPhoneStatus(); renderRecording();
+    if (ev.asking && !S.asks.some(a => a.askId === ev.asking.id)) handlers.asking(ev.asking);  // opened mid-approval
   },
   meetings() { if (S.page === "meetings") { if (MT.id) refreshMeeting(); else loadMeetings(); } },
   meeting_live(ev) { MT.live = ev; renderRecording(); },
@@ -2229,7 +2289,7 @@ const handlers = {
     const note = $("#enrollNote"), btn = $("#enrollBtn");
     if (ev.error || ev.done) { btn.disabled = false; note.textContent = ENROLL_NOTE; }
     if (ev.error) return fail(ev.error);
-    if (ev.done) { drawEnroll(); return toast(ev.ok ? `Nova learned your voice from ${ev.tries} tries` : "Saved, but the tries sounded quite different from each other. Record again somewhere quieter, alone, if Nova misses you.", !ev.ok); }
+    if (ev.done) { drawEnroll(); return toast(!ev.ok ? "Saved, but the tries sounded quite different from each other. Record again somewhere quieter, alone, if Nova misses you." : ev.tryout_until ? "Nova learned your voice. For a day it only notes what would have woken it: see the counts here." : `Nova learned your voice from ${ev.tries} tries`, !ev.ok); }
     note.textContent = ev.text;
   },
   meeting_progress(ev) {  // only the row or page it's about: reloading every meeting per tick froze the window

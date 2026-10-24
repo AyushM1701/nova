@@ -11,7 +11,7 @@ $Venv = Join-Path $Root ".venv"
 $Py = Join-Path $Venv "Scripts\python.exe"
 $PyW = Join-Path $Venv "Scripts\pythonw.exe"
 $Steps = 8
-$ModelBytes = 2.1GB  # shortcut: approximate size of the two speech models, only used for the progress bar
+$ModelBytes = 470MB  # shortcut: approximate size of the fast speech model, only used for the progress bar
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 [Windows.Forms.Application]::EnableVisualStyles()
@@ -157,8 +157,10 @@ function Folder-Size($dirs) {
 $form.Show(); Pump
 try {
     # An update can't replace libraries a running Nova has loaded: stop it first
+    # escaped: -like reads [ ] in a folder name ("D:\My [work]\nova") as a pattern and would match nothing
+    $RootLike = [WildcardPattern]::Escape($Root)
     Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
-        Where-Object { $_.CommandLine -like "*$Root*nova.py*" -or ($_.CommandLine -like "*core.app*" -and $_.ExecutablePath -like "$Root*") } |
+        Where-Object { $_.CommandLine -like "*$RootLike*nova.py*" -or ($_.CommandLine -like "*core.app*" -and $_.ExecutablePath -like "$RootLike*") } |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
     Step "Finding Python"
@@ -196,18 +198,17 @@ try {
         throw "Installing libraries failed. Check your internet connection; the details say more."
     }
 
-    Step "Downloading the speech models (about 2 GB, once)"
+    Step "Downloading the speech model (about 470 MB, once)"
     $hub = Join-Path $env:USERPROFILE ".cache\huggingface\hub"
-    $modelDirs = @((Join-Path $hub "models--Systran--faster-whisper-small"), (Join-Path $hub "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo"))
+    $modelDirs = @((Join-Path $hub "models--Systran--faster-whisper-small"))
     $start = ($script:n - 1) / $Steps
-    $code = Run $Py @("-c", "from faster_whisper.utils import download_model as d; d('small'); d('large-v3-turbo'); print('Models ready.')") {
+    $code = Run $Py @("-c", "from faster_whisper.utils import download_model as d; d('small'); print('Model ready.')") {
         $size = Folder-Size $modelDirs
         $detail.Text = "{0:N0} MB of about {1:N0} MB" -f ($size / 1MB), ($ModelBytes / 1MB)
         Progress ($start + [Math]::Min([double]0.99, [double]($size / $ModelBytes)) / $Steps)
     }
-    if ($code -ne 0) { throw "Downloading the speech models failed. Check your internet connection and run setup again." }
-    New-Item -ItemType Directory -Force (Join-Path $Root "data") | Out-Null
-    New-Item -ItemType File -Force (Join-Path $Root "data\models-ready") | Out-Null
+    if ($code -ne 0) { throw "Downloading the speech model failed. Check your internet connection and run setup again." }
+    # the accurate model for Hindi and Hinglish (1.6 GB) downloads in the background once Nova runs (core/stt.py)
 
     # Piper speaks by default and Kitten is the light choice; Kokoro (330 MB) downloads only if picked in Settings
     Step "Downloading Nova's voices and `"Hey Nova`" (about 110 MB, once)"

@@ -201,6 +201,7 @@ class Nova:
         write_private(DATA / "events.key", self.events_key)
         self.stop_rec, self.cancel, self.stop_tts = threading.Event(), threading.Event(), threading.Event()
         self.approval_lock, self.asking_id = threading.Lock(), 0
+        self.ask_event = None  # the open approval, so a phone or window that (re)connects can show its card too
         self.app_proc, self.wake_thread, self.level_t = None, None, 0.0
         if system.IS_MAC:  # opened from Nova.app, PATH lacks Homebrew, npm and ~/.local/bin, where the CLIs live
             system.refresh_path()
@@ -555,7 +556,7 @@ class Nova:
 
     def state(self):
         return {"event": "state", "phase": self.phase, "mode": self.mode, "paused": self.paused,
-                "pending": bool(self.pending), "brain": self.brain.name if self.brain else None,
+                "pending": bool(self.pending), "asking": self.open_ask(), "brain": self.brain.name if self.brain else None,
                 "engine": self.cfg["brain"]["engine"], "stt": self.stt.device if self.stt else None,
                 "browsers": list(self.web.conns) + sorted(self.web.ready),
                 "hotkey": self.pretty(), "wake_word": self.cfg["wake_word"], "update": self.update,
@@ -563,6 +564,11 @@ class Nova:
                 "recording": self.meeting and {"id": self.meeting["id"], "title": self.meeting["title"],
                                                "started": self.recorder.started},
                 "speech": ENGINE_NAMES.get(self.cfg["voice"]["stt_engine"], "")}
+
+    def open_ask(self):
+        """The open approval's card, with the seconds it has left, or None."""
+        ask = self.ask_event
+        return ask and dict(ask, timeout=max(1, round(ask["until"] - time.time())))
 
     def push_state(self):
         self.outbox.put(self.state())
@@ -835,8 +841,11 @@ class Nova:
     def typed(self, text, via):
         """A request typed in the Nova window, on the phone or in a browser panel (`via`): same brain and guard,
         answered on screen instead of aloud."""
-        if self.paused or self.phase != "idle" or self.pending:
-            why = "Nova is paused. Resume it to send requests." if self.paused else "Nova is busy with another request."
+        siri_approves = via == "siri" and self.asked and wake.approval(text)  # Siri's key can ask, never approve a plan
+        if self.paused or self.phase != "idle" or self.pending or siri_approves:
+            why = ("Nova is paused. Resume it to send requests." if self.paused else
+                   "Approve plans on the phone page or this computer, not through Siri." if siri_approves else
+                   "Nova is busy with another request.")
             return self.outbox.put({"event": "note", "title": "Not sent", "text": why})
         self.voice = False
         self.show_bar("thinking")
@@ -1538,13 +1547,15 @@ class Nova:
                     clip = audio.record(600, 4, self.stop_rec, self.on_level)
                     if clip is not None:
                         clips.append(clip)
-                result = wakeword.enroll(clips)
+                result = wakeword.enroll(clips, wakeword.mic_name())
             except Exception as e:  # too few heard, offline, no microphone: the window says why
                 log("error", error=f"enrolling the voice: {e!r}")
                 self.ui(self.card.hide)
                 return progress(error=str(e) if isinstance(e, ValueError) else friendly(e))
             log("enroll", **result)
-            self.ui(lambda: self.card.show("Nova knows your voice", "Say “Hey Nova” any time.", hide_after=5))
+            note = ("For its first day it only notes what would have woken Nova, so you can check it in Settings. "
+                    "The usual “Hey Nova” works meanwhile.") if result["tryout_until"] else "Say “Hey Nova” any time."
+            self.ui(lambda: self.card.show("Nova knows your voice", note, hide_after=8))
             progress(done=True, **result)
         self.ui(lambda: self.show_bar("listening"))
         self.spawn(work, "listening")
@@ -1745,27 +1756,30 @@ class Nova:
             self.asking_id += 1
             self.pending, self.asking = (done, box), req["summary"]
             who = self.brain.name if self.brain else "The AI"
-            body = f"{who} wants to run something that {req['reason']}:"
-            self.outbox.put({"event": "asking", "id": self.asking_id, "who": who, "reason": req["reason"], "summary": req["summary"],
-                             "timeout": round(timeout)})
+            # the plain sentence ("Deletes the dist folder in portfolio (14 files)") when the guard is sure of it
+            body = req.get("plain") or f"{who} wants to run something that {req['reason']}."
+            self.ask_event = {"event": "asking", "id": self.asking_id, "who": who, "reason": req["reason"],
+                              "summary": req["summary"], "plain": req.get("plain", ""), "timeout": round(timeout),
+                              "until": time.time() + timeout}
+            self.outbox.put(self.ask_event)
             self.ui(lambda: self.card.show("Needs your OK", body, buttons=True, detail=req["summary"]))
             self.ui(lambda: self.show_bar("approval"))
             if self.voice:
-                threading.Thread(target=self.hear_answer, args=(done,), daemon=True).start()
+                threading.Thread(target=self.hear_answer, args=(done, req.get("plain", "")), daemon=True).start()
             done.wait(timeout)
             done.set()  # also ends the spoken question and the listening for an answer
-            self.pending = None
+            self.pending = self.ask_event = None
             if box[0] is None:  # no answer: deny, and don't leave the buttons on screen
                 self.ui(lambda: self.card.show("Denied", "No answer in time, so Nova said no.", hide_after=4))
                 self.ui(lambda: self.show_bar("thinking"))
             log("approval", request=req, allowed=bool(box[0]), timed_out=box[0] is None)
             return bool(box[0])
 
-    def hear_answer(self, done):
+    def hear_answer(self, done, what=""):
         """Ask out loud, then listen for "allow" / "deny" until someone answers (by voice, key or click).
         The mic opens only after Nova has finished speaking, so its own question can't answer itself."""
         v = self.cfg["voice"]
-        prompt = "I need your OK for this. Say allow, or deny."
+        prompt = f"{what}. I need your OK for this. Say allow, or deny." if what else "I need your OK for this. Say allow, or deny."
         tts.speak(prompt, v, done)  # stops at once if you click or press a key first
         if not v["approve_by_voice"] or not self.stt:
             return
@@ -1828,7 +1842,7 @@ class Nova:
         if op == "connected":  # a browser or phone connected or went away: the window's status updates
             self.ui(self.push_state)
         elif op == "ask" and str(msg.get("text", "")).strip():
-            self.ui(lambda: self.typed(str(msg["text"]).strip()[:4000], via))
+            self.ui(lambda: self.typed(str(msg["text"]).strip()[:4000], "siri" if msg.get("siri") else via))
         elif op == "approve":
             self.ui(lambda: self.answer(bool(msg.get("ok")), msg.get("id", -1)))
         elif op == "cancel":

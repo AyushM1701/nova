@@ -3,6 +3,9 @@
 NVIDIA GPU (Windows): the accurate model handles everything in well under a second.
 CPU (and every Mac): the fast model handles English; when it hears another language (Hindi, Hinglish) the
 accurate model re-transcribes, because `small` drops and garbles Hindi words.
+
+Setup downloads only the fast model (about 480 MB), so dictation works minutes sooner; the accurate one (1.6 GB)
+downloads in the background the first time Nova runs (load_accurate), and the GPU switches to it then.
 """
 import glob
 import os
@@ -17,6 +20,7 @@ if os.name == "nt":
         os.environ["PATH"] = _d + os.pathsep + os.environ["PATH"]
 
 from faster_whisper import WhisperModel  # noqa: E402
+from faster_whisper.utils import download_model  # noqa: E402
 
 from core.cleanup import drop_outro, is_prompt_echo  # noqa: E402
 
@@ -25,21 +29,41 @@ from core.cleanup import drop_outro, is_prompt_echo  # noqa: E402
 VAD = {"threshold": 0.35, "speech_pad_ms": 300}
 
 
+def downloaded(name):
+    try:
+        download_model(name, local_files_only=True)
+        return True
+    except Exception:  # not in the cache yet
+        return False
+
+
 class STT:
     def __init__(self, fast_name, accurate_name):
         self.fast_name, self.accurate_name, self.accurate, self.small = fast_name, accurate_name, None, None
         try:
             if sys.platform == "darwin":  # no NVIDIA GPU on a Mac: go straight to the CPU (int8 is fast on Apple chips)
                 raise RuntimeError("no CUDA on macOS")
-            self.fast = WhisperModel(accurate_name, device="cuda", compute_type="float16")
+            # the accurate model once it's downloaded; until then the fast one, still on the GPU, which is then
+            # also the one that translates (no second copy of it)
+            have = downloaded(accurate_name)
+            self.fast = WhisperModel(accurate_name if have else fast_name, device="cuda", compute_type="float16")
+            self.small = None if have else self.fast
             self.fast.transcribe(np.zeros(16000, dtype=np.float32))  # fails here if cuDNN/cuBLAS can't load
             self.device = "GPU"
         except Exception:
+            self.small = None
             self.fast = WhisperModel(fast_name, device="cpu", compute_type="int8")
             self.device = "CPU"
 
     def load_accurate(self):
-        if self.device == "CPU" and self.accurate_name:
+        """Download the accurate model if setup didn't (slow: run it in the background), then use it."""
+        if not self.accurate_name:
+            return
+        if not downloaded(self.accurate_name):
+            download_model(self.accurate_name)
+            if self.device == "GPU":  # the fast model stood in until now; it stays as self.small, for translation
+                self.fast = WhisperModel(self.accurate_name, device="cuda", compute_type="float16")
+        if self.device == "CPU":
             self.accurate = WhisperModel(self.accurate_name, device="cpu", compute_type="int8")
 
     def translator(self):

@@ -41,7 +41,12 @@ def calendar():
         return None
     with _lock:
         if _cache["url"] != address or time.time() - _cache["at"] > REFRESH_S:
-            _cache.update(url=address, at=time.time(), cal=fetch(address))
+            try:
+                _cache.update(url=address, at=time.time(), cal=fetch(address))
+            except Exception:
+                if _cache["url"] != address or _cache["cal"] is None:
+                    raise
+                _cache["at"] = time.time()  # offline: the copy from before still reminds; try again in REFRESH_S
         return _cache["cal"]
 
 

@@ -1,11 +1,15 @@
 """Updates from GitHub: is a newer Nova out, and install it (fetch the new files, then rerun setup, which runs
 the self-checks and restarts Nova). Settings, history, notes and models aren't part of the download, so they stay.
 
-Bump VERSION when you publish a change people should get.
+Only tagged releases ship, never whatever is on main: bump VERSION, then push a tag `v<VERSION>`, and
+.github/workflows/release.yml builds nova-main.zip with its SHA256SUMS. A download that doesn't match is refused.
 """
+import hashlib
 import io
+import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -16,10 +20,11 @@ from core.config import ROOT
 from core.system import NO_WINDOW
 
 REPO = "AyushM1701/nova"
-VERSION_URL = f"https://raw.githubusercontent.com/{REPO}/main/VERSION"
-ZIP_URL = f"https://github.com/{REPO}/archive/refs/heads/main.zip"
-KEEP = {".git", ".venv", "data", "logs", "workspace", "config.json", ".update-files"}  # this computer's own
+LATEST_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
+ASSET, SUMS = "nova-main.zip", "SHA256SUMS"
+KEEP = {".git", ".venv", "data", "logs", "workspace", "config.json", ".update-files", ".update-staging"}  # this computer's own
 FILES = ".update-files"  # what the last update wrote, so the next one can remove what a new version dropped
+STAGING = ".update-staging"  # the new files land here first, then move into place, so a failed write changes nothing
 
 
 def parse(version):
@@ -33,33 +38,59 @@ def current():
         return "0"
 
 
+def latest():
+    """GitHub's latest release: its version and its files' download links."""
+    req = urllib.request.Request(LATEST_URL, headers={"Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        release = json.load(r)
+    return release["tag_name"].lstrip("v"), {a["name"]: a["browser_download_url"] for a in release.get("assets", [])}
+
+
 def newer():
-    """The version on GitHub if it's newer than this one, '' if not, None if GitHub couldn't be asked."""
+    """The latest release's version if it's newer than this one, '' if not, None if GitHub couldn't be asked."""
     try:
-        with urllib.request.urlopen(VERSION_URL, timeout=10) as r:
-            latest = r.read(64).decode("utf-8").strip()
-        return latest if parse(latest) > parse(current()) else ""
-    except (OSError, ValueError):
+        version, _ = latest()
+        return version if parse(version) > parse(current()) else ""
+    except (OSError, ValueError, KeyError):
         return None
 
 
+def verified(archive, sums, name=ASSET):
+    """The archive, if SHA256SUMS lists exactly its hash under `name`; else ValueError."""
+    want = next((line.split()[0].lower() for line in sums.splitlines()
+                 if len(line.split()) == 2 and line.split()[1].lstrip("*") == name), None)
+    if not want or hashlib.sha256(archive).hexdigest() != want:
+        raise ValueError("The update didn't match its published checksum, so Nova didn't install it.")
+    return archive
+
+
 def unpack(archive, root=ROOT):
-    """Write GitHub's main.zip over Nova's folder, skipping this computer's own files, and remove the files an
-    earlier update wrote that this version no longer has. Returns the file count."""
+    """Write the release zip over Nova's folder, skipping this computer's own files, and remove the files an
+    earlier update wrote that this version no longer has. Everything is unpacked into a staging folder first, so a
+    bad zip or a full disk leaves Nova as it was. Returns the file count."""
+    stage = root / STAGING
+    shutil.rmtree(stage, ignore_errors=True)  # a leftover from an update that stopped partway
     written = []
-    with zipfile.ZipFile(io.BytesIO(archive)) as z:
-        for info in z.infolist():
-            parts = Path(info.filename).parts[1:]  # drop the "nova-main/" folder
-            if info.is_dir() or not parts or parts[0] in KEEP:
-                continue
-            if ".." in parts or Path(info.filename).is_absolute():
-                raise ValueError(f"unexpected path in the update: {info.filename}")
-            dest = root.joinpath(*parts)
+    try:
+        with zipfile.ZipFile(io.BytesIO(archive)) as z:
+            for info in z.infolist():
+                parts = Path(info.filename).parts[1:]  # drop the "nova-main/" folder
+                if info.is_dir() or not parts or parts[0] in KEEP:
+                    continue
+                if ".." in parts or Path(info.filename).is_absolute():
+                    raise ValueError(f"unexpected path in the update: {info.filename}")
+                dest = stage.joinpath(*parts)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(z.read(info))
+                if os.name != "nt" and (info.external_attr >> 16) & 0o111:
+                    dest.chmod(0o755)  # setup.sh and friends stay runnable
+                written.append("/".join(parts))
+        for name in written:  # same disk, so each move is instant and whole
+            dest = root.joinpath(*name.split("/"))
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(z.read(info))
-            if os.name != "nt" and (info.external_attr >> 16) & 0o111:
-                dest.chmod(0o755)  # setup.sh and friends stay runnable
-            written.append("/".join(parts))
+            os.replace(stage.joinpath(*name.split("/")), dest)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
     try:  # only files an update wrote: models, your own files and anything from before this list stay
         dropped = set((root / FILES).read_text(encoding="utf-8").splitlines()) - set(written)
     except OSError:
@@ -72,16 +103,30 @@ def unpack(archive, root=ROOT):
     return len(written)
 
 
+def fetch(url, timeout=60):
+    with urllib.request.urlopen(url, timeout=timeout) as r:
+        return r.read()
+
+
 def install():
-    """Fetch the new version and start setup in its own process (it stops and restarts Nova)."""
-    if (ROOT / ".git").exists():  # a git clone: pull, so the checkout stays clean
-        r = subprocess.run(["git", "-C", str(ROOT), "pull", "--ff-only"], capture_output=True, text=True,
-                           creationflags=NO_WINDOW)
-        if r.returncode:
-            raise RuntimeError(f"git pull didn't work: {(r.stderr or r.stdout).strip()[-300:]}")
+    """Fetch the latest release, check it, and start setup in its own process (it stops and restarts Nova)."""
+    version, assets = latest()
+    if (ROOT / ".git").exists():  # a git clone: move main to the release's tag, so the checkout stays clean
+        git = lambda *args: subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True,  # noqa: E731
+                                           creationflags=NO_WINDOW)
+        branch = git("symbolic-ref", "--short", "-q", "HEAD").stdout.strip()  # "" when detached
+        if branch != "main":  # a working branch is the developer's to update, never merged into by a button
+            where = f"the git branch {branch}" if branch else "no git branch (a detached checkout)"
+            raise RuntimeError(f"This copy of Nova is on {where}. Switch to main, or pull Nova {version} into your "
+                               "branch yourself.")
+        for args in (["fetch", "--tags", "origin"], ["merge", "--ff-only", f"v{version}"]):
+            r = git(*args)
+            if r.returncode:
+                raise RuntimeError(f"git {args[0]} didn't work: {(r.stderr or r.stdout).strip()[-300:]}")
     else:
-        with urllib.request.urlopen(ZIP_URL, timeout=60) as r:
-            unpack(r.read())
+        if ASSET not in assets or SUMS not in assets:
+            raise RuntimeError(f"Nova {version} on GitHub is missing its download or checksum. Try again later.")
+        unpack(verified(fetch(assets[ASSET]), fetch(assets[SUMS], 10).decode("utf-8", "replace")))
     if os.name == "nt":
         subprocess.Popen(["cmd", "/c", str(ROOT / "setup.cmd")], cwd=ROOT, creationflags=NO_WINDOW)
     else:  # the venv already exists, so its Python can run the setup window

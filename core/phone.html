@@ -94,6 +94,10 @@ main {
 .ask.resolved { background: transparent; border-color: var(--line); }
 .ask.resolved b { color: var(--muted); }
 .ask .done { color: var(--muted); font-size: 14px; }
+.ask .what { font-size: 16px; font-weight: 560; line-height: 1.4; }
+.ask .why { color: var(--muted); font-size: 14px; margin-top: -6px; }
+.ask summary { color: var(--muted); font-size: 14px; padding: 4px 0; cursor: pointer; }
+.ask details pre { margin-top: 6px; }
 .btns { display: flex; gap: 10px; }
 .btn { flex: 1; min-height: 46px; border-radius: 13px; border: 0; font-weight: 600; background: var(--raised); }
 .btn.primary { background: var(--accent); color: var(--accent-ink); }
@@ -212,7 +216,7 @@ textarea:focus { outline: none; border-color: var(--accent); }
     <li>Add <b>Speak Text</b>. It speaks the Contents of URL. Tap Done.</li>
   </ol>
   <p>Now say <b>“Hey Siri, Ask Nova”</b>, then your request. The first time, allow the shortcut to connect to your computer. For the Action Button: Settings → Action Button → Shortcut → Ask Nova.</p>
-  <p>The link contains your pairing key, so keep it to yourself. Forget phones in Nova's Settings makes it stop working.</p>
+  <p>The link holds a key that can only send requests: it can’t read your conversation or Allow anything. Still keep it to yourself. Forget phones in Nova’s Settings makes it stop working.</p>
   <div class="row"><button class="btn" id="closeSheet">Done</button></div>
 </div></div>
 
@@ -323,12 +327,14 @@ addEventListener("pageshow", wake);
 addEventListener("focus", wake);
 
 function onMessage(msg) {
+  if (msg.type === "siri") { siriKey = msg.key; return; }
   if (msg.type === "clip-done") return clipDone(msg);
   if (msg.type === "dictate-done") return dictateDone(msg);
   if (msg.type === "history") {
     // (re)connected: the old cards are gone from view, so forget them too, or the next answer would close an old
     // card and leave the visible one with live Allow / Deny buttons
     log.replaceChildren(); asks = [];
+    post({ op: "state" });  // after the history, so an approval still waiting gets its card back (see "state")
     for (const e of msg.items.slice().reverse()) { if (e.request) add(el("div", "msg user", e.request)); if (e.reply) novaMsg(e.reply); }
     if (!log.children.length) emptyState("Ask Nova anything", "It runs on your computer, so it can open apps, work in your projects and use your browser. Type, or tap the mic on your keyboard to talk. Nova asks you here before anything risky.");
     log.scrollTop = log.scrollHeight;
@@ -341,6 +347,8 @@ function onMessage(msg) {
     const noAI = !ev.brain && ev.phase === "idle";
     status(noAI ? "No AI connected on the computer" : label, noAI ? "bad" : cls);
     setBusy(ev.phase !== "idle" || ev.pending, ev.pending);
+    // an approval asked while this page was away (locked phone, reconnect): its card, with the time it has left
+    if (ev.asking && !asks.some(b => b.askId === ev.asking.id)) { working(false); askCard(ev.asking); }
   } else if (ev.event === "bar") { const [label, cls] = STATES[ev.state] || STATES.idle; status(label, cls); document.documentElement.dataset.nova = ev.state; }
   else if (ev.event === "heard" && ev.mode !== "dictation") add(el("div", "msg user", ev.text));  // dictation isn't chat
   else if (ev.event === "step") add(el("div", "step", ev.text));
@@ -354,7 +362,10 @@ function onMessage(msg) {
 function askCard(ev) {
   const box = add(el("div", "ask")), bar = el("i"), started = Date.now();
   box.setAttribute("role", "alert");
-  box.append(el("b", null, `${ev.who} needs your OK`), el("div", null, `It wants to run something that ${ev.reason}:`), el("pre", null, ev.summary));
+  // what happens in plain words first; the exact command is a tap away (shown anyway when there's no plain sentence)
+  const cmd = el("details"), what = el("div", "what", ev.plain || `It wants to run something that ${ev.reason}.`);
+  cmd.open = !ev.plain; cmd.append(el("summary", null, "Show command"), el("pre", null, ev.summary));
+  box.append(el("b", null, `${ev.who} needs your OK`), what, ...(ev.plain ? [el("div", "why", `Nova asks because it ${ev.reason}.`)] : []), cmd);
   const track = el("div", "bar"); track.append(bar);
   const btns = el("div", "btns"), allow = el("button", "btn primary", "Allow"), deny = el("button", "btn", "Deny");
   allow.onclick = () => post({ op: "approve", ok: true, id: ev.id }); deny.onclick = () => post({ op: "approve", ok: false, id: ev.id });
@@ -363,9 +374,9 @@ function askCard(ev) {
   const tick = () => { if (!live) return; bar.style.transform = `scaleX(${Math.max(0, 1 - (Date.now() - started) / (ev.timeout * 1000))})`; requestAnimationFrame(tick); };
   tick();
   box.done = text => { live = false; track.remove(); box.classList.add("resolved"); btns.replaceChildren(el("span", "done", text)); };
-  asks.push(box);
+  box.askId = ev.id; asks.push(box);
   if (navigator.vibrate) navigator.vibrate(120);
-  say(`${ev.who} needs your OK.`);
+  say(ev.plain ? `${ev.who} needs your OK. ${ev.plain}.` : `${ev.who} needs your OK.`);
 }
 
 function post(msg) { if (ws && ws.readyState === 1) { ws.send(JSON.stringify(msg)); return true; } status("Not connected yet", "bad"); return false; }
@@ -422,9 +433,10 @@ function copy(text, input) {
   input.focus(); input.setSelectionRange(0, text.length);  // plain http on home Wi-Fi: the old way still copies
   if (document.execCommand("copy")) done();
 }
+let siriKey = "";  // Siri's own key, sent once connected: it can ask, but can't connect, read or Allow
 $("siri").addEventListener("click", () => {
-  if (!key) return;
-  $("siriLink").value = `${location.origin}/ask?key=${encodeURIComponent(key)}&text=`;
+  if (!siriKey) return;
+  $("siriLink").value = `${location.origin}/ask?key=${encodeURIComponent(siriKey)}&text=`;
   showSheet($("sheet"), true);
 });
 let sheetFrom = null;

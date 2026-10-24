@@ -17,6 +17,7 @@ import json
 import os
 import plistlib
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -528,7 +529,8 @@ class Bridge:
         bid = None
         try:
             hello = json.loads(await asyncio.wait_for(ws.recv(), 10))
-            if hello.get("type") != "hello" or hello.get("token") != self.token or hello.get("browser") not in BROWSERS:
+            if (hello.get("type") != "hello" or hello.get("browser") not in BROWSERS
+                    or not secrets.compare_digest(str(hello.get("token", "")).encode(), self.token.encode())):
                 return
             origin = ws.request.headers.get("Origin", "")
             if origin != f"chrome-extension://{extension_id(folder(hello['browser']))}":

@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 VENV, PY = ROOT / ".venv", ROOT / ".venv" / "bin" / "python"
 APP = Path.home() / "Applications" / "Nova.app"
-MODEL_BYTES = int(2.1 * 2**30)  # approximate size of the two speech models, only used for the progress label
+MODEL_BYTES = 470 * 2**20  # approximate size of the fast speech model, only used for the progress label
 
 BG, FG, DIM, ACCENT, TRACK, BAD = "#131528", "#eef0fa", "#a4a8c2", "#7b6dff", "#262a42", "#ff7a7a"
 INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
@@ -131,7 +131,7 @@ def show_part(win, stop, part, label, size_mb):
 def show_download(win, stop):
     """Counts what has arrived in the Hugging Face cache once a second (the download itself prints nothing)."""
     hub = Path.home() / ".cache" / "huggingface" / "hub"  # shortcut: ignores a custom HF_HOME, only feeds this label
-    dirs = [hub / "models--Systran--faster-whisper-small", hub / "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo"]
+    dirs = [hub / "models--Systran--faster-whisper-small"]
     while not stop.wait(1):
         try:
             size = sum(f.stat().st_size for d in dirs if d.exists() for f in d.rglob("*")
@@ -183,17 +183,16 @@ def steps(win):
                "-r", ROOT / "requirements.txt") != 0:
         raise RuntimeError("Installing libraries failed. Check your internet connection; the details say more.")
     os.chmod(ROOT / "helpers" / "clipboard.sh", 0o755)
-    step(3, "Downloading the speech models (about 2 GB, once)")
+    step(3, "Downloading the speech model (about 470 MB, once)")
     stop = threading.Event()
     threading.Thread(target=show_download, args=(win, stop), daemon=True).start()
     try:
-        failed = win.run(PY, "-c", "from faster_whisper.utils import download_model as d; d('small'); d('large-v3-turbo')") != 0
+        failed = win.run(PY, "-c", "from faster_whisper.utils import download_model as d; d('small')") != 0
     finally:
         stop.set()
     if failed:
-        raise RuntimeError("Downloading the speech models failed. Check your internet connection and try again.")
-    (ROOT / "data").mkdir(exist_ok=True)
-    (ROOT / "data" / "models-ready").touch()
+        raise RuntimeError("Downloading the speech model failed. Check your internet connection and try again.")
+    # the accurate model for Hindi and Hinglish (1.6 GB) downloads in the background once Nova runs (core/stt.py)
     # Piper speaks by default and Kitten is the light choice; Kokoro (330 MB) downloads only if picked in Settings
     step(4, "Downloading Nova's voices and \"Hey Nova\" (about 110 MB, once)")
     for name, label, size, folder in (("piper", "Piper voice", 64, "tts"), ("kitten", "Kitten voice", 25, "tts"),

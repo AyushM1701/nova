@@ -18,6 +18,7 @@ import numpy as np
 from core.config import DATA, ROOT
 
 KEEP_S, CHUNK_S = 15 * 60, 12  # transcript window; seconds of audio per transcription pass
+IDLE_S = 30  # a stopped capture's transcriber ends after this long with nothing to do
 ASK_S = 120  # transcribed on request (a CPU without eager transcription): ten minutes of music took about a minute
 RATE = 16000
 MAC_HELPER, MAC_SOURCE = DATA / "bin" / "mac-audio-tap", ROOT / "helpers" / "mac_audio_tap.swift"
@@ -145,7 +146,7 @@ class SystemAudio:
     easily, or after "listen to my computer"); otherwise transcript() transcribes what's left when asked."""
 
     def __init__(self, stt, keep_s=KEEP_S, eager=False):
-        self.stt, self.keep_s, self.eager, self.running = stt, keep_s, eager, False
+        self.stt, self.keep_s, self.eager, self.running, self.stopped = stt, keep_s, eager, False, False
         self.muted = False  # True while Nova talks: its own voice isn't something the computer "played"
         self.chunks = collections.deque()  # [start time, int16 audio or None, text or None]
         self.buf, self.buf_start, self.lock = [], time.time(), threading.Lock()  # audio not chunked yet
@@ -162,7 +163,7 @@ class SystemAudio:
             threading.Thread(target=self._run, daemon=True).start()
 
     def stop(self):
-        self.running = False
+        self.running, self.stopped = False, True
 
     def _run(self):
         heard = time.time()
@@ -201,8 +202,14 @@ class SystemAudio:
             self.jobs.put(chunk)
 
     def _transcriber(self):
+        """Transcribes chunks as they come; ends once this capture was stopped and its work is done, so a stopped
+        one (and its audio) doesn't stay in memory."""
         while True:
-            self._fill(self.jobs.get())
+            try:
+                self._fill(self.jobs.get(timeout=IDLE_S))
+            except queue.Empty:
+                if self.stopped:
+                    return
 
     def _fill(self, chunk):
         with self.decode:

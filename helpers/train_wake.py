@@ -100,7 +100,9 @@ def librispeech():
     archive = WORK / "dev-clean.tar.gz"
     if not archive.exists():
         print("  downloading LibriSpeech dev-clean (337 MB)…", flush=True)
-        urllib.request.urlretrieve(LIBRISPEECH, archive)
+        part = archive.with_suffix(".part")  # a cut-off download never passes for the whole archive next run
+        urllib.request.urlretrieve(LIBRISPEECH, part)
+        part.replace(archive)
     speakers = {}
     with tarfile.open(archive, "r:gz") as tar:
         tar.extractall(WORK / "librispeech", filter="data")

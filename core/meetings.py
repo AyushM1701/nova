@@ -169,6 +169,8 @@ def export_note(m):
     safe = lambda s: re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", s).strip(" .")[:80] or "Meeting"  # noqa: E731
     rel = Path("meetings") / safe(m["folder"]) / f"{time.strftime('%Y-%m-%d %H%M', time.localtime(m['started']))} " \
                                                  f"{safe(m['title'])}.md"
+    if m.get("note") != str(rel) and (NOTES / rel).exists():  # another meeting's note (same title, same minute)
+        rel = rel.with_name(f"{rel.stem} ({m['id']}).md")
     if m.get("note") and m["note"] != str(rel):
         (NOTES / m["note"]).unlink(missing_ok=True)
     (NOTES / rel).parent.mkdir(parents=True, exist_ok=True)

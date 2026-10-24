@@ -22,12 +22,14 @@ SECRETS = (r"login data|logins\.json|key4\.db|web data|cookies\.sqlite|[\\/]netw
            r"|\bid_(?:rsa|ecdsa|ed25519|dsa)\b(?!\.pub)|[\\/*]credentials(?:$|[\s\"'*;|)])"
            # Nova's own keys, and the browser extension's copy of its token (%LOCALAPPDATA%\Nova\browser\..., and
            # ~/Library/Application Support/Nova/browser/... on a Mac)
-           r"|fallback\.key|deepgram\.key|stt-\w+\.key|calendar\.key|browser-token|events\.key|phone-token"
+           r"|fallback\.key|deepgram\.key|stt-\w+\.key|calendar\.key|browser-token|events\.key|phone-token|siri-token"
            r"|(?:appdata[\\/]local|localappdata%?|application support)[\\/]nova\b"
            # other tools' saved logins: git, package registries, and the AI CLIs themselves
            r"|\.git-credentials|\.netrc\b|\.npmrc|\.pypirc|gh[\\/]hosts\.yml|\.claude[\\/]\.credentials"
            r"|\.codex[\\/]auth\.json")
 NOVA_DATA = "reads Nova's own keys"
+NOVA_SAFETY = ("changes Nova's safety guard or safety settings, which only the user may do (Settings → Privacy & "
+               "safety)")
 # the home folder, all users' folders or a whole drive: a search through one of these goes into .ssh, .aws and the
 # browser profiles too, which the rules above can only see when they are named
 WIDE = (r"(?:~|\$home|\$env:userprofile|%userprofile%|[a-z]:(?:[\\/]users(?:[\\/][^\\/\s\"';|&,)]+)?)?"
@@ -92,6 +94,10 @@ CONFIRM = [
     (r"-method\s+(post|put|patch|delete)|\bcurl\b" + UNTIL_END +
      r"\s(-d|--data\S*|-f|--form|-t|--upload-file|-x\s*(post|put|patch|delete))\b"
      r"|\b(scp|sftp|ftp|rsync|send-mailmessage)\b", "sends data over the network"),
+    # ...or carrying data the command built in ($(cat notes.txt), $env:KEY, `cat x`, (gc file)), or a -Body / -InFile,
+    # which a plain "curl <page>" never needs
+    (r"\b(curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod)\b" + UNTIL_END +
+     r"(\$|`|\(\s*(gc|get-content|cat|type)\b|\s-body\b|\s-infile\b)", "sends data over the network"),
     (r"\bcurl\b" + UNTIL_END + r"\s(-o|--output|--remote-name\S*|--config)\b", "downloads a file"),
     (r"\b(set-executionpolicy|schtasks|register-scheduledtask|new-service)\b|\bsc(\.exe)?\s+(create|config|delete)\b",
      "changes system configuration"),
@@ -162,6 +168,9 @@ INLINE_CODE = r"\b(python3?|py|node|deno|bun|ruby|perl|php)(\.exe)?\s+(-c|-e|--e
 # moment ago is the same code in two steps (writing it to the Desktop or a project doesn't ask in Auto)
 SCRIPT_RUN = (r"(?:^|[;&|\s(])(?:(?:python3?|py|node|deno|bun|ruby|perl|php|bash|sh|zsh|pwsh|powershell)(?:\.exe)?"
               r"(?:\s+-\S+)*\s+|\.[\\/]|&\s*)[\"']?([^\s\"';|&]+\.(?:py|pyw|js|mjs|cjs|ts|rb|pl|php|sh|ps1|bat|cmd))\b")
+PYTHON_MODULE = r"\b(?:python3?|py)(?:\.exe)?(?:\s+-(?!m\b)\S+)*\s+-m\s+([\w.]+)"
+TEST_FILE = (r"conftest\.py|test_.*\.py|.*_test\.py|pytest\.ini|tox\.ini|setup\.cfg|pyproject\.toml"
+             r"|.*\.(test|spec)\.[cm]?[jt]sx?|(jest|vitest|playwright)\.config\.\w+")
 FRESH_S = 600  # written or changed this many seconds ago or less: "just written"
 # known-safe commands that still change something, which Plan mode holds back too
 CHANGES = (r"\bgit\s+(add|commit|pull|switch|checkout|stash|fetch|tag|branch\s+\S)|\b(start-process|start|saps|"
@@ -200,9 +209,11 @@ def classify_command(cmd, home=None, mode="accept_edits", cwd=None):
         return "confirm", "changes something (Manual mode asks before every change)"
     if mode == "auto" and re.search(INLINE_CODE, cmd.lower()):
         return with_mode(tier, why, mode, unfamiliar=False)
-    fresh = mode == "auto" and tier == "confirm" and _fresh_script(cmd, cwd)
+    # also "known safe" runners (npm run, pytest) of code the AI could have just written: package.json, conftest.py
+    fresh = (mode == "auto" and tier == "confirm" or mode in ("auto", "accept_edits") and tier == "allow") \
+        and _fresh_script(cmd, cwd)
     if fresh:
-        return "confirm", f"runs {fresh}, a script written or changed in the last few minutes"
+        return "confirm", f"runs code from {fresh}, which was written or changed in the last few minutes"
     return with_mode(tier, why, mode)
 
 
@@ -274,16 +285,38 @@ def _command(cmd, home=None, cwd=None):
 
 
 def _fresh_script(cmd, cwd):
-    """The first script file `cmd` runs that was written or changed in the last FRESH_S seconds, or None."""
-    for path in re.findall(SCRIPT_RUN, cmd, re.I):
-        path = path.replace("\\", os.sep)  # PowerShell on a Mac takes ".\x.ps1" too, but macOS paths use "/"
+    """The first file `cmd` runs code from that was written or changed in the last FRESH_S seconds, or None."""
+    folder = cwd or os.getcwd()
+    # PowerShell on a Mac takes ".\x.ps1" too, but macOS paths use "/"
+    paths = [p.replace("\\", os.sep) for p in re.findall(SCRIPT_RUN, cmd, re.I)]
+    for module in re.findall(PYTHON_MODULE, cmd, re.I):  # python -m cleanup: cleanup.py, or a package's __main__
+        if module != "pytest":
+            paths += [module.replace(".", os.sep) + ".py", os.path.join(module.replace(".", os.sep), "__main__.py")]
+    if re.search(r"\b(npm|pnpm|yarn)\s+(run|run-script|test|t|start)\b", cmd, re.I):
+        paths.append("package.json")  # its scripts are commands
+    if re.search(r"\bpytest\b|\bnpx\s+(jest|vitest|playwright)\b|\b(npm|pnpm|yarn)\s+(test|t)\b", cmd, re.I):
+        paths += _test_files(folder)  # test files and their config run as code
+    for path in paths:
         try:
-            full = os.path.join(cwd or os.getcwd(), os.path.expandvars(os.path.expanduser(path)))
+            full = os.path.join(folder, os.path.expandvars(os.path.expanduser(path)))
             if time.time() - os.path.getmtime(full) < FRESH_S:
                 return path
         except OSError:  # not a file here (yet): the other rules decide
             pass
     return None
+
+
+def _test_files(folder, limit=5000):
+    """Test files and test-runner configs under `folder`.
+    shortcut: stops after `limit` entries, plenty for a project; a test run from a huge folder isn't fully checked."""
+    found, seen = [], 0
+    for root, dirs, files in os.walk(folder):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", "__pycache__")]
+        seen += len(files) + len(dirs)
+        found += [os.path.relpath(os.path.join(root, f), folder) for f in files if re.fullmatch(TEST_FILE, f.lower())]
+        if seen > limit:
+            break
+    return found
 
 
 def _wide(folder):
@@ -311,7 +344,7 @@ def classify_patch(patch, cwd, roots, home, notes, mode="accept_edits"):
     if not files:
         return with_mode("confirm", "edits files in a way Nova can't read", mode, unfamiliar=False)
     verdicts = [with_mode("confirm", "deletes a file", mode, unfamiliar=False) if kind == "Delete"
-                else classify("Write", {"file_path": path or moved}, cwd, roots, home, notes, mode)
+                else classify("Write", {"file_path": path or moved, "content": patch}, cwd, roots, home, notes, mode)
                 for kind, path, moved in files]
     return max(verdicts, key=lambda v: SEVERITY[v[0]])
 
@@ -336,10 +369,19 @@ def classify(tool, inp, cwd, roots, home, notes, mode="accept_edits"):
             return with_mode("confirm", NOVA_SEARCH_WHY, mode, unfamiliar=False)
     if tool in READ_ONLY_TOOLS:
         return "allow", "read only"
+    if tool == "WebFetch":  # reading a page is fine; a web address with data in it sends that data to the site
+        url = str(inp.get("url", ""))
+        # shortcut: data in a short path ("/AKIA...") still passes; a query, a fragment or a long address asks
+        if re.search(r"[?#]", url) or len(url) > 120:
+            return with_mode("confirm", "sends data in a web address", mode, unfamiliar=False)
+        return "allow", "reads a web page"
     if "nova-browser" in tool or "nova_browser" in tool:  # Nova applies its own rules to the real page element
         return "allow", "browser action checked by Nova"
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         full = os.path.realpath(os.path.join(cwd, os.path.expandvars(path)))
+        if home and (_under(full, os.path.join(home, "guard"))
+                     or _under(full, os.path.join(home, "config.json")) and "safety" in new_text(inp).lower()):
+            return "block", NOVA_SAFETY
         tier, why = _write(full, roots, home, notes)
         if mode == "plan":
             return "block", PLAN
@@ -348,7 +390,16 @@ def classify(tool, inp, cwd, roots, home, notes, mode="accept_edits"):
         # Auto: an ordinary file outside your projects (Desktop, Downloads...) is fine; system and startup spots ask
         outside = why == "writes outside your projects" and not re.search(PROTECTED, full.lower())
         return with_mode(tier, why, mode, unfamiliar=outside)
+    if isinstance(inp.get("command"), (str, list)) and inp.get("command"):  # a shell tool by another name ("shell",
+        return classify("Bash", inp, cwd, roots, home, notes, mode)         # "exec_command"): the same rules apply
     return with_mode("confirm", f"unrecognised tool {tool}", mode)
+
+
+def new_text(inp):
+    """What a Write / Edit / MultiEdit puts into the file."""
+    edits = inp.get("edits") if isinstance(inp.get("edits"), list) else []
+    return "\n".join(str(t) for t in [inp.get("content"), inp.get("new_string"), inp.get("new_source"),
+                                       *(e.get("new_string") for e in edits if isinstance(e, dict))] if t)
 
 
 def _write(full, roots, home, notes):
@@ -366,11 +417,89 @@ def _write(full, roots, home, notes):
     return "confirm", "writes outside your projects"
 
 
-def ask_nova(tool, summary, reason):
+# ---------- the approval card's plain-English line: "Deletes the dist folder in portfolio (14 files)" ----------
+# Only for commands it fully understands; anything else returns '' and the card falls back to the rule's reason,
+# so the sentence can never make a command sound smaller than it is.
+P_DELETE = r"(?:rm|del|erase|rd|rmdir|remove-item|ri|rimraf)"
+P_MOVE = r"(?:mv|move|move-item|mi|ren|rename-item)"
+P_INSTALL = r"(pip3?|uv|pipx|npm|pnpm|yarn|winget|choco|scoop|cargo|gem|brew)\s+(install|i|add|uninstall|remove|un|rm)"
+P_KILL = r"(?:stop-process|spps|taskkill|kill|pkill|killall)"
+
+
+def _args(segment):
+    """The non-flag words of a command, unquoted ("rm -rf 'my dist'" -> ['my dist'])."""
+    words = re.findall(r"\"[^\"]*\"|'[^']*'|\S+", segment)[1:]
+    return [w.strip("\"'") for w in words if not re.fullmatch(r"-[\w-]+(?::\S*)?|/(?:s|q|f|t|im|pid|p)", w, re.I)]
+
+
+def _thing(path, cwd):
+    """'the dist folder in portfolio (14 files)' or 'notes.txt in portfolio'."""
+    full = os.path.normpath(os.path.join(cwd, os.path.expanduser(os.path.expandvars(path))))
+    name, where = os.path.basename(full) or full, os.path.basename(os.path.dirname(full)) or os.path.dirname(full)
+    if os.path.isdir(full):
+        count = 0
+        for _, _, files in os.walk(full):
+            count += len(files)
+            if count > 9999:
+                break
+        size = "10,000+ files" if count > 9999 else f"{count} file{'s' * (count != 1)}"
+        return f"the {name} folder in {where} ({size})"
+    return f"{name} in {where}" if os.path.exists(full) else f"{name} in {where} (not there yet)"
+
+
+def _plain_segment(seg, cwd):
+    s = seg.lower()
+    if re.match(P_DELETE + r"\b", s):
+        paths = _args(seg)
+        if paths and not re.search(r"[*?]|\s-(include|exclude|filter)\b", seg, re.I):
+            return "Deletes " + " and ".join(_thing(p, cwd) for p in paths)
+    if re.match(P_MOVE + r"\b", s) and len(_args(seg)) == 2:
+        src, dest = _args(seg)
+        return f"Moves {_thing(src, cwd)} to {dest}"
+    m = re.match(P_INSTALL + r"\s+(.+)$", s)
+    if m:
+        tool, verb, pkgs = m.group(1), m.group(2), _args(seg)[1:]
+        if pkgs:
+            return f"{'Installs' if verb in ('install', 'i', 'add') else 'Removes'} {', '.join(pkgs)} with {tool}"
+    if re.match(P_KILL + r"\b", s):
+        names = _args(seg)
+        if names:
+            return f"Closes {', '.join(names)} (anything unsaved in it is lost)"
+    if re.match(r"git\s+push\b", s):
+        return f"Publishes your git commits from {os.path.basename(cwd)}" + (" and overwrites what's there"
+                                                                            if re.search(r"\s(-f|--force)", s) else "")
+    if re.match(r"git\s+reset\s+--hard\b", s):
+        return f"Throws away every unsaved change in {os.path.basename(cwd)}"
+    if re.match(r"git\s+clean\b", s):
+        return f"Deletes the files git doesn't track in {os.path.basename(cwd)}"
+    return ""
+
+
+def plain(tool, inp, cwd):
+    """One plain sentence of what this tool call does, or '' when it isn't sure."""
+    if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+        path = str(inp.get("file_path") or inp.get("notebook_path") or "")
+        return f"{'Writes' if tool == 'Write' else 'Changes'} {_thing(path, cwd)}" if path else ""
+    cmd = str(inp.get("command") or "").strip()
+    if not cmd or re.search(r"[|`]|\$\(|&\s*[\"'$]", cmd):  # pipes and built commands: too easy to misread
+        return ""
+    lines = []
+    for seg in re.split(r"\s*(?:&&|;|\n)\s*", cmd):
+        if re.match(r"(cd|set-location|sl|push-location)\s", seg, re.I):
+            cwd = os.path.join(cwd, _args(seg)[0]) if _args(seg) else cwd
+            continue
+        line = _plain_segment(seg, cwd)
+        if not line:
+            return ""
+        lines.append(line)
+    return "; then ".join(lines)
+
+
+def ask_nova(tool, summary, reason, plain_text=""):
     try:
         # a named pipe on Windows, a Unix socket on macOS: Client works out which from the address
         with Client(os.environ["NOVA_PIPE"], authkey=bytes.fromhex(os.environ["NOVA_KEY"])) as conn:
-            conn.send({"tool": tool, "summary": summary, "reason": reason})
+            conn.send({"tool": tool, "summary": summary, "reason": reason, "plain": plain_text})
             return conn.poll(float(os.environ.get("NOVA_TIMEOUT", "30")) + 5) and conn.recv() is True
     except Exception:  # Nova not running, bad key, broken pipe: deny
         return False
@@ -389,9 +518,15 @@ def main():
     tier, reason = classify(tool, inp, data.get("cwd") or os.getcwd(), roots, env("NOVA_HOME"), env("NOVA_NOTES"),
                             env("NOVA_MODE") or "accept_edits")
     summary = str(inp.get("command") or inp.get("file_path") or inp.get("notebook_path") or inp)[:400]
+    if new_text(inp):  # a file write: the card shows what goes in, not only where
+        summary = f"{summary[:200]}\n{new_text(inp)[:400]}"
     decision = tier
     if tier == "confirm":
-        decision = "allow" if ask_nova(tool, summary, reason) else "deny"
+        try:
+            plain_text = plain(tool, inp, data.get("cwd") or os.getcwd())
+        except Exception:  # only the card's wording: the rule's reason still shows
+            plain_text = ""
+        decision = "allow" if ask_nova(tool, summary, reason, plain_text) else "deny"
         reason = f"{reason}: user {'approved' if decision == 'allow' else 'declined or did not answer'}"
     elif tier == "block" and reason == PLAN:
         decision = "deny"

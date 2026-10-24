@@ -7,3 +7,12 @@ data/
 logs/
 workspace/
 .update-files
+
+# AI agent skills, plugins and their output, local to this machine
+CLAUDE.md
+AGENTS.md
+.claude/
+.impeccable/
+.scratch/
+docs/agents/
+graphify-out/

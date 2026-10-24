@@ -12,7 +12,7 @@ A voice assistant for Windows and macOS. Say **"Hey Nova"**, press a shortcut or
 - **Routines:** "start my day" gives a short spoken rundown (each project's branch and uncommitted changes, open tasks in your notes, follow-ups from memory). Add your own in Settings → Routines, e.g. "deep code mode" = "pause music, open VS Code in portfolio, run npm run dev".
 - **Keeps an eye on long jobs:** run `python <nova folder>/helpers/watch.py npm run build` and keep working; Nova says when it's done, or explains why it failed and offers to fix it. Turn on Settings → AI → "Tell me when Claude Code finishes" to hear when a Claude Code task you started in a terminal is done.
 - **Listens to your computer (Windows):** say "listen to my computer" (or use the tray menu) during a video, lecture or call, then ask "what did they just say?" or "grab the command they mentioned". The transcript covers the last 15 minutes and stays in memory; "stop listening" ends it.
-- **Uses your real browser (Windows):** Opera GX, Brave, Vivaldi or Opera, inside your own profile with your logins, through a small Nova extension that only talks to Nova on this computer. "Open my GitHub notifications and summarise them", "fill this form with my address", "in Brave, find the cheapest flight to Goa". Nova asks before anything that submits, buys, posts or sends, and never types passwords, card numbers or one-time codes. Turn it on in Settings → Browsers (or the tray menu → Browsers…); a Nova panel in the browser shows the same live conversation, with Allow / Deny.
+- **Uses your real browser (Windows):** Opera GX, Brave, Vivaldi or Opera, inside your own profile with your logins, through a small Nova extension that only talks to Nova on this computer. "Open my GitHub notifications and summarise them", "fill this form with my address", "in Brave, find the cheapest flight to Goa". Nova asks before clicks and keys that look like submitting, buying, posting or sending (it judges by the button, so a page can disguise one), and never types passwords, card numbers or one-time codes. Turn it on in Settings → Browsers (or the tray menu → Browsers…); a Nova panel in the browser shows the same live conversation, with Allow / Deny.
 - **Never stuck at a limit:** when Claude Code or Codex reaches its usage limit, Nova can switch to a free Google Gemini key (Settings → AI → Backup brain) until it resets. Its commands go through the same safety guard. On Google's free tier your requests may be used to improve Google's products, so it's off until you add a key.
 - **On your phone:** turn on Settings → Phone and scan the code with your iPhone or Android phone. You get the same live conversation: type or dictate requests, see replies, and **Allow / Deny** from the couch. Add it to your home screen and it opens like an app. Works on home Wi-Fi, and from anywhere with Tailscale (see [Phone](#phone)).
 - **The Nova window:** click the tray icon (in the hidden icons area, the ^ next to the clock; in the menu bar on a Mac). It has a chat for typed requests, your history, your dictionary and every setting. You can also ask Nova to change itself: "use Ctrl+Shift+N as my shortcut".
@@ -25,10 +25,10 @@ You need about 3 GB of free space and an internet connection for the first setup
 
 **Windows 10/11**
 
-1. On the [GitHub page](https://github.com/AyushM1701/nova), click the green **Code** button, then **Download ZIP**.
+1. On the [latest release](https://github.com/AyushM1701/nova/releases/latest), download **`nova-main.zip`** (under *Assets*).
 2. Right-click the downloaded `nova-main.zip` → **Extract All…** and pick a folder you'll keep, for example `Documents\nova`. Nova runs from this folder, so don't delete it afterwards.
 3. Open the folder and double-click **`setup.cmd`**. If Windows shows "Windows protected your PC" or a security warning, click **More info → Run anyway** (or **Run**).
-4. A Nova setup window shows each step. The first run downloads about 2.5 GB and takes 5–15 minutes. If Python 3.11–3.13 isn't installed, setup offers to install it for you.
+4. A Nova setup window shows each step. The first run downloads about 1 GB and takes a few minutes; Nova then fetches its Hindi/Hinglish speech model (1.6 GB) in the background while you already use it. If Python 3.11–3.13 isn't installed, setup offers to install it for you.
 5. When it says "Nova is installed", Nova opens its first-run screens (microphone, AI, shortcut). See [First run](#first-run) below.
 
 **macOS 12+ (Apple Silicon or Intel)**
@@ -37,13 +37,13 @@ You need about 3 GB of free space and an internet connection for the first setup
 2. Paste this line and press Enter. It downloads Nova into a `nova-main` folder in your home folder and starts setup:
 
    ```bash
-   cd ~ && curl -fsSL https://github.com/AyushM1701/nova/archive/refs/heads/main.tar.gz | tar xz && cd nova-main && bash setup.sh
+   cd ~ && curl -fsSL https://github.com/AyushM1701/nova/releases/latest/download/nova-main.tar.gz | tar xz && cd nova-main && bash setup.sh
    ```
 
 3. If Python 3.11–3.13 with Tk isn't installed, setup offers to install it with Homebrew, or tells you to get it from [python.org](https://www.python.org/downloads/macos/) and run the same line again.
 4. A Nova setup window shows the rest of the progress, then opens Nova from `~/Applications/Nova.app`. Nova runs from `~/nova-main`, so keep that folder.
 
-Prefer a ZIP? Click **Code → Download ZIP**, unpack it, and double-click **`setup.command`**. Because it was downloaded, macOS blocks it the first time ("Apple could not verify…"): click **Done**, open **System Settings → Privacy & Security**, scroll down to *"setup.command" was blocked*, click **Open Anyway**, enter your password and click **Open**. (On macOS 14 and earlier, right-click → **Open** does the same.)
+Prefer a ZIP? Download **`nova-main.zip`** from the [latest release](https://github.com/AyushM1701/nova/releases/latest), unpack it, and double-click **`setup.command`**. Because it was downloaded, macOS blocks it the first time ("Apple could not verify…"): click **Done**, open **System Settings → Privacy & Security**, scroll down to *"setup.command" was blocked*, click **Open Anyway**, enter your password and click **Open**. (On macOS 14 and earlier, right-click → **Open** does the same.)
 
 If you use git, `git clone https://github.com/AyushM1701/nova.git`, then run `setup.cmd` (Windows) or `./setup.sh` (Mac) in the folder; `git pull` and running setup again updates Nova.
 
@@ -51,7 +51,7 @@ Setup:
 
 1. Finds or installs Python 3.11–3.13 (it asks before installing anything).
 2. Creates Nova's own Python environment inside the folder and installs its libraries.
-3. Downloads the speech models (about 2 GB, once), plus GPU support if you have an NVIDIA card.
+3. Downloads the fast speech model (about 470 MB, once), plus GPU support if you have an NVIDIA card. The accurate model for Hindi and Hinglish (1.6 GB) downloads in the background the first time Nova runs.
 4. Adds Nova to the Start menu or `~/Applications`, runs Nova's self-checks and starts it.
 
 ### First run
@@ -69,9 +69,9 @@ Nova then shows its own first-run screens:
 
 ### Updating
 
-Nova checks GitHub once a day. When a new version is out, it says so, and the Nova window's Home page shows an **Update** button: one click downloads the new version, reruns setup (which runs the self-checks) and restarts Nova. Your settings, history, notes, memory and speech models are kept. You can also click **Check now** in Settings → Advanced, or turn the daily check off there.
+Nova checks GitHub once a day. When a new version is out, it says so, and the Nova window's Home page shows an **Update** button: one click downloads the new release, checks it against the release's published SHA-256 checksum (a download that doesn't match is refused), reruns setup (which runs the self-checks) and restarts Nova. Your settings, history, notes, memory and speech models are kept. You can also click **Check now** in Settings → Advanced, or turn the daily check off there.
 
-To update by hand instead: download the new ZIP into the same folder and run setup again, or `git pull` and run setup. On a Mac installed with the Terminal line, run the same line again. To see the first-run screens again, use Settings → Advanced → Run setup. Uninstall with `uninstall.cmd` (Windows) or `./uninstall.sh` (Mac).
+Only tagged releases reach the Update button, never unreleased work on `main`. To update by hand instead: download the new release's ZIP into the same folder and run setup again, or `git pull` and run setup. On a Mac installed with the Terminal line, run the same line again. To see the first-run screens again, use Settings → Advanced → Run setup. Uninstall with `uninstall.cmd` (Windows) or `./uninstall.sh` (Mac).
 
 ## Using it
 
@@ -132,7 +132,7 @@ Type a request, or tap the **mic on the phone's keyboard** to dictate it. Replie
 - **Your screen:** when a request is about it ("summarize this page", "what's on my whole screen?"), the AI gets a screenshot and the window's text, read through Windows UI Automation or macOS Accessibility, including what's scrolled out of view. Password fields are never read.
 - **Meetings** are recorded and transcribed on your computer. The recording is deleted once it's transcribed; the transcript and minutes are kept as notes in `workspace/notes/meetings/`. Minutes, AI actions and questions about meetings send the meeting's text to your chosen AI. A connected calendar is only read, from its secret ICS address.
 - **Spoken replies** use a neural voice run by sherpa-onnx on your own computer: Piper (the default) or Kitten (the lightest), both installed by setup, or Kokoro (the most natural, downloaded only if you pick it). Or your operating system's own voices (Windows SAPI, macOS `say`) if you prefer them or no voice is downloaded.
-- **Settings, logs, notes and history** live in the Nova folder (`config.json`, `logs/`, `workspace/notes/`). History is kept for 30 days and can be cleared on the History page. There is no Nova server, account or analytics. The daily update check only downloads Nova's version number from GitHub (Settings → Advanced turns it off).
+- **Settings, logs, notes and history** live in the Nova folder (`config.json`, `logs/`, `workspace/notes/`). History is kept for 30 days and can be cleared on the History page. There is no Nova server, account or analytics. The daily update check only asks GitHub which Nova release is the latest (Settings → Advanced turns it off).
 - **Text only goes out to your chosen AI:** your request and, for long or tricky dictations, the dictated text go to Claude Code or Codex, because that's where the AI runs. With "Share what you're looking at" on (Settings → Privacy & safety), a spoken request also says which app or window you're in, and a request about your screen comes with a screenshot (saved as `workspace/screen.png`). Nova turns off Claude Code's telemetry and error reporting, and turns off the speech-model downloader's telemetry and online checks after setup.
 
 ## Safety
@@ -233,7 +233,7 @@ core/clipboard.py     keeps your clipboard intact around dictation
 core/tts.py           spoken replies: Piper, Kitten or Kokoro voices, or the system's
 guard/guard.py        safety hook for Claude Code and Codex
 core/browser.py       the browser bridge, its safety rules and the extension installer
-core/update.py        update check and installer (bump VERSION to publish an update)
+core/update.py        update check and installer (bump VERSION, then push tag v<VERSION>: .github/workflows/release.yml publishes it)
 core/phone.py, phone.html  the phone page and its server (Settings → Phone)
 browser/extension/    the Nova extension (Chromium, unpacked; never published to a store)
 helpers/              clipboard helpers, the browser MCP server, the command watcher and Claude Code hook

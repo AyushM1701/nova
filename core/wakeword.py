@@ -8,6 +8,7 @@ It only wakes Nova for the voice of whoever taught it theirs: Settings → Gener
 records a few tries through Nova's own microphone and keeps a voiceprint in data/ (enroll). Until then it's off.
 Nothing here leaves the computer.
 """
+import json
 import time
 import wave
 
@@ -30,6 +31,12 @@ WARMUP = -(-TAIL // HOP)  # steps until the first embedding is all real audio
 # recordings over 0.85, 84% over 0.80; LibriSpeech speech the classifier mistook for "Hey Nova" topped out at 0.85,
 # and 1.1 an hour of it was over 0.80
 VOICE = 0.85
+# ...and how loud, against the user's own enrolling tries on this microphone. A night of false wakes (a fan, a video
+# across the room) peaked at 0.003-0.04 while the user's real "Hey Nova"s peaked at 0.13-0.67 and the tries at
+# 0.14-0.22: the voiceprint alone said 0.86-0.95 for that noise, so loudness has to agree too
+LOUD_SHARE = 1 / 3
+LEVELS = DIR / "levels.json"  # how loud the user's tries were on each microphone they recorded them on
+TRYOUT_S = 24 * 3600  # a first voiceprint starts in try-out (see shadow) for this long
 TRIES = 8  # "Hey Nova"s recorded when enrolling
 
 
@@ -107,6 +114,60 @@ def voice_of(model, audio):
     return e / max(float(np.linalg.norm(e)), 1e-9)
 
 
+def peak(audio):
+    return float(np.abs(audio).max()) if len(audio) else 0.0
+
+
+def tries_level(folder=None):
+    """How loud the newest enrolling tries were (their median peak), for a voiceprint saved before it kept that."""
+    tries = sorted((folder or RECORDINGS).glob("*-*-*.wav"))
+    newest = [t for t in tries if tries and t.name.rsplit("-", 1)[0] == tries[-1].name.rsplit("-", 1)[0]]
+    levels = []
+    for t in newest:
+        with wave.open(str(t), "rb") as w:
+            levels.append(peak(np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(np.float32) / 32768))
+    return float(np.median(levels)) if levels else None
+
+
+def mic_name():
+    """The microphone Nova listens with (the system's default input) as the audio library names it, '' if none.
+    shortcut: the library reads the device list when Nova starts; a default changed later counts after a restart."""
+    try:
+        import sounddevice as sd
+        return str(sd.query_devices(kind="input")["name"])
+    except Exception:  # no microphone at all
+        return ""
+
+
+def levels():
+    """{microphone: how loud the user's tries were on it}. A voiceprint from before Nova kept these counts as recorded
+    on the microphone in use now (its tries are still here to measure)."""
+    try:
+        return json.loads(LEVELS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    level = tries_level() if enrolled() else None
+    if not level:
+        return {}
+    found = {mic_name(): level}
+    DIR.mkdir(parents=True, exist_ok=True)
+    LEVELS.write_text(json.dumps(found), encoding="utf-8")
+    return found
+
+
+def too_quiet(audio, mic):
+    """Why `audio` isn't the user saying it to this microphone ('' if it is): quieter than a third of their tries on
+    it (a fan, a voice across the room), or a microphone they never recorded their tries on, whose level Nova can't
+    know (a headset's tries say nothing about the laptop's own microphone)."""
+    known = levels()
+    if not known:
+        return ""  # no tries to compare with: the voiceprint decides, as before
+    level = known.get(mic) if mic else float(np.median(list(known.values())))
+    if level is None:
+        return "a microphone your tries weren't recorded on (record them again in Settings)"
+    return "" if peak(audio) >= level * LOUD_SHARE else "too quiet for the user at the microphone"
+
+
 class Voice:
     """Is this the enrolled user's voice? Compared with their voiceprint, read again whenever it changes (enrolling
     while Nova runs). No voiceprint yet: never."""
@@ -124,18 +185,32 @@ class Voice:
             self.print, self.seen = np.load(VOICEPRINT)["voiceprint"], stamp
         return float(voice_of(self.model, audio) @ self.print)
 
-    def matches(self, audio):
-        alike = self.similarity(audio)
-        return alike is not None and alike >= VOICE
 
-
-SHADOW = DIR / "shadow"  # while this file exists the detector never wakes Nova: it keeps what would have
+SHADOW = DIR / "shadow"  # while this file says so the detector never wakes Nova: it keeps what would have
 SHADOW_CLIPS = DATA / "wakeword-shadow"
 SHADOW_KEEP = 300
 
 
+def tryout_until():
+    """When try-out ends (a time stamp), 0 for no end (an empty file: a developer measuring), None when it's off."""
+    try:
+        text = SHADOW.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    try:
+        until = float(text) if text else 0.0
+    except ValueError:
+        until = 0.0
+    if until and until < time.time():  # the first day is over: the detector wakes Nova from now on
+        SHADOW.unlink(missing_ok=True)
+        return None
+    return until
+
+
 def shadow():
-    return SHADOW.exists()
+    """Try-out: the detector only notes what would have woken Nova. A first voiceprint starts this way for a day, so
+    a voice or microphone it misjudges shows up in Settings' counts before it can wake Nova by mistake."""
+    return tryout_until() is not None
 
 
 def keep_shadow(clip, alike):
@@ -174,9 +249,10 @@ def utterances(audio, rate=16000):
     return out
 
 
-def enroll(clips):
-    """Make the voiceprint from the user's "Hey Nova" tries (16 kHz audio), and keep the tries for training on this
-    microphone later. Returns how alike the tries were to each other: low means noise or several voices."""
+def enroll(clips, mic=""):
+    """Make the voiceprint from the user's "Hey Nova" tries (16 kHz audio) recorded on `mic`, note how loud they were on
+    it, and keep the tries for training on this microphone later. A first voiceprint starts a day of try-out. Returns
+    how alike the tries were to each other: low means noise or several voices."""
     tries = [u for clip in clips for u in utterances(clip)[:1]]
     if len(tries) < 3:
         raise ValueError("Nova heard too few of them. Try again somewhere quieter, a little closer to the microphone.")
@@ -186,8 +262,13 @@ def enroll(clips):
     # each try against the others' average (with itself in it, the score came out near 1 whatever was recorded)
     others = [np.delete(prints, i, 0).mean(0) for i in range(len(prints))]
     alike = float(np.median([p @ (o / np.linalg.norm(o)) for p, o in zip(prints, others)]))
+    first, level = not enrolled(), float(np.median([peak(t) for t in tries]))
+    known = levels()
     DIR.mkdir(parents=True, exist_ok=True)
-    np.savez(VOICEPRINT, voiceprint=v / np.linalg.norm(v), tries=len(tries))
+    np.savez(VOICEPRINT, voiceprint=v / np.linalg.norm(v), tries=len(tries), level=level)
+    LEVELS.write_text(json.dumps({**known, mic: level}), encoding="utf-8")  # earlier microphones keep theirs
+    if first:
+        SHADOW.write_text(str(time.time() + TRYOUT_S), encoding="utf-8")
     RECORDINGS.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     for k, t in enumerate(tries):
@@ -196,7 +277,7 @@ def enroll(clips):
             w.setsampwidth(2)
             w.setframerate(16000)
             w.writeframes((np.clip(t, -1, 1) * 32767).astype("<i2").tobytes())
-    return {"tries": len(tries), "alike": round(alike, 2), "ok": alike >= VOICE}
+    return {"tries": len(tries), "alike": round(alike, 2), "ok": alike >= VOICE, "tryout_until": tryout_until()}
 
 
 class Personal:

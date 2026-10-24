@@ -21,7 +21,7 @@ from pathlib import Path
 import webview
 
 from core import browser as web
-from core import calendar_ics, clipboard, cloud_stt, deepgram, fallback, meetings, models, phone, system, tts, update
+from core import calendar_ics, clipboard, cloud_stt, deepgram, diagnostics, fallback, meetings, models, phone, system, tts, update
 from core.brain import find_cli, too_broad
 from core.config import (CONFIG, DATA, LOGS, NOTES, ROOT, defaults, load_config, log, read_history, save_config,
                          update_config, write_private)
@@ -180,6 +180,7 @@ class Api:
     def phone_forget(self):
         """A new pairing key: every phone has to scan the new QR code."""
         phone.token(new=True)
+        phone.token(new=True, path=phone.SIRI)
         if self._conn:
             self.send("phone_forget")
         return self.phone_info()
@@ -384,12 +385,22 @@ class Api:
         return system.autostart_enabled()
 
     def voice_enrolled(self):
-        """Whether this computer has a "Hey Nova" voiceprint (Nova records it: send("enroll_voice"))."""
+        """The "Hey Nova" voiceprint's state for Settings (Nova records it: send("enroll_voice")): whether there is one,
+        whether this microphone is one its tries were recorded on, the try-out's end, and the last 7 days' counts."""
         from core import wakeword
-        return {"enrolled": wakeword.enrolled()}
+        if not wakeword.enrolled():
+            return {"enrolled": False}
+        mic, known, since = wakeword.mic_name(), wakeword.levels(), time.time() - 7 * 86400
+        recent = [e for e in read_history({"wake_check", "wake_ignored", "wake_shadow"}) if e.get("t", 0) > since]
+        count = lambda kind, **want: sum(e["event"] == kind and all(e.get(k) == v for k, v in want.items())  # noqa: E731
+                                         for e in recent)
+        return {"enrolled": True, "mic": mic, "new_mic": bool(mic and known and mic not in known),
+                "tryout_until": wakeword.tryout_until(), "woke": count("wake_check"), "ignored": count("wake_ignored"),
+                "would": count("wake_shadow", would_wake=True)}
 
     # ---------- history ----------
-    def history(self, limit=600):
+    def history(self, limit=None):
+        """Everything the History page lists: all of it, since the logs only keep 30 days anyway."""
         return read_history(SHOWN, limit)
 
     def memory(self, lines=None):
@@ -536,6 +547,14 @@ class Api:
     def restart(self):
         """macOS applies Screen Recording (and sometimes Input Monitoring) only after Nova starts again."""
         return self.send("restart")
+
+    # ---------- files ----------
+    def diagnostics(self):
+        """Save the diagnostics zip (core/diagnostics.py), show it in its folder and open a new GitHub issue."""
+        path = diagnostics.save(version=update.current())
+        system.open_path(path.parent)
+        system.open_url(f"https://github.com/{update.REPO}/issues/new")
+        return path.name
 
     # ---------- files ----------
     def open(self, what):

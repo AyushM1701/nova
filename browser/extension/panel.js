@@ -20,29 +20,39 @@ port.onMessage.addListener(msg => {
   if (msg.type === "history") {
     log.replaceChildren();
     for (const e of msg.items.slice().reverse()) { add(el("div", "msg user", e.request)); add(el("div", "msg nova", e.reply)); }
+    asks.length = 0;
+    port.postMessage({ op: "state" });  // an approval still waiting (the popup closed meanwhile) gets its card back
     return empty();
   }
   if (msg.type !== "event") return;
   const ev = msg.event;
   if (ev.event === "bar") setState(ev.state);
-  else if (ev.event === "state") setState(ev.paused ? "paused" : ev.phase === "idle" ? "idle" : "thinking");
+  else if (ev.event === "state") {
+    setState(ev.paused ? "paused" : ev.phase === "idle" ? "idle" : "thinking");
+    if (ev.asking && !asks.some(b => b.askId === ev.asking.id)) askCard(ev.asking);
+  }
   // every request, from here, the Nova window, the phone or by voice, shows once Nova takes it (like the phone page)
   else if (ev.event === "heard" && ev.mode !== "dictation") add(el("div", "msg user", ev.text));
   else if (ev.event === "step") add(el("div", "step", ev.text));
   else if (ev.event === "reply") add(el("div", "msg nova", ev.reply));
   else if (ev.event === "note") add(el("div", "note", ev.text));
-  else if (ev.event === "asking") {
-    const box = add(el("div", "ask"));
-    box.append(el("b", null, `${ev.who} needs your OK`), el("div", null, `It wants to run something that ${ev.reason}:`), el("pre", null, ev.summary));
-    const btns = el("div", "btns"), allow = el("button", "primary", "Allow"), deny = el("button", null, "Deny");
-    allow.onclick = () => port.postMessage({ op: "approve", ok: true, id: ev.id });
-    deny.onclick = () => port.postMessage({ op: "approve", ok: false, id: ev.id });
-    btns.append(allow, deny); box.append(btns); asks.push(box);
-  } else if (ev.event === "approval") {
+  else if (ev.event === "asking") askCard(ev);
+  else if (ev.event === "approval") {
     const box = asks.shift();
     if (box) box.querySelector(".btns").replaceChildren(el("span", "note", ev.allowed ? "Allowed" : "Denied"));
   }
 });
+
+function askCard(ev) {
+  const box = add(el("div", "ask"));
+  const cmd = el("details");  // plain words first, the exact command a click away (open when there are none)
+  cmd.open = !ev.plain; cmd.append(el("summary", null, "Show command"), el("pre", null, ev.summary));
+  box.append(el("b", null, `${ev.who} needs your OK`), el("div", null, ev.plain || `It wants to run something that ${ev.reason}.`), cmd);
+  const btns = el("div", "btns"), allow = el("button", "primary", "Allow"), deny = el("button", null, "Deny");
+  allow.onclick = () => port.postMessage({ op: "approve", ok: true, id: ev.id });
+  deny.onclick = () => port.postMessage({ op: "approve", ok: false, id: ev.id });
+  btns.append(allow, deny); box.append(btns); box.askId = ev.id; asks.push(box);
+}
 
 const input = document.getElementById("input");
 function send() {

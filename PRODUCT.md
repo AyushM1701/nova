@@ -48,7 +48,7 @@ No testimonials, user counts or benchmarks beyond the speed notes in README.md. 
 ## Product Principles
 
 1. Talk, don't type: every flow should be finishable without a keyboard-heavy detour.
-2. Never surprise: risky actions are shown verbatim and need an explicit OK.
+2. Never surprise: risky actions are described in plain words, with the exact command one click away, and need an explicit OK.
 3. Local first: say clearly what leaves the computer and when.
 4. Zero terminal: non-technical users never need a console or a JSON file.
 
