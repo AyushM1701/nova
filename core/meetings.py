@@ -153,6 +153,12 @@ def in_use(entries):
     return [name.rsplit("#", 1)[-1] for name, (start, stop) in entries.items() if start and not stop]
 
 
+def meeting_capable(users):
+    """True while a meeting app or a browser (not Nova's own Python) holds the microphone."""
+    return any(not u.lower().startswith("python") and any(k in u.lower() for k in (*MEETING_APPS, *BROWSERS))
+               for u in users)
+
+
 def meeting_app(users, title):
     """The meeting app among the microphone's users, by name; a browser counts only when the window in front is a
     meeting tab. Nova's own Python (the wake word) never counts."""

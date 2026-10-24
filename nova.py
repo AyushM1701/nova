@@ -1725,16 +1725,22 @@ class Nova:
             if not self.cfg["meetings"]["detect"] or self.recorder:
                 continue
             try:
-                app = meetings.meeting_app(meetings.in_use(system.mic_entries()),
-                                           system.window_title(system.foreground()))
+                offered_for = self.check_meeting(offered_for)
             except Exception as e:  # never let a registry oddity stop the watcher
                 log("error", error=f"meeting detection: {e!r}")
-                continue
-            if app != offered_for and app and time.time() - self.offered > OFFER_GAP_S:
-                self.offered = time.time()
-                self.ui(lambda app=app: self.card.show(f"{app} is using your microphone", "Say “record this meeting” "
-                                                       "to take notes. No bot joins.", hide_after=30))
-            offered_for = app if app else None  # leaving the call resets it: the next call is offered again
+
+    def check_meeting(self, offered_for):
+        """One look: offer to record when a meeting app holds the microphone. Returns the call already offered for,
+        which resets only when no meeting app or browser holds the mic any more (switching tabs isn't leaving)."""
+        users = meetings.in_use(system.mic_entries())
+        if not meetings.meeting_capable(users):
+            return None  # left the call: the next one is offered again
+        app = meetings.meeting_app(users, system.window_title(system.foreground()))
+        if app and not offered_for and time.time() - self.offered > OFFER_GAP_S:
+            self.offered = time.time()
+            self.ui(lambda: self.card.show(f"{app} is using your microphone", "Say “record this meeting” to take "
+                                           "notes. No bot joins.", hide_after=30))
+        return offered_for or app
 
     def watch_schedules(self):
         """Run scheduled routines when they're due (core/schedule.py), once a day each, when Nova is free."""

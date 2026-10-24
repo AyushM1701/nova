@@ -2563,4 +2563,31 @@ try:
 finally:
     nova_mod.rescue = real_rescue
 
+# one card per call: a Meet tab you switch away from and back to is the same call while the browser holds the mic
+real_sys = (nova_mod.system.mic_entries, nova_mod.system.window_title, nova_mod.system.foreground)
+state = {"title": "Meet - abc-defg-hij - Brave", "mic": {"C:#Brave#brave.exe": (1, 0)}}
+nova_mod.system.mic_entries = lambda: state["mic"]
+nova_mod.system.window_title = lambda target: state["title"]
+nova_mod.system.foreground = lambda: None
+cards = []
+try:
+    n = types.SimpleNamespace(offered=0.0, ui=lambda fn: fn(),
+                              card=types.SimpleNamespace(show=lambda title, body="", **k: cards.append(title)))
+    seen = nova_mod.Nova.check_meeting(n, None)
+    assert cards == ["Google Meet is using your microphone"], cards
+    state["title"] = "Inbox - Gmail - Brave"                   # switched to another tab, still in the call
+    seen = nova_mod.Nova.check_meeting(n, seen)
+    n.offered = 0.0                                            # long after the card
+    state["title"] = "Meet - abc-defg-hij - Brave"
+    seen = nova_mod.Nova.check_meeting(n, seen)
+    assert len(cards) == 1, cards                              # same call: no second card
+    state["mic"] = {}                                          # left the call
+    seen = nova_mod.Nova.check_meeting(n, seen)
+    n.offered = 0.0
+    state["mic"] = {"C:#Brave#brave.exe": (1, 0)}              # a new call later
+    nova_mod.Nova.check_meeting(n, seen)
+    assert len(cards) == 2, cards
+finally:
+    nova_mod.system.mic_entries, nova_mod.system.window_title, nova_mod.system.foreground = real_sys
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
