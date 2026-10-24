@@ -2520,21 +2520,34 @@ assert meeting_app([], "Meet - x") is None
 # a click made while Nova is still saying the step counts (the natural moment: as soon as the arrow lands)
 real_sys = (nova_mod.system.mouse_down, nova_mod.system.screenshot, nova_mod.system.window_rect,
             nova_mod.system.foreground, nova_mod.CLICK_WAIT_S)
-button = {"down": False}
-nova_mod.system.mouse_down = lambda: button["down"]
+button = {"down": False, "polls": 0}
+
+
+def fake_mouse_down():
+    button["polls"] += 1
+    return button["down"]
+
+
+nova_mod.system.mouse_down = fake_mouse_down
 nova_mod.system.screenshot = lambda path, box=None: ("shot.png", (0, 0, 1, 100, 100))
 nova_mod.system.window_rect = lambda target: (0, 0, 100, 100)
 nova_mod.system.foreground = lambda: None
 nova_mod.CLICK_WAIT_S = 1
 
 
+def seen_twice():
+    """Wait until the click watcher has looked at the button twice more (timing-free: a slow machine just waits)."""
+    start, deadline = button["polls"], time.monotonic() + 5
+    while button["polls"] < start + 2 and time.monotonic() < deadline:
+        time.sleep(0.005)
+
+
 def click_while_talking(title, spoken, body=""):
     if spoken == "Click File.":
-        time.sleep(0.1)
+        seen_twice()             # the watcher has seen the button up
         button["down"] = True
-        time.sleep(0.15)
+        seen_twice()             # ...and down: a press it can't miss, however busy the machine is
         button["down"] = False
-        time.sleep(0.1)
 
 
 try:
