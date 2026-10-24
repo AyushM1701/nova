@@ -622,6 +622,11 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
       <div class="pair-head"><span>When it hears</span><span></span><span>Nova types</span><span></span></div>
       <div class="pairs" id="repls"></div>
       <button class="btn sm" id="addRepl" style="margin-top:12px"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add replacement</button>
+      <h2>Snippets</h2>
+      <p class="muted">Say the phrase on its own (or “insert my address”) and Nova types the saved text.</p>
+      <div class="pair-head"><span>When you say</span><span></span><span>Nova types</span><span></span></div>
+      <div class="pairs" id="snips"></div>
+      <button class="btn sm" id="addSnip" style="margin-top:12px"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add snippet</button>
     </section>
 
     <!-- MEMORY -->
@@ -1388,13 +1393,14 @@ function pairsEditor(container, path, leftPh, rightPh) {
   container.replaceChildren(...rows.map(([a, b]) => row(a, b)));
   return () => { const r = row(); container.append(r); $("input", r).focus(); };
 }
-let addRepl, addAlias, addRoutine;
+let addRepl, addSnip, addAlias, addRoutine;
 $("#addRoutine").addEventListener("click", () => addRoutine());
 $("#claudeHook").addEventListener("click", async e => {
   const btn = e.currentTarget, want = btn.getAttribute("aria-checked") !== "true";
   try { S.claudeHook = await api().claude_hook(want); btn.setAttribute("aria-checked", S.claudeHook); toast(S.claudeHook ? "Nova will tell you when Claude finishes" : "Hook removed"); } catch (err) { fail(err); }
 });
 $("#addRepl").addEventListener("click", () => addRepl());
+$("#addSnip").addEventListener("click", () => addSnip());
 function renderFolders() {
   const folders = get("projects.folders") || [];
   $("#folders").replaceChildren(...(folders.length ? folders.map(f => {
@@ -1501,6 +1507,8 @@ function bindSettings() {
   const lang = $("#langSel"); lang.replaceChildren(...Object.entries(S.languages).map(([v, l]) => h("option", { value: v }, l))); lang.value = get("voice.language");
   renderWords();
   addRepl = pairsEditor($("#repls"), "dictation.replacements", "wisper", "Wispr");
+  // shortcut: the pairs editor is single-line, so multi-line snippets need config.json; a textarea if users ask
+  addSnip = pairsEditor($("#snips"), "dictation.snippets", "my address", "221B Baker Street, London");
   addAlias = pairsEditor($("#aliases"), "projects.aliases", "my site", "portfolio");
   renderFolders(); renderPermissions();
   addMtAction = pairsEditor($("#mtActionPairs"), "meetings.actions", "Name, e.g. Jira tickets", "Turn the action items into Jira tickets");

@@ -1193,6 +1193,10 @@ class Nova:
 
     def dictate(self, raw):
         d = self.cfg["dictation"]
+        expansion = cleanup.snippet_for(raw, d["snippets"])
+        if expansion:  # "my address": the saved text exactly, no cleanup or learning
+            log("snippet", raw=raw)
+            return self.paste(expansion)
         if self.brain and cleanup.is_edit(raw):  # Command mode: "make this more formal" on selected text
             selected = self.copy_selection()
             if selected:

@@ -46,6 +46,7 @@ Free and open source. No account, no subscription, no Nova server. Speech recogn
 
 - **Assistant mode:** "Open Spotify and play something chill", "in my portfolio project, fix the navbar on mobile", "copy my resume to the clipboard", "what's the weather in Goa?"
 - **Dictation mode:** filler words ("um", "uh") are removed, self-corrections are applied ("meet at 6, no wait, 7" becomes "meet at 7"), and Hindi or Hinglish is written in English letters.
+- **Snippets:** say "my address" and Nova types the whole thing. Add them on the Dictionary page.
 - **Command mode:** select text in any app, press the shortcut and say "make this more formal", "translate it to Hindi" or "fix the grammar". The selection is rewritten in place.
 - **Knows what you're looking at:** "what's this error on my screen?" gives the AI a screenshot to look at, and every spoken request tells it which app you're in. You can turn this off.
 - **Conversational:** talk over Nova to interrupt it and redirect it; when it asks you something ("Want me to run the tests?") it listens for your answer without "Hey Nova".
@@ -237,6 +238,7 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 | `brain.codex_sandbox` | `workspace-write` | Use `danger-full-access` if Codex's sandbox blocks opening apps (the guard still applies) |
 | `dictation.editing` | `light` | `verbatim`, `light` or `medium` |
 | `dictation.dictionary` / `replacements` | | Words to spell right, e.g. `{"wisper": "Wispr"}` |
+| `dictation.snippets` | | Say the phrase alone, Nova types the text, e.g. `{"my address": "221B Baker Street"}` |
 | `projects.aliases` | | Spoken nicknames, e.g. `{"my site": "portfolio"}` |
 | `projects.folders` | `[]` | Folders where Nova creates and edits files without asking, e.g. `["D:\\projects"]` (Settings → AI). Folders holding your Claude Code / Codex projects count automatically. A drive, your user folder, Documents, system folders and Nova's own folder are refused |
 | `voice.barge_in` | `true` | Talk while Nova answers to interrupt it |

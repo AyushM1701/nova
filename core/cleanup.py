@@ -167,6 +167,16 @@ def apply_replacements(text, replacements):
     return text
 
 
+def snippet_for(raw, snippets):
+    """The saved text for a dictation that is just a snippet's trigger ("my address", "insert my address")."""
+    said = re.sub(r"^(?:insert|paste|type) ", "", re.sub(r"[^\w\s]", "", raw.lower()).strip())
+    for trigger, text in snippets.items():
+        key = re.sub(r"[^\w\s]", "", trigger.lower()).strip()
+        if key and said == key:
+            return text
+    return None
+
+
 def model_for(brain, d):
     return d["claude_model"] if brain.name == "Claude Code" else d["codex_model"]
 

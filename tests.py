@@ -2295,4 +2295,14 @@ finally:
     nova_mod.prune_logs, nova_mod.time = real_prune, real_time
 assert len(pruned) == 2 and waits[1:] == [24 * 3600, 24 * 3600], (pruned, waits)  # once a day
 
+# snippets: a whole spoken phrase types saved text
+from core.cleanup import snippet_for  # noqa: E402
+SNIPS = {"my address": "221B Baker Street, London", "sign off": "Thanks,\nAyush", "": "never"}
+assert snippet_for("My address.", SNIPS) == "221B Baker Street, London"
+assert snippet_for("insert my address", SNIPS) == "221B Baker Street, London"
+assert snippet_for("Type sign off!", SNIPS) == "Thanks,\nAyush"
+assert snippet_for("send it to my address", SNIPS) is None   # whole utterance only
+assert snippet_for("", SNIPS) is None                        # an empty trigger never matches
+assert snippet_for("my address", {}) is None
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
