@@ -300,6 +300,18 @@ class Api:
         system.open_path(NOTES / m["note"])
         return True
 
+    def export_meeting(self, mid, kind):
+        """Save the transcript as subtitles (srt), plain text (txt) or the full note (md); None if cancelled."""
+        m = meetings.load(mid)
+        write = {"srt": meetings.srt, "txt": meetings.transcript_text, "md": meetings.markdown}[kind]
+        safe = "".join(c for c in m["title"] if c not in '<>:"/\\|?*').strip(" .") or "Meeting"
+        picked = self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename=f"{safe}.{kind}")
+        if not picked:
+            return None
+        path = Path(picked if isinstance(picked, str) else picked[0])
+        path.write_text(write(m), encoding="utf-8")
+        return str(path)
+
     def pick_audio(self):
         """Ask for audio or video files to transcribe; returns their paths ([] if cancelled)."""
         kinds = ("Audio and video (*.mp3;*.wav;*.m4a;*.webm;*.ogg;*.flac;*.aac;*.opus;*.mp4;*.mov;*.mkv)",

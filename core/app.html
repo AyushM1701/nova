@@ -600,7 +600,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
         <input class="input title-in" id="mtTitle" aria-label="Title" style="margin-top:10px">
         <div class="toolbar" style="margin-top:10px"><span class="muted small" id="mtMeta" style="flex:1"></span>
           <input class="input short-w" id="mtMove" list="mtFolders" placeholder="Folder" aria-label="Folder"><datalist id="mtFolders"></datalist>
-          <button class="btn sm" id="mtNote">Open note</button><button class="btn sm danger" id="mtDelete">Delete</button></div>
+          <button class="btn sm" id="mtNote">Open note</button><button class="btn sm" data-export="srt" title="Subtitles for video players and editors">Export SRT</button><button class="btn sm" data-export="txt">Export text</button><button class="btn sm danger" id="mtDelete">Delete</button></div>
         <div class="banner" id="mtStatus" hidden><span class="grow"></span></div>
         <div class="seg" role="radiogroup" id="mtTabs" style="margin-top:16px">
           <button role="radio" data-t="minutes">Minutes</button><button role="radio" data-t="notes">My notes</button><button role="radio" data-t="transcript">Transcript</button><button role="radio" data-t="actions">AI actions</button>
@@ -1873,6 +1873,7 @@ $("#mtNotes").addEventListener("input", () => { clearTimeout(notesTimer); const 
 $("#mtTitle").addEventListener("change", e => send("meeting_update", { id: MT.id, title: e.target.value }));
 $("#mtMove").addEventListener("change", e => send("meeting_update", { id: MT.id, folder: e.target.value }));
 $("#mtNote").addEventListener("click", () => api().open_meeting_note(MT.id).catch(fail));
+for (const b of $$("[data-export]")) b.addEventListener("click", () => api().export_meeting(MT.id, b.dataset.export).then(p => p && toast("Saved")).catch(fail));
 armed($("#mtDelete"), "Click again to delete", () => { send("meeting_delete", { id: MT.id }); toast("Meeting deleted"); closeMeeting(); });
 let searchTimer;
 $("#mtSearch").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadMeetings, 250); });

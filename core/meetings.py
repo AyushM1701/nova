@@ -150,6 +150,15 @@ def transcript_text(m):
     return "\n".join(f"[{stamp(s['start'])}] {s.get('speaker') or 'Speaker'}: {s['text']}" for s in m["transcript"])
 
 
+def srt(m):
+    """The transcript as SRT subtitles (video players, YouTube, editors)."""
+    def at(seconds):
+        ms = round(seconds * 1000)
+        return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
+    return "\n".join(f"{i}\n{at(s['start'])} --> {at(s['end'])}\n{s.get('speaker') or 'Speaker'}: {s['text']}\n"
+                     for i, s in enumerate(m["transcript"], 1))
+
+
 def markdown(m):
     when = time.strftime("%a %d %b %Y, %H:%M", time.localtime(m["started"]))
     parts = [f"# {m['title']}", f"{when} · {stamp(m['duration'])} · folder: {m['folder']}"]

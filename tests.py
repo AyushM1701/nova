@@ -2321,4 +2321,12 @@ with tempfile.TemporaryDirectory() as tmp:
     p.write_text("{not json", encoding="utf-8")
     assert stats.summary(p, day)["words"] == 0           # a broken file starts fresh, never crashes
 
+# meeting transcripts export as SRT subtitles
+from core.meetings import srt  # noqa: E402
+M = {"transcript": [{"start": 0, "end": 2.5, "text": "Hi all.", "speaker": "Ayush"},
+                    {"start": 3661.2, "end": 3663, "text": "Bye."}]}
+assert srt(M) == ("1\n00:00:00,000 --> 00:00:02,500\nAyush: Hi all.\n\n"
+                  "2\n01:01:01,200 --> 01:01:03,000\nSpeaker: Bye.\n")
+assert srt({"transcript": []}) == ""
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
