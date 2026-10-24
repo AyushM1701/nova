@@ -1254,7 +1254,8 @@ class Nova:
                 return self.ui(lambda: self.card.show("Couldn't edit the selection",
                                                       f"{self.brain.name} didn't answer. Your text is unchanged.",
                                                       hide_after=5))
-        text, how = cleanup.clean(raw, d, self.brain)
+        tone = cleanup.tone_for(system.window_title(self.target), d["tones"])
+        text, how = cleanup.clean(raw, d, self.brain, tone)
         if d["translate_to"] and d["translate_to"] != "English" and not self.cancel.is_set():
             text = self.translate(text, d["translate_to"])
         if self.cancel.is_set():

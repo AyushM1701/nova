@@ -50,7 +50,8 @@
       "Codex"
     ],
     "replacements": {},
-    "snippets": {}
+    "snippets": {},
+    "tones": {}
   },
   "brain": {
     "engine": "claude",

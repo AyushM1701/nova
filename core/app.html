@@ -753,6 +753,10 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><button class="switch" role="switch" data-bind="dictation.auto_learn" aria-label="Learn from my corrections"></button></div></div>
         <div class="row"><div class="what"><h2>Rewrite selected text</h2><p>Select text in any app, press the shortcut and say “make this more formal”, “translate it to Hindi” or “fix the grammar”. Needs Claude Code or Codex.</p></div>
           <div class="how"><span class="tag ok"><svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg>On</span></div></div>
+        <div class="row" style="display:block"><div class="what"><h2>Tone per app</h2><p>Part of the app or window name, and how you want to sound there. Dictations in that app go to the AI to match it, even short ones.</p></div>
+          <div class="pair-head"><span>In</span><span></span><span>Sound</span><span></span></div>
+          <div class="pairs" id="tones"></div>
+          <button class="btn sm" id="addTone" style="margin-top:12px"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add app</button></div>
       </div>
 
       <div data-panel="meetings" class="rows" hidden>
@@ -1400,7 +1404,7 @@ function pairsEditor(container, path, leftPh, rightPh) {
   container.replaceChildren(...rows.map(([a, b]) => row(a, b)));
   return () => { const r = row(); container.append(r); $("input", r).focus(); };
 }
-let addRepl, addSnip, addAlias, addRoutine;
+let addRepl, addSnip, addTone, addAlias, addRoutine;
 const DAY_SETS = { "day": "0123456", "weekday": "01234", "weekend": "56" }, DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 function renderSchedules() {  // added by voice (core/schedule.py), removed here
   const list = get("schedules") || [];
@@ -1418,6 +1422,7 @@ $("#claudeHook").addEventListener("click", async e => {
 });
 $("#addRepl").addEventListener("click", () => addRepl());
 $("#addSnip").addEventListener("click", () => addSnip());
+$("#addTone").addEventListener("click", () => addTone());
 function renderFolders() {
   const folders = get("projects.folders") || [];
   $("#folders").replaceChildren(...(folders.length ? folders.map(f => {
@@ -1526,6 +1531,7 @@ function bindSettings() {
   addRepl = pairsEditor($("#repls"), "dictation.replacements", "wisper", "Wispr");
   // shortcut: the pairs editor is single-line, so multi-line snippets need config.json; a textarea if users ask
   addSnip = pairsEditor($("#snips"), "dictation.snippets", "my address", "221B Baker Street, London");
+  addTone = pairsEditor($("#tones"), "dictation.tones", "Gmail", "clear and professional");
   addAlias = pairsEditor($("#aliases"), "projects.aliases", "my site", "portfolio");
   renderFolders(); renderPermissions();
   addMtAction = pairsEditor($("#mtActionPairs"), "meetings.actions", "Name, e.g. Jira tickets", "Turn the action items into Jira tickets");

@@ -2414,4 +2414,26 @@ assert schedule.due([S], mon.replace(hour=9, minute=59), {}) == [S]           # 
 assert schedule.due([S], mon.replace(hour=10, minute=1), {}) == []            # past the 60-minute window
 assert schedule.due([S], datetime.datetime(2026, 10, 24, 9, 0), {}) == []     # Saturday
 
+# tone per app: casual in WhatsApp, professional in Gmail
+from core.cleanup import tone_for, clean as clean_dictation  # noqa: E402
+TONES = {"gmail": "clear and professional", "WhatsApp": "casual and friendly", "": "never"}
+assert tone_for("Inbox (3) - you@gmail.com - Gmail - Opera", TONES) == "clear and professional"
+assert tone_for("WHATSAPP", TONES) == "casual and friendly"
+assert tone_for("Visual Studio Code", TONES) == ""
+
+
+class ToneBrain:
+    name = "Claude Code"
+
+    def clean(self, system_prompt, text, model):
+        self.prompt = system_prompt
+        return "Hey, see you at 7!"
+
+
+D = {"editing": "light", "llm_min_words": 30, "dictionary": [], "replacements": {}, "claude_model": "haiku"}
+tb = ToneBrain()
+assert clean_dictation("hey see you at 7", D, tb, tone="casual and friendly") == ("Hey, see you at 7!", "Claude Code")
+assert "Tone: casual and friendly" in tb.prompt                       # short text still goes to the AI when a tone is set
+assert clean_dictation("hey see you at 7", D, None, tone="casual")[1] == "local"  # no AI: tone is skipped, never an error
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
