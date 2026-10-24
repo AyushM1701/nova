@@ -184,6 +184,8 @@ def tone_for(title, tones):
 
 
 def model_for(brain, d):
+    if brain.name == "Local AI":
+        return d["local_model"]
     return d["claude_model"] if brain.name == "Claude Code" else d["codex_model"]
 
 

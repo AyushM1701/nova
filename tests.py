@@ -2436,4 +2436,33 @@ assert clean_dictation("hey see you at 7", D, tb, tone="casual and friendly") ==
 assert "Tone: casual and friendly" in tb.prompt                       # short text still goes to the AI when a tone is set
 assert clean_dictation("hey see you at 7", D, None, tone="casual")[1] == "local"  # no AI: tone is skipped, never an error
 
+# local AI cleanup: an OpenAI-compatible server on this computer (Ollama, llama.cpp, LM Studio)
+from core.local_llm import LocalLLM  # noqa: E402
+seen = {}
+
+
+class ChatServer(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        seen["path"], seen["body"] = self.path, json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        out = json.dumps({"choices": [{"message": {"content": "<think>hmm</think>\nSee you at 7."}}]}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(out)
+
+    def log_message(self, *_):
+        pass
+
+
+srv = http.server.HTTPServer(("127.0.0.1", 0), ChatServer)
+threading.Thread(target=srv.handle_request, daemon=True).start()
+llm = LocalLLM(f"http://127.0.0.1:{srv.server_port}/v1", "llama3.2:3b")
+assert llm.clean("SYSTEM", "<dictation>see you at 7</dictation>", "llama3.2:3b") == "See you at 7."
+assert seen["path"] == "/v1/chat/completions" and seen["body"]["model"] == "llama3.2:3b"
+assert seen["body"]["messages"][0] == {"role": "system", "content": "SYSTEM"}
+srv.server_close()
+assert LocalLLM("http://127.0.0.1:9/v1", "x").clean("S", "t", "x", timeout=2) is None   # nothing listening: None
+from core.cleanup import model_for  # noqa: E402
+assert model_for(llm, {"local_model": "llama3.2:3b", "claude_model": "haiku", "codex_model": ""}) == "llama3.2:3b"
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it

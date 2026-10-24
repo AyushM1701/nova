@@ -24,6 +24,7 @@ from core import browser as web
 from core import (calendar_ics, clipboard, cloud_stt, deepgram, diagnostics, fallback, meetings, models, phone,
                   stats, system, tts, update)
 from core.brain import find_cli, too_broad
+from core.local_llm import LocalLLM
 from core.config import (CONFIG, DATA, LOGS, NOTES, ROOT, defaults, load_config, log, read_history, save_config,
                          update_config, write_private)
 
@@ -100,6 +101,12 @@ class Api:
         while the window was open survive. Only values that differ from the defaults are written."""
         update_config(changes)
         return True
+
+    def local_llm_test(self, url, model):
+        """Settings → Dictation's Test: "ok" when the local model answers, else what to check."""
+        if LocalLLM(url, model).clean("Reply with the word ok.", "ok", model, timeout=30):
+            return "ok"
+        return f"Nova couldn't get an answer from {model} at {url}. Is Ollama (or your server) running, with that model?"
 
     def stats(self):
         """Words dictated, speaking speed and minutes saved, for the Home page."""

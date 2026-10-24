@@ -37,6 +37,7 @@ from core import (audio, cleanup, clipboard, cloud_stt, deepgram, fallback, icon
 from core import browser as web  # noqa: E402
 from core.bar import Bar  # noqa: E402
 from core.brain import discover_projects, find_cli, make_brain, project_folders  # noqa: E402
+from core.local_llm import LocalLLM  # noqa: E402
 from core.overlay import Card  # noqa: E402
 from core.pointer import Pointer, last_step, take as take_point  # noqa: E402
 
@@ -1235,27 +1236,34 @@ class Nova:
         threading.Timer(seconds, ring).start()
         self.note("Timer", f"Timer set for {label}.")
 
+    @property
+    def cleaner(self):
+        """What tidies dictation: a model on this computer when chosen in Settings → Dictation, else the brain."""
+        d = self.cfg["dictation"]
+        return LocalLLM(d["local_url"], d["local_model"]) if d["cleanup_engine"] == "local" else self.brain
+
     def dictate(self, raw):
         d = self.cfg["dictation"]
         expansion = cleanup.snippet_for(raw, d["snippets"])
         if expansion:  # "my address": the saved text exactly, no cleanup or learning
             log("snippet", raw=raw)
             return self.paste(expansion)
-        if self.brain and cleanup.is_edit(raw):  # Command mode: "make this more formal" on selected text
+        cleaner = self.cleaner
+        if cleaner and cleanup.is_edit(raw):  # Command mode: "make this more formal" on selected text
             selected = self.copy_selection()
             if selected:
-                new = self.brain.clean(cleanup.EDIT_PROMPT, f"<selection>{selected}</selection>\n"
-                                       f"<instruction>{raw}</instruction>", cleanup.model_for(self.brain, d))
+                new = cleaner.clean(cleanup.EDIT_PROMPT, f"<selection>{selected}</selection>\n"
+                                    f"<instruction>{raw}</instruction>", cleanup.model_for(cleaner, d))
                 if self.cancel.is_set():
                     return
                 log("edit", instruction=raw, before=selected, text=new or "")
                 if new:
                     return self.paste(new)
                 return self.ui(lambda: self.card.show("Couldn't edit the selection",
-                                                      f"{self.brain.name} didn't answer. Your text is unchanged.",
+                                                      f"{cleaner.name} didn't answer. Your text is unchanged.",
                                                       hide_after=5))
         tone = cleanup.tone_for(system.window_title(self.target), d["tones"])
-        text, how = cleanup.clean(raw, d, self.brain, tone)
+        text, how = cleanup.clean(raw, d, cleaner, tone)
         if d["translate_to"] and d["translate_to"] != "English" and not self.cancel.is_set():
             text = self.translate(text, d["translate_to"])
         if self.cancel.is_set():
@@ -1280,14 +1288,16 @@ class Nova:
                                        "on. Remove it in Nova's Dictionary.", hide_after=6))
 
     def translate(self, text, language):
-        """Dictation into another language (English is Whisper's job). Needs Claude Code or Codex; without one the
-        text is pasted as spoken, and the card says why."""
-        if not self.brain:
-            self.ui(lambda: self.card.show("Not translated", "Translating dictation needs Claude Code or Codex. "
-                                           "Your words were pasted as spoken.", hide_after=6))
+        """Dictation into another language (English is Whisper's job). Needs an AI (Claude Code, Codex or a local
+        model); without one the text is pasted as spoken, and the card says why."""
+        cleaner = self.cleaner
+        if not cleaner:
+            self.ui(lambda: self.card.show("Not translated", "Translating dictation needs an AI: connect Claude Code "
+                                           "or Codex, or a local model in Settings → Dictation. Your words were "
+                                           "pasted as spoken.", hide_after=6))
             return text
-        out = self.brain.clean(cleanup.TRANSLATE_PROMPT.format(language=language), f"<dictation>{text}</dictation>",
-                               cleanup.model_for(self.brain, self.cfg["dictation"]))
+        out = cleaner.clean(cleanup.TRANSLATE_PROMPT.format(language=language), f"<dictation>{text}</dictation>",
+                            cleanup.model_for(cleaner, self.cfg["dictation"]))
         return out or text
 
     def copy_selection(self):

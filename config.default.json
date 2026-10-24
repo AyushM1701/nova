@@ -51,7 +51,10 @@
     ],
     "replacements": {},
     "snippets": {},
-    "tones": {}
+    "tones": {},
+    "cleanup_engine": "ai",
+    "local_url": "http://localhost:11434/v1",
+    "local_model": "llama3.2:3b"
   },
   "brain": {
     "engine": "claude",

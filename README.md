@@ -49,6 +49,7 @@ Free and open source. No account, no subscription, no Nova server. Speech recogn
 - **Snippets:** say "my address" and Nova types the whole thing. Add them on the Dictionary page.
 - **See your progress:** the Home page counts words dictated, your speaking speed and the minutes you saved over typing (kept on your computer).
 - **Sounds right in every app:** set a tone per app (casual in WhatsApp, professional in Gmail) in Settings → Dictation.
+- **Fully offline dictation:** point Nova at Ollama, llama.cpp or LM Studio in Settings → Dictation, and long dictations are tidied on your computer with no subscription.
 - **Command mode:** select text in any app, press the shortcut and say "make this more formal", "translate it to Hindi" or "fix the grammar". The selection is rewritten in place.
 - **Knows what you're looking at:** "what's this error on my screen?" gives the AI a screenshot to look at, and every spoken request tells it which app you're in. You can turn this off.
 - **Conversational:** talk over Nova to interrupt it and redirect it; when it asks you something ("Want me to run the tests?") it listens for your answer without "Hey Nova".
@@ -194,6 +195,7 @@ Type a request, or tap the **mic on the phone's keyboard** to dictate it. Replie
 - **Spoken replies** use a neural voice run by sherpa-onnx on your own computer: Piper (the default) or Kitten (the lightest), both installed by setup, or Kokoro (the most natural, downloaded only if you pick it). Or your operating system's own voices (Windows SAPI, macOS `say`) if you prefer them or no voice is downloaded.
 - **Each dictation's audio** is kept in `data/last-dictation.wav` until it's typed, then deleted, so Nova closing mid-dictation never loses it: the next start puts the words on your clipboard.
 - **Settings, logs, notes and history** live in the Nova folder (`config.json`, `logs/`, `workspace/notes/`). History is kept for 30 days and can be cleared on the History page. There is no Nova server, account or analytics. The daily update check only asks GitHub which Nova release is the latest (Settings → Advanced turns it off).
+- **With a local model** for dictation (Settings → Dictation), dictated text goes only to that model's address, normally on this computer.
 - **Text only goes out to your chosen AI:** your request and, for long or tricky dictations, the dictated text go to Claude Code or Codex, because that's where the AI runs. With "Share what you're looking at" on (Settings → Privacy & safety), a spoken request also says which app or window you're in, and a request about your screen comes with a screenshot (saved as `workspace/screen.png`). Nova turns off Claude Code's telemetry and error reporting, and turns off the speech-model downloader's telemetry and online checks after setup.
 
 ## Safety
@@ -244,6 +246,8 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 | `dictation.dictionary` / `replacements` | | Words to spell right, e.g. `{"wisper": "Wispr"}` |
 | `dictation.snippets` | | Say the phrase alone, Nova types the text, e.g. `{"my address": "221B Baker Street"}` |
 | `dictation.tones` | | How to sound per app, e.g. `{"Gmail": "clear and professional"}` |
+| `dictation.cleanup_engine` | `ai` | `"local"` tidies dictation with a model on this computer instead of Claude Code / Codex |
+| `dictation.local_url` / `local_model` | `http://localhost:11434/v1` / `llama3.2:3b` | The local model's OpenAI-compatible address and name (Ollama's defaults) |
 | `projects.aliases` | | Spoken nicknames, e.g. `{"my site": "portfolio"}` |
 | `projects.folders` | `[]` | Folders where Nova creates and edits files without asking, e.g. `["D:\\projects"]` (Settings → AI). Folders holding your Claude Code / Codex projects count automatically. A drive, your user folder, Documents, system folders and Nova's own folder are refused |
 | `voice.barge_in` | `true` | Talk while Nova answers to interrupt it |

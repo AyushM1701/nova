@@ -747,6 +747,10 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><input class="input short num" type="number" min="10" max="600" data-bind="dictation.max_record_s" aria-label="Seconds"><span class="muted">seconds</span></div></div>
         <div class="row"><div class="what"><h2>Ask the AI to tidy dictations of at least</h2><p>Shorter ones are cleaned on this computer. Hindi and tricky self-corrections always go to the AI.</p></div>
           <div class="how"><input class="input short num" type="number" min="5" max="500" data-bind="dictation.llm_min_words" aria-label="Words"><span class="muted">words</span></div></div>
+        <div class="row"><div class="what"><h2>Tidy dictations with</h2><p>A model on this computer keeps dictated text here and needs no subscription. Install <a href="https://ollama.com/download" target="_blank" rel="noopener">Ollama</a> and run <span class="mono">ollama pull llama3.2:3b</span>, or use llama.cpp or LM Studio.</p></div>
+          <div class="how"><div class="seg" role="radiogroup" data-bind="dictation.cleanup_engine" data-options="ai:Claude Code / Codex,local:A model on this computer"></div></div></div>
+        <div class="row"><div class="what"><h2>Local model</h2><p>Its address (OpenAI-compatible) and model name. Used when “A model on this computer” is chosen.</p></div>
+          <div class="how"><input class="input" data-bind="dictation.local_url" aria-label="Local model address" style="width:220px"><input class="input" data-bind="dictation.local_model" aria-label="Model name" style="width:130px"><button class="btn sm" id="testLocal">Test</button></div></div>
         <div class="row"><div class="what"><h2>Translate into</h2><p>Speak any language and Nova types it in this one. English is translated on this computer by Whisper; other languages need Claude Code or Codex.</p></div>
           <div class="how"><select class="input" data-bind="dictation.translate_to" aria-label="Translate into"><option value="">Off: type what I say</option><option>English</option><option value="Hindi, written in Roman letters (Hinglish)">Hindi (Roman letters)</option><option>Spanish</option><option>French</option><option>German</option><option>Portuguese</option><option>Italian</option><option>Dutch</option><option>Japanese</option><option>Chinese</option><option>Korean</option><option>Arabic</option><option>Russian</option></select></div></div>
         <div class="row"><div class="what"><h2>Learn from my corrections</h2><p>When you fix a misheard name or term right after dictating, Nova adds it to your dictionary. It reads that text field for a minute after pasting, only in memory, and never password fields.</p></div>
@@ -1423,6 +1427,7 @@ $("#claudeHook").addEventListener("click", async e => {
 $("#addRepl").addEventListener("click", () => addRepl());
 $("#addSnip").addEventListener("click", () => addSnip());
 $("#addTone").addEventListener("click", () => addTone());
+$("#testLocal").addEventListener("click", () => api().local_llm_test(get("dictation.local_url"), get("dictation.local_model")).then(r => r === "ok" ? toast("The local model answered") : fail(new Error(r))).catch(fail));
 function renderFolders() {
   const folders = get("projects.folders") || [];
   $("#folders").replaceChildren(...(folders.length ? folders.map(f => {
