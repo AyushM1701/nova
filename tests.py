@@ -2344,4 +2344,56 @@ with tempfile.TemporaryDirectory() as tmp:
     p.write_bytes(b"garbage")
     assert rescue.pending(p) is None and not p.exists()   # corrupt: removed, not retried every start
 
+# walkthroughs: the AI points at one step at a time; a click moves on, DONE ends it
+from core.pointer import last_step  # noqa: E402
+from core.brain import split_say  # noqa: E402
+assert last_step("SAY: Click File.\nPOINT: 10,20 File") == ("SAY: Click File.\nPOINT: 10,20 File", False)
+assert last_step("SAY: That's it, you're done.\nDONE") == ("SAY: That's it, you're done.", True)
+assert last_step("**DONE**") == ("", True)
+assert nova_mod.WALK_RE.search("walk me through exporting a PDF")
+assert nova_mod.WALK_RE.search("show me how to turn on dark mode")
+assert not nova_mod.WALK_RE.search("show me the weather")
+
+
+class WalkBrain:
+    def __init__(self, replies):
+        self.replies, self.prompts = list(replies), []
+
+    def run(self, prompt, projects, aliases, on_step, image=None, tools=True):
+        self.prompts.append(prompt)
+        return split_say(self.replies.pop(0))  # (shown, spoken, ask), as the real brains return it
+
+
+class WalkPointer:
+    def __init__(self):
+        self.flown, self.hidden = [], 0
+
+    def fly(self, x, y, label="", hold_s=5):
+        self.flown.append(((x, y, label), hold_s))
+
+    def hide(self):
+        self.hidden += 1
+
+
+real_sys = (nova_mod.system.mouse_down if hasattr(nova_mod.system, "mouse_down") else None, nova_mod.system.screenshot,
+            nova_mod.system.window_rect, nova_mod.system.foreground)
+clicks = iter([False, True] * 10)  # the button goes down once per step
+nova_mod.system.mouse_down = lambda: next(clicks)
+nova_mod.system.screenshot = lambda path, box=None: ("shot.png", (0, 0, 1, 100, 100))
+nova_mod.system.window_rect = lambda target: (0, 0, 100, 100)
+nova_mod.system.foreground = lambda: None
+try:
+    said = []
+    wb, wp = WalkBrain(["SAY: Click File.\nPOINT: 10,20 File", "SAY: Done.\nDONE"]), WalkPointer()
+    n = types.SimpleNamespace(brain=wb, pointer=wp, cancel=threading.Event(), ui=lambda fn: fn(), on_step=lambda s: None,
+                              say=lambda title, spoken, body="": said.append(spoken))
+    nova_mod.Nova.walk(n, "walk me through exporting a PDF")
+    assert len(wb.prompts) == 2 and "step 2" in wb.prompts[1] and "exporting a PDF" in wb.prompts[1], wb.prompts
+    assert wp.flown == [((10, 20, "File"), None)] and wp.hidden >= 2, (wp.flown, wp.hidden)
+    assert said == ["Click File.", "Done."], said
+finally:
+    nova_mod.system.screenshot, nova_mod.system.window_rect, nova_mod.system.foreground = real_sys[1:]
+    if real_sys[0]:
+        nova_mod.system.mouse_down = real_sys[0]
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it

@@ -346,6 +346,14 @@ def bring_front(hwnd):
             user32.AttachThreadInput(here, front, False)
 
 
+def mouse_down():
+    """True while the left mouse button is down (a walkthrough moves on when the user clicks)."""
+    if IS_MAC:
+        from Quartz import CGEventSourceButtonState, kCGEventSourceStateCombinedSessionState, kCGMouseButtonLeft
+        return bool(CGEventSourceButtonState(kCGEventSourceStateCombinedSessionState, kCGMouseButtonLeft))
+    return bool(user32.GetAsyncKeyState(0x01) & 0x8000)
+
+
 def window_title(target):
     """The app (macOS) or window title (Windows) the user was in, as context for the AI."""
     if not target:

@@ -38,7 +38,7 @@ from core import browser as web  # noqa: E402
 from core.bar import Bar  # noqa: E402
 from core.brain import discover_projects, find_cli, make_brain, project_folders  # noqa: E402
 from core.overlay import Card  # noqa: E402
-from core.pointer import Pointer, take as take_point  # noqa: E402
+from core.pointer import Pointer, last_step, take as take_point  # noqa: E402
 
 CLAUDE_GUARDED = "Bash|PowerShell|Write|Edit|MultiEdit|NotebookEdit|Read|Grep|Glob"
 CLAUDE_ALLOWED = ["Read", "Glob", "Grep", "Bash", "PowerShell", "Write", "Edit", "WebSearch", "WebFetch", "TodoWrite",
@@ -136,6 +136,14 @@ SCREEN_RE = re.compile(r"\b(?:screen|what am i looking at|what'?s this|look at t
 WHERE_RE = re.compile(r"\bwhere(?:'?s| is| are| do i (?:click|find)| can i find)\b.*\b(?:button|menu|settings?|option|"
                       r"tab|icon|field|toggle|switch|link|bar|panel)\b|\bwhere (?:do|should) i click\b|\bshow me where\b",
                       re.I)
+# "walk me through exporting a PDF": Nova points at one click at a time and moves on when the user clicks (Clicky)
+WALK_RE = re.compile(r"\b(?:walk me through|step by step|show me how (?:to|do i)|guide me (?:through|to)|teach me how)\b",
+                     re.I)
+WALK_PROMPT = ("The user wants to: {goal}. You are guiding them one step at a time on the attached screenshot "
+               "({width}x{height} pixels) of their window. Steps already done: {done}. This is step {step}. Reply with "
+               "\"SAY: \" and one short instruction for the next single click, and \"POINT: x,y label\" for where to "
+               "click. If the goal is reached, reply with \"SAY: \" and a one-line wrap-up, then a line \"DONE\".")
+MAX_STEPS, CLICK_WAIT_S = 15, 60
 # first-run setup's "Show me" (Clicky's onboarding demo): away from the edges, where the arrow is easy to see
 DEMO = ("This is Nova's first-run demo. The attached screenshot is the user's screen ({width}x{height} pixels). Pick ONE "
         "specific, recognisable thing on it: an app, a file name, a button label, a heading, a picture. Pick it near "
@@ -1391,6 +1399,38 @@ class Nova:
             self.ui(lambda: self.pointer.fly(*spot))
         self.say("Nova", spoken, shown)
 
+    def walk(self, goal):
+        """A walkthrough: screenshot the window, ask the AI for the next single click, point at it, wait for the
+        user to click, repeat until the AI says DONE (or MAX_STEPS, Esc, or a minute without a click)."""
+        said = []
+        for step in range(1, MAX_STEPS + 1):
+            image, shot = system.screenshot(WORKSPACE / "screen.png", system.window_rect(system.foreground()))
+            shown, spoken, _ = self.brain.run(WALK_PROMPT.format(goal=goal, step=step, done="; ".join(said) or "none",
+                                                                 width=shot[3], height=shot[4]),
+                                              {}, {}, self.on_step, image=image, tools=False)
+            if self.cancel.is_set():
+                return self.ui(self.pointer.hide)
+            shown, done = last_step(shown)
+            shown, spot = take_point(shown, shot)
+            if spot:
+                self.ui(lambda: self.pointer.fly(*spot, hold_s=None))
+            self.say("Walkthrough", spoken)
+            if done:
+                return self.ui(self.pointer.hide)
+            # shortcut: any left click moves on (not only one on the target), like Clicky; check the click's
+            # position if steps start skipping ahead
+            clicked, deadline, was_down = False, time.monotonic() + CLICK_WAIT_S, True
+            while not clicked and time.monotonic() < deadline and not self.cancel.is_set():
+                down = system.mouse_down()
+                clicked, was_down = down and not was_down, down
+                self.cancel.wait(0.03)
+            self.ui(self.pointer.hide)
+            if not clicked:
+                return None if self.cancel.is_set() else self.say("Walkthrough", "Okay, stopping the walkthrough.")
+            said.append(spoken)
+            self.cancel.wait(0.8)  # the app redraws after the click before the next screenshot
+        self.say("Walkthrough", "That's as far as I can guide you for now.")
+
     def pick_region(self):
         """Ask the user to drag a box around what they mean. Returns it, or None if they press Esc."""
         done, box, close = threading.Event(), [], []
@@ -1720,6 +1760,8 @@ class Nova:
             self.brain.browser_name = web.BROWSERS.get(self.web_target, ("their browser",))[0]
         if self.voice:  # show what Nova heard right away, so a mishearing is obvious before the AI acts
             self.ui(lambda: self.card.show("Thinking", quote=text, kind="thinking"))
+        if self.brain and self.voice and self.cfg["brain"]["screen_context"] and WALK_RE.search(text):
+            return self.walk(text)
         projects = discover_projects(self.cfg["projects"]["exclude"], ROOT)
         # edits are allowed in known projects, new ones made beside them (D:\projects\my first website) and the
         # folders chosen in Settings → AI

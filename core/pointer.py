@@ -13,6 +13,7 @@ from core.bar import Layered, _font, dpi_scale
 SS = 3  # drawn 3x, then downscaled: smooth edges
 ARROW, EDGE, BG, TEXT = (123, 109, 255), (255, 255, 255), (13, 15, 26, 236), (240, 242, 250)
 HOLD_S = 5  # how long it stays on the target
+DONE_RE = re.compile(r"^\W*DONE\W*$", re.I)  # a walkthrough's last step
 POINT_RE = re.compile(r"\s*\**POINT:\**\s*(\d+)\s*,\s*(\d+)\s*(.*)", re.I)
 
 
@@ -28,6 +29,13 @@ def take(shown, shot):
     left, top, k, width, height = shot
     x, y = min(int(m[1]), width), min(int(m[2]), height)  # an AI guess past the edge stays on the screenshot
     return shown, (round(left + x / k), round(top + y / k), m[3].strip(" :-*`\"")[:40])
+
+
+def last_step(reply):
+    """(the reply without its DONE line, whether it had one): DONE ends a walkthrough."""
+    lines = reply.splitlines()
+    kept = [line for line in lines if not DONE_RE.match(line)]
+    return "\n".join(kept).strip(), len(kept) < len(lines)
 
 
 class Pointer(Layered):
@@ -58,8 +66,9 @@ class Pointer(Layered):
             d.text((33 * s, 23 * s), label, font=self.font, fill=TEXT, anchor="lm")
         return img.resize((max(1, img.width // SS), max(1, img.height // SS)), Image.LANCZOS)
 
-    def fly(self, x, y, label=""):
-        """Fly from the mouse pointer to (x, y) on screen along an arc, show the label there, then go away."""
+    def fly(self, x, y, label="", hold_s=HOLD_S):
+        """Fly from the mouse pointer to (x, y) on screen along an arc, show the label there, then go away after
+        `hold_s` seconds (None: stay until hide(), for a walkthrough step)."""
         if self._job:
             self.win.after_cancel(self._job)
         start = self.root.winfo_pointerxy()
@@ -81,7 +90,7 @@ class Pointer(Layered):
                 self._job = self.win.after(16, frame, i + 1)
             else:
                 self._present(self.draw(label), x - tip, y - tip)
-                self._job = self.win.after(HOLD_S * 1000, self.hide)
+                self._job = self.win.after(int(hold_s * 1000), self.hide) if hold_s else None
         frame(0)
 
     def hide(self):
