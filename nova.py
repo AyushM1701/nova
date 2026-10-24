@@ -1031,14 +1031,14 @@ class Nova:
         clip = rescue.pending()
         if clip is None:
             return
+        # deleted first, from memory on: if this audio is what crashed Nova, the next start mustn't crash on it again
+        rescue.clear()
         try:
             raw = self.transcribe(clip)
             text, _ = cleanup.clean(raw, self.cfg["dictation"])  # local rules: the AI may not be up yet
         except Exception as e:
             log("error", error=f"recovering the last dictation failed: {e!r}")
             return
-        finally:
-            rescue.clear()
         if not text.strip():
             return
         clipboard.set_text(text)

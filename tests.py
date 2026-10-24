@@ -2544,4 +2544,23 @@ finally:
     (nova_mod.system.mouse_down, nova_mod.system.screenshot, nova_mod.system.window_rect, nova_mod.system.foreground,
      nova_mod.CLICK_WAIT_S) = real_sys
 
+# a saved dictation that crashes the transcriber must not be retried at every start: it's deleted before transcribing
+events = []
+real_rescue = nova_mod.rescue
+nova_mod.rescue = types.SimpleNamespace(pending=lambda: np.zeros(16000, dtype=np.float32),
+                                        clear=lambda: events.append("cleared"))
+
+
+def crashing_transcribe(clip):
+    events.append("transcribe")
+    raise RuntimeError("CUDA out of memory")  # stands in for the crash that killed Nova last time
+
+
+try:
+    n = types.SimpleNamespace(transcribe=crashing_transcribe, cfg={"dictation": {}}, ui=lambda fn: None)
+    nova_mod.Nova.recover_dictation(n)
+    assert events[:2] == ["cleared", "transcribe"], events
+finally:
+    nova_mod.rescue = real_rescue
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
