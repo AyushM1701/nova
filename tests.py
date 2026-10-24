@@ -2605,4 +2605,11 @@ assert classify("mcp__nova-browser__click", {"ref": "1"}, ".", [], None, None)[0
 for tool in ("mcp__nova-browser-tools__delete_files", "mcp__evil__nova_browser_wipe"):
     assert classify(tool, {}, ".", [], None, None, "manual")[0] == "confirm", tool
 
+# release zips (git archive) leave out the demo videos and plans: every install and update downloads the whole zip
+if Path(__file__).with_name(".git").exists() and shutil.which("git"):
+    for kept_out in ("docs/media/nova-hero.mp4", "docs/superpowers/plans/x.md"):
+        attr = subprocess.run(["git", "check-attr", "export-ignore", "--", kept_out], capture_output=True, text=True,
+                              cwd=Path(__file__).parent).stdout
+        assert attr.strip().endswith(": set"), attr
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
