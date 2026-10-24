@@ -60,6 +60,7 @@ Free and open source. No account, no subscription, no Nova server. Speech recogn
 - **Keeps an eye on long jobs:** run `python <nova folder>/helpers/watch.py npm run build` and keep working; Nova says when it's done, or explains why it failed and offers to fix it. Turn on Settings → AI → "Tell me when Claude Code finishes" to hear when a Claude Code task you started in a terminal is done.
 - **Listens to your computer (Windows):** say "listen to my computer" (or use the tray menu) during a video, lecture or call, then ask "what did they just say?" or "grab the command they mentioned". The transcript covers the last 15 minutes and stays in memory; "stop listening" ends it.
 - **Uses your real browser (Windows):** Opera GX, Brave, Vivaldi or Opera, inside your own profile with your logins, through a small Nova extension that only talks to Nova on this computer. "Open my GitHub notifications and summarise them", "fill this form with my address", "in Brave, find the cheapest flight to Goa". Nova asks before clicks and keys that look like submitting, buying, posting or sending (it judges by the button, so a page can disguise one), and never types passwords, card numbers or one-time codes. Turn it on in Settings → Browsers (or the tray menu → Browsers…); a Nova panel in the browser shows the same live conversation, with Allow / Deny.
+- **Your notes in Claude Code:** one click in Settings → AI lets Claude Code or Codex search your Nova notes, meetings and memory in any session, on your computer.
 - **Never stuck at a limit:** when Claude Code or Codex reaches its usage limit, Nova can switch to a free Google Gemini key (Settings → AI → Backup brain) until it resets. Its commands go through the same safety guard. On Google's free tier your requests may be used to improve Google's products, so it's off until you add a key.
 - **On your phone:** turn on Settings → Phone and scan the code with your iPhone or Android phone. You get the same live conversation: type or dictate requests, see replies, and **Allow / Deny** from the couch. Add it to your home screen and it opens like an app. Works on home Wi-Fi, and from anywhere with Tailscale (see [Phone](#phone)).
 - **The Nova window:** click the tray icon (in the hidden icons area, the ^ next to the clock; in the menu bar on a Mac). It has a chat for typed requests, your history, your dictionary and every setting. You can also ask Nova to change itself: "use Ctrl+Shift+N as my shortcut".
@@ -304,7 +305,7 @@ core/browser.py       the browser bridge, its safety rules and the extension ins
 core/update.py        update check and installer (bump VERSION, then push tag v<VERSION>: .github/workflows/release.yml publishes it)
 core/phone.py, phone.html  the phone page and its server (Settings → Phone)
 browser/extension/    the Nova extension (Chromium, unpacked; never published to a store)
-helpers/              clipboard helpers, the browser MCP server, the command watcher and Claude Code hook
+helpers/              clipboard helpers, the browser MCP server, the notes MCP server (nova_mcp.py), the command watcher and Claude Code hook
 setup.* / uninstall.* installers (setup.command: double-click setup for Finder)
 tests.py              self-checks (python tests.py)
 ```

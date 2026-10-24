@@ -102,6 +102,23 @@ class Api:
         update_config(changes)
         return True
 
+    def mcp_install(self, cli):
+        """Add the nova-notes MCP server (helpers/nova_mcp.py) to Claude Code or Codex for every session."""
+        exe = find_cli(cli)
+        if not exe:
+            return f"{'Claude Code' if cli == 'claude' else 'Codex'} isn't installed. Set it up in Settings → AI first."
+        python = Path(sys.executable)
+        python = python.with_name("python.exe") if python.name.lower() == "pythonw.exe" else python  # MCP needs stdio
+        server = ["nova", "--", str(python), str(ROOT / "helpers" / "nova_mcp.py")]
+        args = [exe, "mcp", "add", "--scope", "user", *server] if cli == "claude" else [exe, "mcp", "add", *server]
+        try:
+            p = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+                               cwd=tempfile.gettempdir(), creationflags=system.NO_WINDOW)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return f"Couldn't run {cli}: {e}"
+        out = (p.stdout + p.stderr).strip()
+        return "ok" if p.returncode == 0 or "already exists" in out.lower() else out[-300:] or f"{cli} failed"
+
     def local_llm_test(self, url, model):
         """Settings → Dictation's Test: "ok" when the local model answers, else what to check."""
         if LocalLLM(url, model).clean("Reply with the word ok.", "ok", model, timeout=30):

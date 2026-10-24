@@ -2465,4 +2465,32 @@ assert LocalLLM("http://127.0.0.1:9/v1", "x").clean("S", "t", "x", timeout=2) is
 from core.cleanup import model_for  # noqa: E402
 assert model_for(llm, {"local_model": "llama3.2:3b", "claude_model": "haiku", "codex_model": ""}) == "llama3.2:3b"
 
+# the notes MCP server: Claude Code and Codex read Nova's notes, memory and dictionary, and nothing else
+import helpers.nova_mcp as nmcp  # noqa: E402
+real_notes, real_update, real_load = nmcp.NOTES, nmcp.update_config, nmcp.load_config
+with tempfile.TemporaryDirectory() as tmp:
+    nmcp.NOTES = Path(tmp) / "notes"
+    (nmcp.NOTES / "meetings").mkdir(parents=True)
+    (nmcp.NOTES / "memory.md").write_text("- I use pnpm\n", encoding="utf-8")
+    (nmcp.NOTES / "meetings" / "standup.md").write_text("# Standup\nShip the navbar fix\n", encoding="utf-8")
+    (Path(tmp) / "secret.txt").write_text("key", encoding="utf-8")
+    call = lambda name, **a: nmcp.handle({"method": "tools/call", "params": {"name": name, "arguments": a}})  # noqa: E731
+    try:
+        names = {t["name"] for t in nmcp.handle({"method": "tools/list"})["tools"]}
+        assert names == {"search_notes", "read_note", "read_memory", "list_dictionary", "add_dictionary_word"}, names
+        assert "meetings/standup.md" in call("search_notes", query="NAVBAR")["content"][0]["text"].replace("\\", "/")
+        assert "Ship the navbar fix" in call("read_note", path="meetings/standup.md")["content"][0]["text"]
+        assert "pnpm" in call("read_memory")["content"][0]["text"]
+        for bad in ("../secret.txt", str(Path(tmp) / "secret.txt"), "meetings/../../secret.txt"):
+            assert call("read_note", path=bad).get("isError"), bad            # nothing outside notes/
+        written = []
+        nmcp.load_config = lambda: ({"dictation": {"dictionary": ["Nova", "kubernetes"]}}, None)
+        nmcp.update_config = written.append
+        assert "Nova" in call("list_dictionary")["content"][0]["text"]
+        call("add_dictionary_word", word="Kubernetes")                        # already there, in any case
+        call("add_dictionary_word", word="Supabase")
+        assert written == [{"dictation.dictionary": ["Nova", "kubernetes", "Supabase"]}], written
+    finally:
+        nmcp.NOTES, nmcp.update_config, nmcp.load_config = real_notes, real_update, real_load
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it

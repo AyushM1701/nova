@@ -806,6 +806,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><button class="switch" role="switch" data-bind="brain.auto_model" aria-label="Pick the model for each request"></button></div></div>
         <div class="row"><div class="what"><h2>Tell me when Claude Code finishes</h2><p>For tasks you start yourself in a terminal: Nova says when Claude is done, so you can work elsewhere meanwhile. This adds a small hook to your Claude Code settings; turning it off removes it.</p></div>
           <div class="how"><button class="switch" role="switch" id="claudeHook" aria-label="Tell me when Claude Code finishes"></button></div></div>
+        <div class="row"><div class="what"><h2>Your notes in Claude Code and Codex</h2><p>Lets them search and read your Nova notes, meetings and memory, and add dictionary words, in any session you start. Only the notes folder: never settings, keys or logs. Runs on this computer.</p></div>
+          <div class="how"><button class="btn sm" data-mcp="claude">Add to Claude Code</button><button class="btn sm" data-mcp="codex">Add to Codex</button></div></div>
         <div class="row" style="display:block"><div class="what"><h2>Project nicknames</h2><p>Say “my site” and Nova knows you mean the folder “portfolio”. Nova already knows every project you've opened in Claude Code or Codex.</p></div>
           <div class="pair-head"><span>When you say</span><span></span><span>Project folder</span><span></span></div>
           <div class="pairs" id="aliases"></div>
@@ -1427,6 +1429,7 @@ $("#claudeHook").addEventListener("click", async e => {
 $("#addRepl").addEventListener("click", () => addRepl());
 $("#addSnip").addEventListener("click", () => addSnip());
 $("#addTone").addEventListener("click", () => addTone());
+for (const b of $$("[data-mcp]")) b.addEventListener("click", () => api().mcp_install(b.dataset.mcp).then(r => { if (r !== "ok") return fail(new Error(r)); b.textContent = "Added"; b.disabled = true; toast("Added. New sessions can read your Nova notes"); }).catch(fail));
 $("#testLocal").addEventListener("click", () => api().local_llm_test(get("dictation.local_url"), get("dictation.local_model")).then(r => r === "ok" ? toast("The local model answered") : fail(new Error(r))).catch(fail));
 function renderFolders() {
   const folders = get("projects.folders") || [];
