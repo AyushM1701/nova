@@ -23,9 +23,11 @@ jobs:
         run: |
           git archive --format=zip --prefix=nova-main/ -o nova-main.zip HEAD
           git archive --format=tar.gz --prefix=nova-main/ -o nova-main.tar.gz HEAD
-          sha256sum nova-main.zip nova-main.tar.gz > SHA256SUMS
+          # the walkthrough's clips: left out of the zips above, fetched by core/walkthrough.py the first time it opens
+          (cd docs/media/walkthrough && zip -q -X ../../../nova-walkthrough.zip ./*.mp4)
+          sha256sum nova-main.zip nova-main.tar.gz nova-walkthrough.zip > SHA256SUMS
 
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" nova-main.zip nova-main.tar.gz SHA256SUMS --title "Nova ${GITHUB_REF_NAME#v}" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" nova-main.zip nova-main.tar.gz nova-walkthrough.zip SHA256SUMS --title "Nova ${GITHUB_REF_NAME#v}" --generate-notes

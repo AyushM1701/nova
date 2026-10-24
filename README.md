@@ -125,6 +125,7 @@ Nova then shows its own first-run screens:
 2. **Brain:** pick **Claude Code** or **Codex**. If it isn't installed, one click installs it (and Node.js if needed); **Sign in** opens its login (your Claude or ChatGPT account). Skip it and dictation still works.
 3. **Shortcut:** keep Ctrl+Alt+Space or press a new one, and turn "Hey Nova" on or off.
 4. **Start at login**, and a first try.
+5. **A 2-minute walkthrough:** a short video for each thing Nova does (talking, dictation, rewriting a selection, questions about your screen, approvals), each followed by a "your turn" step that waits until you've really tried it. Skip any step, or take it again from Home. The clips (about 1.5 MB) download the first time it opens and are checked against the release's checksum.
 
 **On a Mac**, the last screen lists the permissions Nova uses (Microphone, Input Monitoring, Accessibility, Screen Recording) and shows which ones macOS allows right now. **Allow** shows macOS's own prompt the first time and opens that page of System Settings → Privacy & Security after that; the row turns to *Allowed* as soon as you switch Nova on. Then click **Restart Nova** (macOS applies some of these only to a fresh start). If Nova isn't in a list, **Show Nova in Finder** and drag it in. Screen Recording is only needed for questions about your screen, and Nova asks for it the first time. The same list is at the top of Settings → General, and if a permission is turned off later, Nova says so when it starts.
 

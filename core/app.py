@@ -22,7 +22,7 @@ import webview
 
 from core import browser as web
 from core import (calendar_ics, clipboard, cloud_stt, deepgram, diagnostics, fallback, meetings, models, phone,
-                  stats, system, tts, update)
+                  stats, system, tts, update, walkthrough)
 from core.brain import find_cli, too_broad
 from core.local_llm import LocalLLM
 from core.config import (CONFIG, DATA, LOGS, NOTES, ROOT, defaults, load_config, log, read_history, save_config,
@@ -124,6 +124,13 @@ class Api:
         if LocalLLM(url, model).clean("Reply with the word ok.", "ok", model, timeout=30):
             return "ok"
         return f"Nova couldn't get an answer from {model} at {url}. Is Ollama (or your server) running, with that model?"
+
+    def walkthrough_clip(self, name):
+        """One walkthrough clip for the window's video player (downloaded and checked the first time)."""
+        try:
+            return walkthrough.clip(name)
+        except OSError as e:  # offline, or GitHub didn't answer: the steps still work without the video
+            raise RuntimeError("Couldn't download the walkthrough video. You can still try each step.") from e
 
     def stats(self):
         """Words dictated, speaking speed and minutes saved, for the Home page."""

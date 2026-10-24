@@ -346,6 +346,20 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .stage canvas { width: 260px; height: 88px; }
 .onb-foot { display: flex; align-items: center; gap: 12px; padding: 18px 28px 24px; max-width: 616px; width: 100%; margin: 0 auto; }
 .onb-foot .grow { flex: 1; }
+/* the walkthrough: a chapter clip, then a "your turn" step that waits for the real thing */
+.walk-step { width: 100%; max-width: min(760px, calc((100vh - 360px) * 16 / 9)); }  /* video and its step both fit the window */
+.walk-video { position: relative; border-radius: 14px; overflow: hidden; background: #0b0c18; aspect-ratio: 16 / 9; box-shadow: 0 18px 50px rgba(0,0,0,.35); }
+.walk-video video { width: 100%; height: 100%; display: block; }
+.walk-cover { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: #eef0fa; padding: 24px; }
+.walk-cover h2 { font-size: 28px; margin-bottom: 8px; }
+.walk-turn { margin-top: 20px; padding: 18px 20px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line-strong); animation: rise .32s cubic-bezier(.2,.8,.2,1); }
+.walk-turn h2 { font-size: 19px; margin: 0 0 6px; }
+.walk-turn p { font-size: 15.5px; line-height: 1.55; }
+.walk-status { margin-top: 12px; font-size: 14.5px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.walk-status.ok { color: var(--ok, #2f9e63); font-weight: 600; }
+.walk-status .pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); animation: walkpulse 1.2s ease-in-out infinite; }
+@keyframes walkpulse { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .walk-status .pulse { animation: none; } }
 .big-keys { display: flex; gap: 8px; margin: 28px 0 8px; align-items: center; flex-wrap: wrap; }
 .big-keys kbd { font-size: 20px; padding: 8px 16px; border-radius: 10px; border-bottom-width: 3px; min-width: 56px; }
 .big-keys .plus { color: var(--faint); font-size: 18px; }
@@ -525,6 +539,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
         <button data-go="settings:voice"><span class="k">Speech recognition</span><span class="v"><i class="dot" id="stSttDot"></i><span id="stStt">…</span></span></button>
         <button data-go="settings:general"><span class="k">“Hey Nova”</span><span class="v"><i class="dot" id="stWakeDot"></i><span id="stWake">…</span></span></button>
       </div>
+      <button class="btn sm" id="walkOpen" style="margin-top:4px">Take the 2-minute walkthrough</button>
       <h2>Try saying</h2>
       <div class="try">
         <div>
@@ -899,6 +914,34 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
     <button class="btn ghost" id="onbBack">Back</button>
     <span class="grow"></span>
     <button class="btn primary lg" id="onbNext">Continue</button>
+  </div>
+</div>
+
+<!-- the walkthrough: opens once after first-run setup (and from Home); each clip is followed by a step you try -->
+<div class="onb" id="walk" hidden>
+  <div class="onb-top">
+    <div class="brand"><span>Get ready with Nova</span></div>
+    <div class="tools"><div class="progress" id="walkProgress" aria-hidden="true"></div>
+      <button class="btn ghost sm" id="walkClose">Close</button></div>
+  </div>
+  <div class="onb-body">
+    <div class="walk-step">
+      <div class="walk-video">
+        <video id="walkVideo" playsinline></video>
+        <div class="walk-cover" id="walkCover" hidden></div>
+      </div>
+      <div class="walk-turn" id="walkTurn" hidden aria-live="polite">
+        <h2 id="walkTitle"></h2>
+        <p id="walkDo"></p>
+        <div class="walk-status" id="walkStatus"></div>
+      </div>
+    </div>
+  </div>
+  <div class="onb-foot">
+    <button class="btn ghost" id="walkReplay">Replay</button>
+    <span class="grow"></span>
+    <button class="btn ghost" id="walkSkip">Skip this step</button>
+    <button class="btn primary lg" id="walkNext" hidden>Continue</button>
   </div>
 </div>
 
@@ -2239,7 +2282,94 @@ const SCENE_TITLES = { talk: "Talk to Nova", work: "It does the work, and asks f
 const STEPS = ["welcome", "talk", "work", "brain", "dictate", "screen", "mic", ...(S_BROWSERS_STEP ? ["browsers"] : []), "keys", "done"];
 let onbAt = 0;
 function openOnboarding() { onbAt = 0; $("#onb").hidden = false; $("#app").inert = true; renderOnb(); }
-function closeOnboarding() { stopMic(); clearInterval(pollTimer); $("#onb").hidden = true; $("#app").inert = false; set("onboarded", true); save(true); go("home"); }
+function closeOnboarding() { stopMic(); clearInterval(pollTimer); $("#onb").hidden = true; $("#app").inert = false; set("onboarded", true); save(true); go("home"); if (!get("walked")) openWalk(); }
+
+/* ---------- the walkthrough: a clip per chapter, then a "your turn" step that waits for the real event ---------- */
+function holdKeys() {
+  const k = S.cfg.hold_key;
+  if (!k) return talkKeys();
+  const word = S.platform === "mac" ? { cmd: "⌘", ctrl: "⌃", alt: "⌥", shift: "⇧" } : {};
+  return `<kbd>${esc(k.split(" ").map(w => word[w] || w[0].toUpperCase() + w.slice(1)).join(" "))}</kbd>`;
+}
+const canEdit = () => !!S.state.brain || get("dictation.cleanup_engine") === "local";
+const WALK = [
+  { clip: "00-welcome", title: "Welcome" },
+  { clip: "01-talk", title: "Talk to Nova", wait: ["local", "reply"],
+    do: () => `Press ${talkKeys()} or say “Hey Nova”, then ask: <b>“What time is it?”</b>` },
+  { clip: "02-dictate", title: "Dictate into any app", wait: ["dictation", "snippet"],
+    do: () => `Open ${S.platform === "mac" ? "TextEdit" : "Notepad"} and click in it. Hold ${holdKeys()} and say a sentence, “um” and all, then let go.` },
+  { clip: "03-rewrite", title: "Rewrite what you selected", wait: ["edit"], needs: canEdit,
+    do: () => `Select a sentence you typed, hold ${holdKeys()} and say <b>“make this more formal”</b>.` },
+  { clip: "04-screen", title: "Ask about your screen", wait: ["reply"], needs: () => !!S.state.brain,
+    do: () => `Press ${talkKeys()} and ask <b>“what's on my screen?”</b> or <b>“where's the settings button?”</b>` },
+  { clip: "05-safety", title: "Risky commands wait for your OK",
+    do: () => `The card shows the exact command. Allow it with ${talkKeys()} or <b>Allow</b>; say no with <kbd>Esc</kbd> or <b>Deny</b>. No answer in 30 seconds means no.` },
+  { clip: "06-finish", title: "You're ready", last: true },
+];
+const W = { i: 0, waiting: null, since: 0, url: null };
+function openWalk() { W.i = 0; $("#walk").hidden = false; $("#app").inert = true; showWalk(); }
+function closeWalk() {
+  const v = $("#walkVideo"); v.pause(); W.waiting = null;
+  if (W.url) URL.revokeObjectURL(W.url), W.url = null;
+  $("#walk").hidden = true; $("#app").inert = false; set("walked", true); save(true);
+}
+async function showWalk() {
+  const step = WALK[W.i], v = $("#walkVideo");
+  W.waiting = null;
+  $("#walkProgress").replaceChildren(...WALK.map((_, j) => h("i", { class: j <= W.i ? "on" : "" })));
+  $("#walkTurn").hidden = true; $("#walkNext").hidden = true; $("#walkCover").hidden = true;
+  $("#walkSkip").hidden = !step.wait; $("#walkReplay").hidden = false;
+  try {
+    const data = await api().walkthrough_clip(step.clip);  // a data: URL; a Blob plays everywhere, seeking too
+    const bytes = Uint8Array.from(atob(data.split(",")[1]), c => c.charCodeAt(0));
+    if (W.url) URL.revokeObjectURL(W.url);
+    W.url = URL.createObjectURL(new Blob([bytes], { type: "video/mp4" }));
+    v.src = W.url;
+    await v.play().catch(() => { cover(step.title, "Press play to start", true); });
+  } catch (e) {  // offline or no clip: the step still works, without its video
+    v.removeAttribute("src"); v.load();
+    cover(step.title, String(e && e.message || e).replace(/^Error:\s*/, ""));
+    afterClip();
+  }
+}
+function cover(title, text, play) {
+  const c = $("#walkCover");
+  c.replaceChildren(h("div", {}, h("h2", {}, title), h("p", {}, text),
+    play ? h("button", { class: "btn primary", style: "margin-top:14px", onclick: () => { c.hidden = true; $("#walkVideo").play(); } }, "Play") : ""));
+  c.hidden = false;
+}
+function afterClip() {
+  const step = WALK[W.i];
+  if (!step.do && !step.last) return nextWalk();  // the welcome rolls straight on
+  if (step.last) { $("#walkNext").textContent = "Start using Nova"; $("#walkNext").hidden = false; return; }
+  $("#walkTitle").textContent = step.title; $("#walkDo").innerHTML = step.do(); $("#walkTurn").hidden = false;
+  const status = $("#walkStatus");
+  status.className = "walk-status";
+  if (step.wait && step.needs && !step.needs()) {
+    status.textContent = "This step needs Claude Code or Codex. Connect one in Settings → AI, then come back from Home.";
+    $("#walkNext").textContent = "Continue"; $("#walkNext").hidden = false; return;
+  }
+  if (!step.wait) { $("#walkNext").textContent = "Got it"; $("#walkNext").hidden = false; status.textContent = ""; return; }
+  W.waiting = step.wait; W.since = Date.now() / 1000;
+  status.replaceChildren(h("i", { class: "pulse" }), h("span", {}, "Waiting for you to try it…"));
+}
+function nextWalk() { if (W.i >= WALK.length - 1) return closeWalk(); W.i++; showWalk(); }
+// every Nova log entry reaches the window: the step is done when its event arrives (a recovered dictation isn't you)
+function walkEvent(ev) {
+  if (!W.waiting || $("#walk").hidden || !W.waiting.includes(ev.event) || ev.how === "recovered" || ev.t < W.since) return;
+  W.waiting = null;
+  const status = $("#walkStatus"); status.className = "walk-status ok"; status.textContent = "✓ Nice, that's it.";
+  setTimeout(nextWalk, 1600);
+}
+$("#walkVideo").addEventListener("ended", afterClip);
+$("#walkNext").addEventListener("click", nextWalk);
+$("#walkSkip").addEventListener("click", nextWalk);
+$("#walkClose").addEventListener("click", closeWalk);
+$("#walkOpen").addEventListener("click", openWalk);
+$("#walkReplay").addEventListener("click", () => {
+  const v = $("#walkVideo"); if (!v.src) return;
+  W.waiting = null; $("#walkTurn").hidden = true; $("#walkNext").hidden = true; v.currentTime = 0; v.play();
+});
 function renderOnb() {
   const id = STEPS[onbAt], body = $("#onbBody"), next = $("#onbNext");
   $("#onbProgress").replaceChildren(...STEPS.map((_, i) => h("i", { class: i <= onbAt ? "on" : "" })));
@@ -2367,7 +2497,7 @@ const handlers = {
   focus(ev) { if (ev.page === "welcome") openOnboarding(); else if (ev.page) go(ev.page); },
   gone() { S.gone = true; S.bar = "idle"; endWork("Stopped"); renderLive(); },
 };
-window.nova = { recv(ev) { ev.t ??= Date.now() / 1000; try { (handlers[ev.event] || (() => {}))(ev); } catch (e) { console.error(e); } } };
+window.nova = { recv(ev) { ev.t ??= Date.now() / 1000; try { walkEvent(ev); (handlers[ev.event] || (() => {}))(ev); } catch (e) { console.error(e); } } };
 
 async function boot() {
   const b = await api().hello();

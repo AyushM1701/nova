@@ -12,6 +12,7 @@
   "triple_tap_mode": "assistant",
   "start_mode": "assistant",
   "update_check": true,
+  "walked": false,
   "wake_word": true,
   "wake_sensitivity": "high",
   "voice": {

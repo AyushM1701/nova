@@ -2629,4 +2629,57 @@ mon = datetime.datetime(2026, 10, 26, 9, 0, 30)
 for bad in ({"days": [0], "at": "9", "run": "x"}, {"days": [0], "at": "25:00", "run": "x"}, {"at": "09:00", "run": "x"}, "junk"):
     assert schedule.due([bad, S], mon, {}) == [S], bad
 
+# the walkthrough's clips: a git checkout's own copy, else the release's zip, checked against SHA256SUMS before use
+import base64  # noqa: E402
+import hashlib  # noqa: E402
+from core import walkthrough  # noqa: E402
+
+
+def walk_zip(extra=()):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for name in walkthrough.CLIPS:
+            z.writestr(f"{name}.mp4", f"video {name}")
+        for name, data in extra:
+            z.writestr(name, data)
+    return buf.getvalue()
+
+
+real_dir, real_local = walkthrough.DIR, walkthrough.LOCAL
+with tempfile.TemporaryDirectory() as tmp:
+    walkthrough.DIR, walkthrough.LOCAL = Path(tmp) / "data" / "walkthrough", Path(tmp) / "no-checkout"
+    try:
+        archive = walk_zip([("../evil.mp4", "x"), ("nova.py", "x")])
+        sums = f"{hashlib.sha256(archive).hexdigest()}  nova-walkthrough.zip\n"
+        asked = []
+        fake = lambda url, timeout=60: (asked.append(url), archive if url.endswith(".zip") else sums.encode())[1]  # noqa: E731
+        url = walkthrough.clip("01-talk", fake)
+        assert url == "data:video/mp4;base64," + base64.b64encode(b"video 01-talk").decode(), url[:60]
+        assert all(f"/releases/download/v{walkthrough.update.current()}/" in u for u in asked), asked  # this version's
+        assert sorted(p.name for p in walkthrough.DIR.iterdir()) == sorted(f"{n}.mp4" for n in walkthrough.CLIPS)
+        assert not (Path(tmp) / "data" / "evil.mp4").exists()     # only the known clips are written
+        asked.clear()
+        walkthrough.clip("02-dictate", fake)
+        assert asked == []                                          # downloaded once, then kept
+        for bad in ("../config", "nova", "01-talk.mp4", ""):
+            try:
+                walkthrough.clip(bad, fake)
+                raise AssertionError(f"accepted {bad!r}")
+            except ValueError:
+                pass
+        shutil.rmtree(walkthrough.DIR)
+        tampered = lambda url, timeout=60: archive + b"!" if url.endswith(".zip") else sums.encode()  # noqa: E731
+        try:
+            walkthrough.clip("01-talk", tampered)
+            raise AssertionError("a download that doesn't match its checksum was used")
+        except ValueError:
+            pass
+        assert not walkthrough.DIR.exists() or not any(walkthrough.DIR.iterdir())
+        walkthrough.LOCAL.mkdir()                                   # a git checkout: its own clips, no download
+        for name in walkthrough.CLIPS:
+            (walkthrough.LOCAL / f"{name}.mp4").write_bytes(b"local")
+        assert walkthrough.clip("00-welcome", lambda *a, **k: 1 / 0).endswith(base64.b64encode(b"local").decode())
+    finally:
+        walkthrough.DIR, walkthrough.LOCAL = real_dir, real_local
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
