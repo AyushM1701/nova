@@ -2759,4 +2759,19 @@ assert classify("Write", {"file_path": H + "\\workspace\\record_conversation.py"
 assert classify("Write", {"file_path": H + "\\core\\app.py", "content": "x"}, H + "\\workspace", [], H,
                 H + "\\workspace\\notes", "accept_edits")[0] == "confirm"   # Nova's own code still asks
 
+# a recording that's still going says so every 15 minutes: one ran for 2 hours with nothing on screen
+cards, t0 = [], time.time()
+n = types.SimpleNamespace(recorder=types.SimpleNamespace(started=t0 - 15 * 60 - 1, level=0.5, error=None, check_mic=lambda: None),
+                          meeting={"id": "m1", "title": "Team sync"}, reminded_at=0.0, outbox=queue.Queue(),
+                          root=types.SimpleNamespace(after=lambda ms, fn: None), meeting_tick=lambda: None,
+                          card=types.SimpleNamespace(show=lambda title, body="", **k: cards.append((title, body))))
+nova_mod.Nova.meeting_tick(n)
+assert cards and cards[0][0] == "Still recording “Team sync”" and "15 min" in cards[0][1], cards
+nova_mod.Nova.meeting_tick(n)
+assert len(cards) == 1, cards                                    # once per 15 minutes, not every second
+n.recorder.started, cards[:] = t0 - 5 * 60, []
+n.reminded_at = 0.0
+nova_mod.Nova.meeting_tick(n)
+assert cards == [], cards                                        # nothing in the first 15 minutes
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it

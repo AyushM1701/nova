@@ -147,6 +147,7 @@ WALK_PROMPT = ("The user wants to: {goal}. You are guiding them one step at a ti
                "\"SAY: \" and one short instruction for the next single click, and \"POINT: x,y label\" for where to "
                "click. If the goal is reached, reply with \"SAY: \" and a one-line wrap-up, then a line \"DONE\".")
 MAX_STEPS, CLICK_WAIT_S = 15, 60
+REMIND_RECORDING_S = 15 * 60  # a meeting still recording says so this often
 OFFER_GAP_S = 300  # one "record this meeting?" card per meeting, whether the calendar or the mic noticed it
 # first-run setup's "Show me" (Clicky's onboarding demo): away from the edges, where the arrow is easy to see
 DEMO = ("This is Nova's first-run demo. The attached screenshot is the user's screen ({width}x{height} pixels). Pick ONE "
@@ -219,6 +220,7 @@ class Nova:
         self.sysaudio, self.listening = None, False  # the computer's audio, remembered; "listen to my computer" on
         self.recorder, self.meeting, self.reminded = None, None, set()  # a meeting being recorded; calendar reminders
         self.offered = 0.0  # when Nova last offered to record a meeting
+        self.reminded_at = 0.0  # when Nova last reminded that a meeting is still recording
         self.meeting_jobs = queue.Queue()  # recordings and files wait their turn to be transcribed
         self.update = ""  # a newer version on GitHub, once the daily check finds one
         # helpers/watch.py and the Claude Code Stop hook prove they're local helpers with this key
@@ -1569,6 +1571,7 @@ class Nova:
             log("error", error=f"meeting recording didn't start: {e!r}")
             return self.card.show("Couldn't record", friendly(e), hide_after=8, kind="error")
         self.recorder, self.meeting = recorder, m
+        self.reminded_at = time.time()  # the first reminder comes 15 minutes in
         log("meeting", action="start", id=m["id"], title=title)
         heard = ("your microphone and the computer's audio" if mc["computer_audio"] and loopback.available()
                  else "your microphone")
@@ -1582,8 +1585,14 @@ class Nova:
         if self.recorder:
             r = self.recorder
             r.check_mic()
-            self.outbox.put({"event": "meeting_live", "id": self.meeting["id"], "elapsed": time.time() - r.started,
+            elapsed = time.time() - r.started
+            self.outbox.put({"event": "meeting_live", "id": self.meeting["id"], "elapsed": elapsed,
                              "level": r.level, "error": r.error})
+            # every 15 minutes, a reminder it's still on (nothing else on screen shows it once the first card goes)
+            if elapsed >= REMIND_RECORDING_S and time.time() - self.reminded_at >= REMIND_RECORDING_S:
+                self.reminded_at = time.time()
+                self.card.show(f"Still recording “{self.meeting['title']}”", f"{int(elapsed // 60)} min so far. Say "
+                               "“stop recording” when it ends.", hide_after=8)
             self.root.after(1000, self.meeting_tick)
 
     def meeting_stop(self):
