@@ -38,8 +38,13 @@ def due(schedules, now, last):
     and they haven't run today."""
     out = []
     for s in schedules:
-        hour, minute = map(int, s["at"].split(":"))
-        start = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        try:
+            hour, minute = map(int, s["at"].split(":"))
+            start = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if "days" not in s or "run" not in s:
+                continue
+        except (ValueError, KeyError, TypeError, AttributeError):  # hand-edited into something else: skip just this one
+            continue
         late = (now - start).total_seconds()
         if now.weekday() in s["days"] and 0 <= late < WINDOW_MIN * 60 and last.get(key(s)) != now.date().isoformat():
             out.append(s)

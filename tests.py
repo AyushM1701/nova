@@ -2623,4 +2623,10 @@ with tempfile.TemporaryDirectory() as tmp:
         rescue.log = real_log
     assert rescue.keep(np.zeros(1600, dtype=np.float32), Path(tmp) / "ok.wav") is True
 
+# one hand-edited, malformed schedule is skipped; the others still run
+S = {"days": [0, 1, 2, 3, 4], "at": "09:00", "run": "start my day"}
+mon = datetime.datetime(2026, 10, 26, 9, 0, 30)
+for bad in ({"days": [0], "at": "9", "run": "x"}, {"days": [0], "at": "25:00", "run": "x"}, {"at": "09:00", "run": "x"}, "junk"):
+    assert schedule.due([bad, S], mon, {}) == [S], bad
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it

@@ -1746,22 +1746,27 @@ class Nova:
         """Run scheduled routines when they're due (core/schedule.py), once a day each, when Nova is free."""
         while True:
             try:
-                last = json.loads(schedule.LAST.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                last = {}
-            now = datetime.datetime.now()
-            for s in schedule.due(self.cfg["schedules"], now, last):
-                if self.phase != "idle" or self.pending or self.paused:
-                    break  # busy: try again in 30 s, still inside the schedule's hour
-                last[schedule.key(s)] = now.date().isoformat()
-                schedule.LAST.parent.mkdir(parents=True, exist_ok=True)
-                schedule.LAST.write_text(json.dumps(last), encoding="utf-8")
-                log("scheduled", run=s["run"], at=s["at"])
-                self.target, self.voice = system.foreground(), True
-                self.ui(lambda s=s: self.spawn(lambda: self.command(s["run"], typed=True) or self.assist(s["run"]),
-                                               "busy"))
-                break  # one at a time: the next waits until this one is done
+                self.run_due_schedule()
+            except Exception as e:  # a write error or an odd setting: log it, keep checking (the thread never ends)
+                log("error", error=f"schedules: {e!r}")
             time.sleep(30)
+
+    def run_due_schedule(self):
+        try:
+            last = json.loads(schedule.LAST.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            last = {}
+        now = datetime.datetime.now()
+        for s in schedule.due(self.cfg["schedules"], now, last):
+            if self.phase != "idle" or self.pending or self.paused:
+                return  # busy: try again in 30 s, still inside the schedule's hour
+            last[schedule.key(s)] = now.date().isoformat()
+            schedule.LAST.parent.mkdir(parents=True, exist_ok=True)
+            schedule.LAST.write_text(json.dumps(last), encoding="utf-8")
+            log("scheduled", run=s["run"], at=s["at"])
+            self.target, self.voice = system.foreground(), True
+            self.ui(lambda s=s: self.spawn(lambda: self.command(s["run"], typed=True) or self.assist(s["run"]), "busy"))
+            return  # one at a time: the next waits until this one is done
 
     def watch_calendar(self):
         """Remind once when a calendar meeting starts, so recording it is one sentence away."""
