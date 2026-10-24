@@ -32,8 +32,8 @@ if (DATA / "models-ready").exists():  # the speech models are downloaded: never 
 import pystray  # noqa: E402
 
 from core import (audio, cleanup, clipboard, cloud_stt, deepgram, fallback, icon, intents, loopback,  # noqa: E402
-                  calendar_ics, learn, meetings, models, phone, region, screen_text, system, tts, update,
-                  wake, wakeword, whisper_cpp)
+                  calendar_ics, learn, meetings, models, phone, region, screen_text, stats, system, tts,
+                  update, wake, wakeword, whisper_cpp)
 from core import browser as web  # noqa: E402
 from core.bar import Bar  # noqa: E402
 from core.brain import discover_projects, find_cli, make_brain, project_folders  # noqa: E402
@@ -189,6 +189,7 @@ class Nova:
         self.voice = True  # False while handling a request typed in the Nova window: no card, no speech
         self.ui_queue, self.outbox, self.clients = queue.Queue(), queue.Queue(), []
         self.clips, self.followup, self.in_followup = clipboard.History(), False, False  # recent copies (memory only); ask-back pending
+        self.spoken_s = 0  # how long the last dictation was spoken for, for the Home page's speed
         self.unpaste = None  # puts back what the user had copied, a second after a dictation is pasted
         self.asked = False  # the last answer ended with a question, so a bare "okay" means yes, not goodbye
         self.sysaudio, self.listening = None, False  # the computer's audio, remembered; "listen to my computer" on
@@ -971,6 +972,7 @@ class Nova:
             if self.cancel.is_set() or clip is None:
                 return
         self.ui(lambda: self.show_bar("thinking"))
+        self.spoken_s = len(clip) / audio.RATE
         text = self.transcribe(clip, stream, "translate" if self.whisper_translates() else "transcribe")
         if from_wake:  # the cut can leave the tail of "Nova" in the clip ("Hej, Nova!"): drop it
             rest = wake.match(text)
@@ -1217,6 +1219,7 @@ class Nova:
             return
         log("dictation", raw=raw, text=text, how=how, translated=d["translate_to"] or None)
         self.paste(text)
+        stats.record(len(text.split()), self.spoken_s)
         if d["auto_learn"]:  # fixes the user makes to this text teach the dictionary
             threading.Thread(target=learn.watch, args=(text, self.vocabulary(), self.learned), daemon=True).start()
 
@@ -1873,7 +1876,7 @@ class Nova:
         target = system.foreground()
 
         def work():
-            self.target = target
+            self.target, self.spoken_s = target, 0  # typed on the phone: no speaking speed to count
             log("heard", mode="dictation", text=text, source="phone")
             try:
                 self.dictate(text)

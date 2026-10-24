@@ -2305,4 +2305,20 @@ assert snippet_for("send it to my address", SNIPS) is None   # whole utterance o
 assert snippet_for("", SNIPS) is None                        # an empty trigger never matches
 assert snippet_for("my address", {}) is None
 
+# usage stats: words dictated, speaking speed, minutes saved over typing
+import datetime  # noqa: E402
+from core import stats  # noqa: E402
+with tempfile.TemporaryDirectory() as tmp:
+    p, day = Path(tmp) / "stats.json", datetime.date(2026, 10, 24)
+    assert stats.summary(p, day) == {"words": 0, "dictations": 0, "wpm": 0, "minutes_saved": 0, "week_words": 0}
+    stats.record(120, 60, p, day)
+    stats.record(5, 0, p, day)                           # not spoken into Nova's mic (phone): not counted
+    stats.record(40, 30, p, day - datetime.timedelta(days=9))
+    s = stats.summary(p, day)
+    assert (s["words"], s["dictations"], s["wpm"]) == (160, 2, 107), s     # 160 words in 1.5 min
+    assert s["minutes_saved"] == 2.5, s                  # 160/40 typing minutes - 1.5 spoken minutes
+    assert s["week_words"] == 120, s                     # the last 7 days only
+    p.write_text("{not json", encoding="utf-8")
+    assert stats.summary(p, day)["words"] == 0           # a broken file starts fresh, never crashes
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it

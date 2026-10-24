@@ -21,7 +21,8 @@ from pathlib import Path
 import webview
 
 from core import browser as web
-from core import calendar_ics, clipboard, cloud_stt, deepgram, diagnostics, fallback, meetings, models, phone, system, tts, update
+from core import (calendar_ics, clipboard, cloud_stt, deepgram, diagnostics, fallback, meetings, models, phone,
+                  stats, system, tts, update)
 from core.brain import find_cli, too_broad
 from core.config import (CONFIG, DATA, LOGS, NOTES, ROOT, defaults, load_config, log, read_history, save_config,
                          update_config, write_private)
@@ -99,6 +100,10 @@ class Api:
         while the window was open survive. Only values that differ from the defaults are written."""
         update_config(changes)
         return True
+
+    def stats(self):
+        """Words dictated, speaking speed and minutes saved, for the Home page."""
+        return stats.summary()
 
     def settings(self):
         """The settings on disk now (the page's list editors re-read theirs before changing them)."""

@@ -540,6 +540,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
       <div class="try can"><ul id="canDo"></ul></div>
       <h2>This week</h2>
       <p class="week" id="week"></p>
+      <p class="week" id="allTime" hidden></p>
       <h2 style="display:flex;align-items:center">Recent <span class="grow" style="flex:1"></span><button class="btn ghost sm" data-go="history">See all</button></h2>
       <ul class="feed" id="recent"></ul>
     </section>
@@ -1196,6 +1197,10 @@ function renderHome() {
   $("#week").innerHTML = words || asks
     ? `You dictated <b class="num">${words.toLocaleString()}</b> word${words === 1 ? "" : "s"} and asked Nova <b class="num">${asks}</b> thing${asks === 1 ? "" : "s"} in the last 7 days.`
     : "Nothing yet this week. Your first dictation or request will show up here.";
+  api().stats().then(s => {  // spoken dictations since Nova started counting, from data/stats.json
+    $("#allTime").hidden = !s.dictations;
+    if (s.dictations) $("#allTime").innerHTML = `So far: <b class="num">${s.words.toLocaleString()}</b> words dictated at <b class="num">${s.wpm}</b> words a minute, about <b class="num">${s.minutes_saved}</b> minutes saved over typing.`;
+  }).catch(() => {});
   const items = S.history.filter(isShown).slice(0, 5);
   $("#recent").replaceChildren(...(items.length ? items.map(feedItem) : [h("li", { style: "display:block" }, h("p", { class: "muted" }, "Your dictations and requests will appear here."))]));
 }
