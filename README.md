@@ -1,6 +1,48 @@
+<div align="center">
+
 # Nova
 
-A voice assistant for Windows and macOS. Say **"Hey Nova"**, press a shortcut or click the small bar at the bottom of your screen, then talk. Nova runs your request through **Claude Code** or **OpenAI Codex**, whichever you connect, and answers out loud. It also does Wispr Flow-style **dictation**: speak, and clean text is typed into whatever app you're in.
+**Talk to your computer. It does the work.**
+
+Say "Hey Nova" and ask for anything: open apps, fix code, answer questions about your screen, or type for you in any app.<br>
+Free and open source. No account, no subscription, no Nova server. Speech recognition runs on your computer.
+
+[![Latest release](https://img.shields.io/github/v/release/AyushM1701/nova?label=download&color=7b6dff)](https://github.com/AyushM1701/nova/releases/latest)
+[![Windows | macOS](https://img.shields.io/badge/Windows%2010%2B%20%7C%20macOS%2012%2B-supported-7b6dff)](#install)
+[![MIT license](https://img.shields.io/github/license/AyushM1701/nova?color=7b6dff)](LICENSE)
+
+**[Download for Windows](https://github.com/AyushM1701/nova/releases/latest/download/nova-main.zip)** · **[Install on Mac](#install)** · [What it can do](#everything-it-does) · [Is it safe?](#safety)
+
+<!-- Add a 20-second demo here: docs/demo.gif, "Hey Nova, what's this error?" then a dictated email. It sells better than any paragraph. -->
+
+</div>
+
+## Three things you'll use every day
+
+**🗣️ Ask it anything, out loud.** "Open Spotify and play something chill." "In my portfolio project, fix the navbar on mobile." "What's this error on my screen?" Nova sends the request to **Claude Code** or **OpenAI Codex** (the Claude or ChatGPT plan you already have) and answers out loud. It sees the app you're in, remembers what you tell it, and you can talk over it to change direction.
+
+**⌨️ Dictate into any app.** Hold Right Ctrl (Right Cmd on a Mac) and talk. Clean text appears wherever your cursor is: Gmail, Slack, VS Code, WhatsApp, a terminal. Nova removes "um" and "uh", applies "no wait" corrections, writes Hindi and Hinglish in English letters, and learns your names and jargon. Dictation works with no AI connected at all.
+
+**📝 Record meetings without a bot.** "Record this meeting." Nova captures your mic and your computer's audio, transcribes it on your computer, labels who spoke and, with an AI connected, writes the minutes. Nobody in the call sees a bot join.
+
+## Why Nova
+
+| | **Nova** | OpenWhispr | HeyClicky |
+|---|---|---|---|
+| Price | **Free** (the assistant uses your Claude or ChatGPT plan) | Free tier with 2,000 cloud words/week; Pro $80/year | Free tier with 25 talk messages/month; Pro $20/month |
+| Open source | **Yes, MIT** | Yes, MIT | No |
+| Account needed | **No** | Only for cloud features | Yes |
+| Speech recognized on your computer | **Yes, by default** | Yes, with local models | No, everything goes to the cloud |
+| Hands-free "Hey Nova" | **Yes** | Hotkey | Hotkey |
+| Works in your code projects | **Yes, through Claude Code or Codex** | No | No |
+| Asks before risky commands | **Yes, every command goes through a local guard** | n/a | Asks before deletes, emails and payments |
+| Meetings without a bot | **Yes** | Yes | No |
+| Use it from your phone | **Yes, free** | iPhone app (sync needs Pro) | No |
+| Hindi and Hinglish | **Yes** | Hindi | Not listed |
+
+<sub>Competitor details come from openwhispr.com and heyclicky.com as of October 2026.</sub>
+
+## Everything it does
 
 - **Assistant mode:** "Open Spotify and play something chill", "in my portfolio project, fix the navbar on mobile", "copy my resume to the clipboard", "what's the weather in Goa?"
 - **Dictation mode:** filler words ("um", "uh") are removed, self-corrections are applied ("meet at 6, no wait, 7" becomes "meet at 7"), and Hindi or Hinglish is written in English letters.
@@ -16,6 +58,20 @@ A voice assistant for Windows and macOS. Say **"Hey Nova"**, press a shortcut or
 - **Never stuck at a limit:** when Claude Code or Codex reaches its usage limit, Nova can switch to a free Google Gemini key (Settings → AI → Backup brain) until it resets. Its commands go through the same safety guard. On Google's free tier your requests may be used to improve Google's products, so it's off until you add a key.
 - **On your phone:** turn on Settings → Phone and scan the code with your iPhone or Android phone. You get the same live conversation: type or dictate requests, see replies, and **Allow / Deny** from the couch. Add it to your home screen and it opens like an app. Works on home Wi-Fi, and from anywhere with Tailscale (see [Phone](#phone)).
 - **The Nova window:** click the tray icon (in the hidden icons area, the ^ next to the clock; in the menu bar on a Mac). It has a chat for typed requests, your history, your dictionary and every setting. You can also ask Nova to change itself: "use Ctrl+Shift+N as my shortcut".
+
+## FAQ
+
+**Is it really free?** Yes. Nova is MIT-licensed, with no paid tier, no account and no server. The assistant runs on Claude Code or Codex, so it uses the Claude or ChatGPT plan you already have. Dictation, meeting transcription, "Hey Nova" and the instant commands (volume, timers, opening apps) need no AI subscription.
+
+**Does my voice leave my computer?** No, not by default. Speech recognition and the wake word run on your machine. Only the text of a request goes to the AI you chose. Details are in [What stays on your computer](#what-stays-on-your-computer).
+
+**Do I need to know how to code?** No. Setup is a double-click on Windows and one pasted line on a Mac. Nova installs what it needs and asks before installing anything system-wide.
+
+**Can an AI running commands on my computer break something?** Every command, file edit and file read goes through Nova's [guard](#safety) first. Deleting files, `git push`, installing software and sending data ask you first. Wiping disks and reading saved passwords are always blocked.
+
+**Does it work offline?** Dictation, "Hey Nova", meeting transcription and spoken replies do. Assistant requests need the internet, because Claude Code and Codex run in the cloud.
+
+**Which languages?** Whisper recognizes about 100 languages. Hindi and Hinglish are tuned in particular and come out in English letters.
 
 ## Install
 
