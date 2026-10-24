@@ -2682,4 +2682,78 @@ with tempfile.TemporaryDirectory() as tmp:
     finally:
         walkthrough.DIR, walkthrough.LOCAL = real_dir, real_local
 
+# "that's it" said twice, or after "ok, ok", ends the conversation (it went to the AI, then the follow-up card asked
+# for "that's it" again)
+for said in ("Ok, ok, that's it, that's it.", "That's it, that's it.", "okay okay, thanks, thanks"):
+    assert is_done(said), said
+assert not is_done("That's it, that's it, now open Spotify")
+# ...and said over Nova's voice, it stops Nova: it's the user's own words, not an echo of what Nova is saying
+from core.wake import interrupts  # noqa: E402
+assert interrupts("That's it.", "Done, the Notepad window is saved as introduction email.", "as introduction email.", 0.33)
+assert not interrupts("That's it.", "That's it, I saved the file.", "", 0.2)   # Nova's own words in the mic
+assert not interrupts("That's it.", "Saved.", "", 0.9)                         # in step with the speakers: not a person
+# ending the conversation doesn't open another card: the current one just goes away
+shown, hidden = [], []
+n = types.SimpleNamespace(followup=True, outbox=queue.Queue(), ui=lambda fn: fn(),
+                          card=types.SimpleNamespace(show=lambda *a, **k: shown.append(a), hide=lambda: hidden.append(1)))
+nova_mod.Nova.end_conversation(n, "that's it")
+assert not shown and hidden and n.followup is False, (shown, hidden)
+
+# holding the talk key while Nova listens for a follow-up switches to a held dictation, instead of nothing happening
+started = []
+n = types.SimpleNamespace(phase="listening", pending=None, paused=False, stt=object(), in_followup=True, holding=False,
+                          followup=True, cancel=threading.Event(), stop_rec=threading.Event(), next_job=None,
+                          holds=[types.SimpleNamespace(held=True)], card=types.SimpleNamespace(show=lambda *a, **k: None),
+                          start_job=lambda **k: started.append(k), pretty=lambda: "Ctrl+`")
+nova_mod.Nova.on_hold(n, "dictation")
+assert n.cancel.is_set() and n.stop_rec.is_set() and not n.followup and callable(n.next_job)
+n.next_job()
+assert started == [{"hold": True, "mode": "dictation"}], started
+n.holds[0].held, started[:] = False, []  # let go before the follow-up finished stopping: nothing starts
+n.next_job()
+assert started == []
+# ...and the job thread runs that next job when the follow-up ends, instead of listening again
+ran = []
+n = types.SimpleNamespace(phase="listening", paused=False, pending=None, followup=False, cancel=threading.Event(),
+                          next_job=lambda: ran.append("next"), ui=lambda fn: fn(), show_bar=lambda s: None,
+                          card=types.SimpleNamespace(kind="", hide=lambda: None), push_state=lambda: None,
+                          start_job=lambda **k: ran.append("followup"), job_mode=None)
+n.cancel.set()
+nova_mod.Nova.guarded(n, lambda: None)
+assert ran == ["next"] and n.next_job is None, ran
+# a hold while Nova is busy says so, instead of nothing happening
+cards = []
+n = types.SimpleNamespace(phase="busy", pending=None, paused=False, stt=object(), in_followup=False, holding=False,
+                          card=types.SimpleNamespace(show=lambda *a, **k: cards.append(a[0])), pretty=lambda: "Ctrl+`")
+nova_mod.Nova.on_hold(n, "dictation")
+assert cards == ["Nova is busy"], cards
+
+# "make this formal" with text selected rewrites it in place from the shortcut too (assistant mode), instead of the
+# AI remote-controlling the app; with nothing selected it's an ordinary request
+edits, asked, pasted = [], [], []
+n = types.SimpleNamespace(cleaner=types.SimpleNamespace(name="Claude Code", clean=lambda p, t, m: "Hello, my name is Ayush."),
+                          cfg={"dictation": {"claude_model": "haiku"}}, copy_selection=lambda: "hi my name ayush",
+                          cancel=threading.Event(), paste=pasted.append, ui=lambda fn: fn(), command=lambda t: False,
+                          assist=asked.append, dictate=lambda t: None)
+n.edit_selection = lambda raw: nova_mod.Nova.edit_selection(n, raw)
+nova_mod.Nova.route(n, "Make this formal.", "assistant")
+assert pasted == ["Hello, my name is Ayush."] and asked == [], (pasted, asked)
+n.copy_selection = lambda: None
+nova_mod.Nova.route(n, "Make this formal.", "assistant")
+assert asked == ["Make this formal."], asked                               # nothing selected: the AI handles it
+nova_mod.Nova.route(n, "make this website about yourself like Nova AI, what it does and how it helps people", "assistant")
+assert asked[-1].startswith("make this website"), asked                    # a long request is never a selection edit
+
+# guard false alarms from the logs: PowerShell's "?{" filter is not a wildcard, and the AI's own scratch files in
+# Nova's workspace aren't "changes to Nova itself"
+H = "D:\\projects\\NOVA"
+cmd = ("powershell -NoProfile -STA -Command \"Add-Type -AssemblyName System.Windows.Forms; \\$w=New-Object -ComObject "
+       "WScript.Shell; \\$p=Get-Process notepad | ?{\\$_.MainWindowTitle -like '*HI my name*'} | select -First 1\"")
+assert "wildcard" not in classify_command(cmd, H, "auto")[1], classify_command(cmd, H, "auto")
+assert classify_command("cat ~/.ss?/id_rsa", H, "auto")[0] != "allow"       # a real wildcard still asks
+assert classify("Write", {"file_path": H + "\\workspace\\record_conversation.py", "content": "x"}, H + "\\workspace",
+                [], H, H + "\\workspace\\notes", "accept_edits")[0] == "allow"
+assert classify("Write", {"file_path": H + "\\core\\app.py", "content": "x"}, H + "\\workspace", [], H,
+                H + "\\workspace\\notes", "accept_edits")[0] == "confirm"   # Nova's own code still asks
+
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it

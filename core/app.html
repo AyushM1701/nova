@@ -2297,16 +2297,16 @@ const WALK = [
   { clip: "01-talk", title: "Talk to Nova", wait: ["local", "reply"],
     do: () => `Press ${talkKeys()} or say “Hey Nova”, then ask: <b>“What time is it?”</b>` },
   { clip: "02-dictate", title: "Dictate into any app", wait: ["dictation", "snippet"],
-    do: () => `Open ${S.platform === "mac" ? "TextEdit" : "Notepad"} and click in it. Hold ${holdKeys()} and say a sentence, “um” and all, then let go.` },
+    do: () => `Open ${S.platform === "mac" ? "TextEdit" : "Notepad"} and click in it. Hold ${holdKeys()} until you hear the chime (about ${get("hold_delay_s")} seconds), say a sentence, “um” and all, then let go.` },
   { clip: "03-rewrite", title: "Rewrite what you selected", wait: ["edit"], needs: canEdit,
-    do: () => `Select a sentence you typed, hold ${holdKeys()} and say <b>“make this more formal”</b>.` },
+    do: () => `Select a sentence you typed, then hold ${holdKeys()} (or press ${talkKeys()}) and say <b>“make this more formal”</b>.` },
   { clip: "04-screen", title: "Ask about your screen", wait: ["reply"], needs: () => !!S.state.brain,
     do: () => `Press ${talkKeys()} and ask <b>“what's on my screen?”</b> or <b>“where's the settings button?”</b>` },
   { clip: "05-safety", title: "Risky commands wait for your OK",
     do: () => `The card shows the exact command. Allow it with ${talkKeys()} or <b>Allow</b>; say no with <kbd>Esc</kbd> or <b>Deny</b>. No answer in 30 seconds means no.` },
   { clip: "06-finish", title: "You're ready", last: true },
 ];
-const W = { i: 0, waiting: null, since: 0, url: null };
+const W = { i: 0, waiting: null, since: 0, url: null, seen: [] };  // seen: events since this step began (a try made while its clip plays counts)
 function openWalk() { W.i = 0; $("#walk").hidden = false; $("#app").inert = true; showWalk(); }
 function closeWalk() {
   const v = $("#walkVideo"); v.pause(); W.waiting = null;
@@ -2315,7 +2315,7 @@ function closeWalk() {
 }
 async function showWalk() {
   const step = WALK[W.i], v = $("#walkVideo");
-  W.waiting = null;
+  W.waiting = null; W.seen = []; W.since = Date.now() / 1000;
   $("#walkProgress").replaceChildren(...WALK.map((_, j) => h("i", { class: j <= W.i ? "on" : "" })));
   $("#walkTurn").hidden = true; $("#walkNext").hidden = true; $("#walkCover").hidden = true;
   $("#walkSkip").hidden = !step.wait; $("#walkReplay").hidden = false;
@@ -2350,16 +2350,21 @@ function afterClip() {
     $("#walkNext").textContent = "Continue"; $("#walkNext").hidden = false; return;
   }
   if (!step.wait) { $("#walkNext").textContent = "Got it"; $("#walkNext").hidden = false; status.textContent = ""; return; }
-  W.waiting = step.wait; W.since = Date.now() / 1000;
+  W.waiting = step.wait;
+  if (step.wait.some(e => W.seen.includes(e))) return stepDone();  // already tried while the clip played
   status.replaceChildren(h("i", { class: "pulse" }), h("span", {}, "Waiting for you to try it…"));
+}
+function stepDone() {
+  W.waiting = null;
+  const status = $("#walkStatus"); status.className = "walk-status ok"; status.textContent = "✓ Nice, that's it.";
+  setTimeout(nextWalk, 1600);
 }
 function nextWalk() { if (W.i >= WALK.length - 1) return closeWalk(); W.i++; showWalk(); }
 // every Nova log entry reaches the window: the step is done when its event arrives (a recovered dictation isn't you)
 function walkEvent(ev) {
-  if (!W.waiting || $("#walk").hidden || !W.waiting.includes(ev.event) || ev.how === "recovered" || ev.t < W.since) return;
-  W.waiting = null;
-  const status = $("#walkStatus"); status.className = "walk-status ok"; status.textContent = "✓ Nice, that's it.";
-  setTimeout(nextWalk, 1600);
+  if ($("#walk").hidden || ev.how === "recovered" || ev.t < W.since) return;
+  W.seen.push(ev.event);
+  if (W.waiting && W.waiting.includes(ev.event)) stepDone();
 }
 $("#walkVideo").addEventListener("ended", afterClip);
 $("#walkNext").addEventListener("click", nextWalk);

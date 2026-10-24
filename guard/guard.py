@@ -268,7 +268,8 @@ def _command(cmd, home=None, cwd=None):
         if home and _under(os.path.join(home, "data"), os.path.realpath(cwd)):
             return "confirm", NOVA_SEARCH_WHY
     # a wildcard in a folder name ("~\*\id_ed25519", "~/.ss?/*") can reach a secret folder the rules can't name
-    if re.search(r"[*?][^\s\\/\"'*?]*[\\/]", re.sub(r"https?://\S+", "", c)):
+    # (not PowerShell's "?{ ... }" filter, nor bash's escaped "\$", which only look like a wildcard and a folder)
+    if re.search(r"[*?][^\s\\/\"'*?]*[\\/]", re.sub(r"https?://\S+|\?(?=\s*\{)", "", c).replace("\\$", "$")):
         return "confirm", "uses a wildcard in a folder name, which could reach secret files"
     for pattern, why in CONFIRM:
         if re.search(pattern, c):
@@ -415,6 +416,10 @@ def _write(full, roots, home, notes):
         return "confirm", "changes git's internals"
     if notes and _under(full, notes):
         return "allow", "Nova notes"
+    # the AI's own working folder (where it runs): scratch scripts and files, not Nova's code or settings; running a
+    # script written there a moment ago still asks (_fresh_script)
+    if home and _under(full, os.path.join(home, "workspace")):
+        return "allow", "Nova's workspace"
     if home and _under(full, home):
         return "confirm", "changes Nova itself"
     if any(_under(full, r) for r in roots):

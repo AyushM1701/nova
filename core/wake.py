@@ -52,6 +52,8 @@ def is_done(text):
     """True if the user is ending the conversation rather than asking for something. Also when Whisper wraps the
     goodbye in stray audio: "Aish. That's it." or "That's it. <a line from a video>. That's it."."""
     said = [s for s in (re.sub(r"[^\w\s]", "", s).strip() for s in re.split(r"[.!?]", (text or "").lower())) if s]
+    # said twice in a row counts once: "ok, ok, that's it, that's it" (people repeat a stop to be heard)
+    said = [re.sub(r"\b(\w+(?:\s+\w+){0,2})(?:\s+\1\b)+", r"\1", s) for s in said]
     if not said or not DONE_RE.fullmatch(said[-1]):
         return False
     return len(said) == 1 or said[0] == said[-1] or all(len(s.split()) == 1 for s in said[:-1]) \
@@ -89,13 +91,14 @@ def interrupts(heard, spoken, played="", follows=0.0):
     """Did the user really talk over Nova? `heard` is what the mic picked up, `spoken` what Nova was saying,
     `played` what the computer played meanwhile (Nova's voice, a video, a call), `follows` how closely the mic's
     loudness followed the computer's (loopback.follows). Only a person's own words stop Nova: not noise, not an
-    echo, not a video. Short leftovers ("That's it.") need a stop word ("stop", "wait", "Nova…")."""
+    echo, not a video. Short leftovers need a stop word ("stop", "wait", "Nova…"), or to be a way of finishing
+    ("that's it") when what the computer played was heard too and it wasn't that: a person's own "that's it"."""
     words = re.findall(r"[a-z0-9']+", heard.lower())
     if not words or " ".join(words) in NOISE_PHRASES:
         return False
     if is_echo(heard, spoken) or (played.strip() and is_echo(heard, played)) or follows >= FOLLOWS:
         return False
-    return len(words) >= 3 or any(w in INTERRUPTIONS for w in words)
+    return len(words) >= 3 or any(w in INTERRUPTIONS for w in words) or bool(played.strip()) and is_done(heard)
 
 
 def is_echo(heard, spoken):

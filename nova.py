@@ -212,6 +212,7 @@ class Nova:
         self.voice = True  # False while handling a request typed in the Nova window: no card, no speech
         self.ui_queue, self.outbox, self.clients = queue.Queue(), queue.Queue(), []
         self.clips, self.followup, self.in_followup = clipboard.History(), False, False  # recent copies (memory only); ask-back pending
+        self.next_job = None  # what starts once the current job ends (a hold during a follow-up listen)
         self.spoken_s = 0  # how long the last dictation was spoken for, for the Home page's speed
         self.unpaste = None  # puts back what the user had copied, a second after a dictation is pasted
         self.asked = False  # the last answer ended with a question, so a bare "okay" means yes, not goodbye
@@ -475,7 +476,17 @@ class Nova:
         self.on_hotkey(self.cfg["triple_tap_mode"])
 
     def on_hold(self, mode=None):
+        if self.phase == "listening" and self.in_followup and not self.holding and not self.pending:
+            # still listening for a follow-up after an answer: the hold means "dictate now", so end that listen
+            # quietly and start the held one as soon as it has stopped (if the key is still down then)
+            self.followup = False
+            self.next_job = lambda: any(h.held for h in self.holds) and self.start_job(hold=True, mode=mode)
+            self.cancel.set()
+            self.stop_rec.set()
+            return
         if self.phase != "idle" or self.pending:  # an approval needs a deliberate press, not a hold
+            if not self.pending:  # say so, instead of nothing happening
+                self.card.show("Nova is busy", f"Press {self.pretty()} to stop it, then hold again.", hide_after=3)
             return
         if self.paused or self.stt is None:
             return self.on_hotkey()  # says why Nova can't listen
@@ -650,7 +661,10 @@ class Nova:
             # the request is over: a card still saying "Thinking" or "Allowed, continuing…" would never go away
             self.ui(lambda: getattr(self.card, "kind", "") == "thinking" and self.card.hide())
             self.ui(self.push_state)
-            if self.followup and not self.cancel.is_set():  # keep the conversation going without "Hey Nova"
+            after, self.next_job = self.next_job, None
+            if after:  # a hold that cut a follow-up listen short starts now
+                self.ui(after)
+            elif self.followup and not self.cancel.is_set():  # keep the conversation going without "Hey Nova"
                 self.ui(lambda: self.phase == "idle" and not self.paused and not self.pending
                         and self.start_job(followup=True, mode=self.job_mode))
             self.followup = False
@@ -1018,8 +1032,7 @@ class Nova:
                     if head:
                         self.dictate(head)
                     text = f"{switch} mode"
-            if not self.command(text):
-                (self.dictate if mode == "dictation" else self.assist)(text)
+            self.route(text, mode)
             if mode == "assistant" and self.cfg["voice"]["conversation"] and not self.cancel.is_set():
                 self.followup = True  # listen again once this answer is done
         finally:
@@ -1059,7 +1072,7 @@ class Nova:
     def end_conversation(self, text):
         self.followup = False
         self.outbox.put({"event": "note", "title": "Done", "text": "Conversation ended."})
-        self.ui(lambda: self.card.show("Okay", "Say “Hey Nova” or press the shortcut when you need me.", hide_after=3))
+        self.ui(self.card.hide)  # "that's it" means quiet: the card goes away, no new one opens
 
     def on_level(self, value):
         self.ui(lambda: self.bar.level(value))
@@ -1257,26 +1270,46 @@ class Nova:
         d = self.cfg["dictation"]
         return LocalLLM(d["local_url"], d["local_model"]) if d["cleanup_engine"] == "local" else self.brain
 
+    def route(self, text, mode):
+        """A spoken request: Nova's own commands, else dictation or the AI. "Make this formal" with text selected is
+        rewritten in place from either mode, never by the AI remote-controlling the app (which asks to run keystrokes)."""
+        if self.command(text):
+            return
+        if mode == "dictation":
+            return self.dictate(text)
+        if len(text.split()) <= 10 and cleanup.is_edit(text) and self.edit_selection(text):  # long ones are requests
+            return
+        self.assist(text)
+
+    def edit_selection(self, raw):
+        """Rewrite the selected text by the spoken instruction. False if nothing is selected (or no AI to do it)."""
+        cleaner = self.cleaner
+        if not cleaner:
+            return False
+        selected = self.copy_selection()
+        if not selected:
+            return False
+        new = cleaner.clean(cleanup.EDIT_PROMPT, f"<selection>{selected}</selection>\n<instruction>{raw}</instruction>",
+                            cleanup.model_for(cleaner, self.cfg["dictation"]))
+        if self.cancel.is_set():
+            return True
+        log("edit", instruction=raw, before=selected, text=new or "")
+        if new:
+            self.paste(new)
+        else:
+            self.ui(lambda: self.card.show("Couldn't edit the selection",
+                                           f"{cleaner.name} didn't answer. Your text is unchanged.", hide_after=5))
+        return True
+
     def dictate(self, raw):
         d = self.cfg["dictation"]
         expansion = cleanup.snippet_for(raw, d["snippets"])
         if expansion:  # "my address": the saved text exactly, no cleanup or learning
             log("snippet", raw=raw)
             return self.paste(expansion)
+        if cleanup.is_edit(raw) and self.edit_selection(raw):  # Command mode: "make this more formal" on a selection
+            return
         cleaner = self.cleaner
-        if cleaner and cleanup.is_edit(raw):  # Command mode: "make this more formal" on selected text
-            selected = self.copy_selection()
-            if selected:
-                new = cleaner.clean(cleanup.EDIT_PROMPT, f"<selection>{selected}</selection>\n"
-                                    f"<instruction>{raw}</instruction>", cleanup.model_for(cleaner, d))
-                if self.cancel.is_set():
-                    return
-                log("edit", instruction=raw, before=selected, text=new or "")
-                if new:
-                    return self.paste(new)
-                return self.ui(lambda: self.card.show("Couldn't edit the selection",
-                                                      f"{cleaner.name} didn't answer. Your text is unchanged.",
-                                                      hide_after=5))
         tone = cleanup.tone_for(system.window_title(self.target), d["tones"])
         text, how = cleanup.clean(raw, d, cleaner, tone)
         if d["translate_to"] and d["translate_to"] != "English" and not self.cancel.is_set():
