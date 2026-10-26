@@ -60,6 +60,7 @@ else:
     import keyboard
 
     user32 = ctypes.windll.user32
+    user32.SetWindowDisplayAffinity.argtypes = [ctypes.wintypes.HWND, ctypes.wintypes.DWORD]
     MEDIA = {"play_pause": "play/pause media", "next": "next track", "previous": "previous track",
              "mute": "volume mute", "volume_up": "volume up", "volume_down": "volume down"}
 
@@ -124,9 +125,12 @@ class HoldKey:
     Another key pressed after listening started (Shift held a little long before a capital) means typing, not
     talking: on_cancel drops that recording."""
 
-    def __init__(self, key, on_start, on_stop, on_cancel=lambda: None, delay=HOLD_DELAY_S):
+    on_down = on_up = staticmethod(lambda: None)  # the key going down / up, whatever happens (the circle trail follows it)
+
+    def __init__(self, key, on_start, on_stop, on_cancel=lambda: None, delay=HOLD_DELAY_S, on_down=None, on_up=None):
         self.key, self.on_start, self.on_stop, self.on_cancel = key.lower(), on_start, on_stop, on_cancel
         self.delay = delay
+        self.on_down, self.on_up = on_down or self.on_down, on_up or self.on_up
         self.held = self.started = False
         self.timer, self.lock = None, threading.Lock()
         if IS_MAC:
@@ -151,7 +155,9 @@ class HoldKey:
                     self.held, self.started = True, False
                     self.timer = threading.Timer(self.delay, self.fire)
                     self.timer.start()
+                    self.on_down()
             else:
+                self.on_up()  # even after a combo (Ctrl+C): whatever started on key-down ends; before on_stop
                 self.held = False
                 self.timer and self.timer.cancel()
                 then, self.started = self.on_stop if self.started else None, False
@@ -382,6 +388,34 @@ def mouse_down():
     return bool(user32.GetAsyncKeyState(0x01) & 0x8000)
 
 
+def mouse_pos():
+    """(x, y) of the mouse pointer on the whole screen, in the pixels a screenshot uses."""
+    if IS_MAC:
+        from Quartz import CGEventCreate, CGEventGetLocation
+        point = CGEventGetLocation(CGEventCreate(None))
+        return int(point.x), int(point.y)
+    point = ctypes.wintypes.POINT()
+    if not user32.GetCursorPos(ctypes.byref(point)):  # a locked desktop: no position, rather than (0, 0)
+        raise OSError("no mouse pointer position")
+    return point.x, point.y
+
+
+def cursor_visible():
+    """False while the system hides the mouse pointer (a full-screen video, "hide pointer while typing"): anything that
+    sits beside the pointer should hide too."""
+    if IS_MAC:
+        from Quartz import CGCursorIsVisible
+        return bool(CGCursorIsVisible())
+    info = _CursorInfo(ctypes.sizeof(_CursorInfo))
+    return not user32.GetCursorInfo(ctypes.byref(info)) or bool(info.flags & 1)  # CURSOR_SHOWING
+
+
+if not IS_MAC:
+    class _CursorInfo(ctypes.Structure):
+        _fields_ = [("cbSize", ctypes.wintypes.DWORD), ("flags", ctypes.wintypes.DWORD),
+                    ("hCursor", ctypes.wintypes.HANDLE), ("pt", ctypes.wintypes.POINT)]
+
+
 def window_title(target):
     """The app (macOS) or window title (Windows) the user was in, as context for the AI."""
     if not target:
@@ -415,17 +449,58 @@ def window_rect(target):
     return rect.left, rect.top, rect.right, rect.bottom
 
 
+OWN_WINDOWS = []  # Nova's bar, card and pointer: HWNDs on Windows, NSWindows on macOS (added by bar.Layered)
+
+
+def _own_windows_hidden(hidden):
+    """Take Nova's own windows out of screen captures, or put them back. Only for the moment of Nova's own
+    screenshot: a permanent exclusion would also hide them from a recording or a screen share. Windows 10 2004+;
+    on older Windows the call fails and they stay visible (not WDA_MONITOR: that turns them into black boxes).
+    macOS (shortcut: untested, and ScreenCaptureKit on macOS 15+ may ignore sharingType): done on the main thread."""
+    if not OWN_WINDOWS:
+        return
+    if not IS_MAC:
+        for hwnd in OWN_WINDOWS:
+            user32.SetWindowDisplayAffinity(hwnd, 0x11 if hidden else 0)  # WDA_EXCLUDEFROMCAPTURE / WDA_NONE
+        return
+
+    def apply():
+        for ns in OWN_WINDOWS:
+            ns.setSharingType_(0 if hidden else 1)  # NSWindowSharingNone / NSWindowSharingReadOnly
+
+    if threading.current_thread() is threading.main_thread():
+        return apply()
+    done = threading.Event()
+
+    def on_main():
+        try:
+            apply()
+        finally:
+            done.set()
+    try:
+        from PyObjCTools import AppHelper
+        AppHelper.callAfter(on_main)
+        if hidden:
+            done.wait(0.5)  # the main thread didn't get to it: grab anyway, windows included
+    except Exception:  # no pyobjc run loop to dispatch to
+        pass
+
+
 def screenshot(path, box=None):
     """Save every screen, or just `box` (screen pixels), as a PNG. macOS asks for Screen Recording permission
     the first time. Returns (path, (left, top, k, width, height)): where the image's top-left is on screen, its
     pixels per screen pixel and its size, so a spot the AI names in the image maps back to the screen."""
     from PIL import Image, ImageGrab
-    if IS_MAC:
-        img = ImageGrab.grab()  # shortcut: main display only on macOS; screencapture -D per display if asked
-        k, left, top = img.width / screen_width(), 0, 0  # Retina Macs grab twice the pixels Tk reports
-    else:  # all monitors, so a window on the second screen is captured too; boxes are virtual-screen pixels
-        img = ImageGrab.grab(all_screens=True)
-        k, left, top = 1, user32.GetSystemMetrics(76), user32.GetSystemMetrics(77)  # SM_X/YVIRTUALSCREEN
+    _own_windows_hidden(True)
+    try:
+        if IS_MAC:
+            img = ImageGrab.grab()  # shortcut: main display only on macOS; screencapture -D per display if asked
+            k, left, top = img.width / screen_width(), 0, 0  # Retina Macs grab twice the pixels Tk reports
+        else:  # all monitors, so a window on the second screen is captured too; boxes are virtual-screen pixels
+            img = ImageGrab.grab(all_screens=True)
+            k, left, top = 1, user32.GetSystemMetrics(76), user32.GetSystemMetrics(77)  # SM_X/YVIRTUALSCREEN
+    finally:
+        _own_windows_hidden(False)
     if box:
         x0, y0 = max(0, int((box[0] - left) * k)), max(0, int((box[1] - top) * k))  # maximized windows overhang
         x1, y1 = min(img.width, int((box[2] - left) * k)), min(img.height, int((box[3] - top) * k))

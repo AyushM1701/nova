@@ -825,6 +825,20 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><button class="switch" role="switch" id="claudeHook" aria-label="Tell me when Claude Code finishes"></button></div></div>
         <div class="row"><div class="what"><h2>Your notes in Claude Code and Codex</h2><p>Lets them search and read your Nova notes, meetings and memory, and add dictionary words, in any session you start. Only the notes folder: never settings, keys or logs. Runs on this computer.</p></div>
           <div class="how"><button class="btn sm" data-mcp="claude">Add to Claude Code</button><button class="btn sm" data-mcp="codex">Add to Codex</button></div></div>
+        <div class="row" style="display:block"><div class="what"><h2>Apps</h2><p>Let the AI use your apps: Linear, Notion, Jira, GitHub, or any server with an MCP address (Gmail, Salesforce and others through a service like Composio). Reading is automatic; anything that changes an app asks you first, every time. For Claude Code (not Codex yet). Add one, press Sign in, type /mcp in the window that opens, pick the app and sign in. A server that needs a token or a command is set in config.json (see the README). Nova judges a tool by its name, so connect only servers you trust, and give a database server a read-only account.</p></div>
+          <div class="pair-head"><span>Name</span><span></span><span>MCP address</span><span></span></div>
+          <div class="pairs" id="apps"></div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+            <button class="btn sm" data-app="linear|https://mcp.linear.app/mcp">+ Linear</button>
+            <button class="btn sm" data-app="notion|https://mcp.notion.com/mcp">+ Notion</button>
+            <button class="btn sm" data-app="jira|https://mcp.atlassian.com/v1/mcp">+ Jira</button>
+            <button class="btn sm" data-app="github|https://api.githubcopilot.com/mcp/">+ GitHub</button>
+            <button class="btn sm" id="addApp"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Other</button>
+            <button class="btn primary sm" id="appsSignin">Sign in</button></div></div>
+        <div class="row"><div class="what"><h2>Companion</h2><p>A small glowing marker that stays beside your mouse pointer. It shows what Nova is doing (listening, thinking, speaking, waiting for your OK, and a number when agents are working for you), flies to what Nova is pointing at, draws with its tip when Nova draws on your screen, then comes back. It dims when you stop moving the mouse, hides in games, and shows in screen recordings.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="companion.enabled" aria-label="Show the companion"></button></div></div>
+        <div class="row"><div class="what"><h2>Suggestions</h2><p>When you copy an error message, a link or a long text, a small card offers to explain or summarise it. Nothing goes to the AI until you press Do it. At most a few a day, and if you chose a model on this computer for dictation, it decides whether the moment is right.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="proactive.enabled" aria-label="Suggest help"></button></div></div>
         <div class="row" style="display:block"><div class="what"><h2>Project nicknames</h2><p>Say “my site” and Nova knows you mean the folder “portfolio”. Nova already knows every project you've opened in Claude Code or Codex.</p></div>
           <div class="pair-head"><span>When you say</span><span></span><span>Project folder</span><span></span></div>
           <div class="pairs" id="aliases"></div>
@@ -1455,7 +1469,29 @@ function pairsEditor(container, path, leftPh, rightPh) {
   container.replaceChildren(...rows.map(([a, b]) => row(a, b)));
   return () => { const r = row(); container.append(r); $("input", r).focus(); };
 }
-let addRepl, addSnip, addTone, addAlias, addRoutine;
+let addRepl, addSnip, addTone, addAlias, addRoutine, addApp;
+function appsEditor(container) {  // name -> address, for the apps given as a plain address; the others stay as they are in config.json
+  const path = "mcp.servers", strings = () => Object.entries(get(path) || {}).filter(([, v]) => typeof v === "string");
+  let shown = new Set(strings().map(([k]) => k));
+  const commit = async () => {
+    const mine = {};
+    for (const r of $$(".pair", container)) { const [a, b] = $$("input", r).map(i => i.value.trim()); if (a && b) mine[a.toLowerCase()] = b; }
+    await fresh(path);
+    const out = { ...(get(path) || {}) };
+    for (const k of shown) delete out[k];
+    Object.assign(out, mine); shown = new Set(Object.keys(mine));
+    set(path, out); save();
+  };
+  const row = (a = "", b = "") => {
+    const rm = h("button", { class: "icon-btn", "aria-label": "Remove", html: I.x });
+    const el = h("div", { class: "pair" }, h("input", { class: "input", value: a, placeholder: "linear", "aria-label": "Name", onchange: commit }),
+      h("span", { class: "arrow", html: I.arrow }), h("input", { class: "input", value: b, placeholder: "https://mcp.example.com/mcp", "aria-label": "MCP address", onchange: commit }), rm);
+    rm.addEventListener("click", () => { el.remove(); commit(); });
+    return el;
+  };
+  container.replaceChildren(...strings().map(([a, b]) => row(a, b)));
+  return (a, b) => { const r = row(a, b); container.append(r); if (a) commit(); else $("input", r).focus(); };
+}
 const DAY_SETS = { "day": "0123456", "weekday": "01234", "weekend": "56" }, DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 function renderSchedules() {  // added by voice (core/schedule.py), removed here
   const list = get("schedules") || [];
@@ -1496,6 +1532,9 @@ $("#addFolder").addEventListener("click", async () => {
   } catch (e) { fail(e); }
 });
 $("#addAlias").addEventListener("click", () => addAlias());
+for (const b of $$("[data-app]")) b.addEventListener("click", () => { const [n, u] = b.dataset.app.split("|"); addApp(n, u); toast("Added. Press Sign in to connect your account"); });
+$("#addApp").addEventListener("click", () => addApp());
+$("#appsSignin").addEventListener("click", () => api().apps_signin().then(r => r === "ok" ? toast("In the window that opened, type /mcp and sign in") : fail(new Error(r))).catch(fail));
 
 /* ---------- memory ---------- */
 let memLines = [];
@@ -1589,6 +1628,7 @@ function bindSettings() {
   addAlias = pairsEditor($("#aliases"), "projects.aliases", "my site", "portfolio");
   renderFolders(); renderPermissions();
   addMtAction = pairsEditor($("#mtActionPairs"), "meetings.actions", "Name, e.g. Jira tickets", "Turn the action items into Jira tickets");
+  addApp = appsEditor($("#apps"));
   addRoutine = pairsEditor($("#routines"), "routines", "deep code mode", "pause music, open VS Code in portfolio, run npm run dev");
   renderSchedules();
   $("#claudeHook").setAttribute("aria-checked", !!S.claudeHook);

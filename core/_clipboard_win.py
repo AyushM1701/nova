@@ -21,9 +21,19 @@ kernel32.GlobalAlloc.argtypes = [w.UINT, ctypes.c_size_t]
 kernel32.GlobalAlloc.restype = w.HGLOBAL
 kernel32.GlobalFree.argtypes = [w.HGLOBAL]
 
+user32.RegisterClipboardFormatW.argtypes = [w.LPCWSTR]
+user32.RegisterClipboardFormatW.restype = w.UINT
+user32.IsClipboardFormatAvailable.argtypes = [w.UINT]
+user32.IsClipboardFormatAvailable.restype = w.BOOL
+
 CF_UNICODETEXT = 13
 # GDI-handle formats can't be copied as bytes; Windows re-creates them from CF_DIB / CF_UNICODETEXT
 GDI_FORMATS = {2, 3, 9, 14, 0x80, 0x82, 0x83, 0x8E}
+
+
+def sensitive():
+    """True when the app that copied asked not to be recorded (password managers do), so nothing reads it."""
+    return bool(user32.IsClipboardFormatAvailable(user32.RegisterClipboardFormatW("ExcludeClipboardContentFromMonitorProcessing")))
 
 
 def _open():

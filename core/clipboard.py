@@ -43,8 +43,12 @@ if sys.platform == "darwin":
     def change_count():
         return NSPasteboard.generalPasteboard().changeCount()
 
+    def sensitive():
+        """True when the app that copied marked it concealed (password managers do), so nothing reads it."""
+        return "org.nspasteboard.ConcealedType" in [str(t) for t in NSPasteboard.generalPasteboard().types() or []]
+
 else:
-    from core._clipboard_win import change_count, get_text, restore, set_text, snapshot  # noqa: F401
+    from core._clipboard_win import change_count, get_text, restore, sensitive, set_text, snapshot  # noqa: F401
 
 def copy_file(path, image=False):
     """Put a file on the clipboard (paste it in Explorer, Finder, chat or mail), or with image=True its picture,
@@ -76,10 +80,11 @@ class History:
     def add(self, text, now=None):
         text = (text or "").strip()
         if not text or len(text) > 4000 or text.startswith("nova-") or SECRET_RE.search(text):
-            return
+            return False
         for item in [i for i in self.items if i[1] == text]:
             self.items.remove(item)  # copied again: move it to the top
         self.items.append((now or time.time(), text))
+        return True
 
     def describe(self, now=None):
         """Numbered, newest first, with how long ago: for the AI's context."""

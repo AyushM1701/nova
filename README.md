@@ -57,8 +57,16 @@ Free and open source. No account, no subscription, no Nova server. Speech recogn
 - **Conversational:** talk over Nova to interrupt it and redirect it; when it asks you something ("Want me to run the tests?") it listens for your answer without "Hey Nova".
 - **Remembers:** tell it "remember I use pnpm" and it keeps that in `workspace/notes/memory.md` for every later request; see and delete entries on the window's Memory page. It also remembers your last 20 copies (in memory only, skipping passwords and keys), so "paste the link I copied earlier" works.
 - **Point at things:** "turn this card into a Tailwind component" dims the screen so you can drag a box around what you mean; other questions about your screen send just the window you're in. Highlight code and ask "where else is this function called?" and Nova passes the selection along.
+- **Draws on your screen:** when one arrow isn't enough ("show me where each setting is"), the AI marks the screenshot with boxes, circles, arrows, numbered steps and short labels, and Nova draws them over your real screen one at a time. Clicks pass through them, they fade after about 12 seconds, and Nova's own screenshots never include them.
+- **Sketches the answer:** ask a spoken question with a short factual answer ("who won today's Grand Prix?", "how does a heat pump work?") and Nova explains it out loud while a paper note draws itself on screen: the result, a ranking or bars, a few steps, where the answer came from. The note is drawn by a pen: circles, boxes, bars and arrows are traced stroke by stroke, and the writing is wiped in behind the pen tip. It can carry a photo and one or two follow-up questions as chips: tap a chip and Nova asks it, stopping what it's saying. Click anywhere else on the note (or press Esc) to clear it; otherwise it goes about 25 seconds after Nova stops talking. For a person, place or thing the AI names the Wikipedia page and Nova fetches that page's photo itself (the AI never writes a link), only from Wikimedia, over https to a public address (never your own network), at most 2.5 MB, in memory, never saved. Turn the note off with `overlay.sketch`, or just the photo with `overlay.sketch_images`.
+- **A companion beside your mouse:** a small glowing blue marker stays next to the pointer and shows what Nova is doing (a ring while it listens, dots while it thinks, a glow while it speaks, amber when it needs your OK, a number when agents are working for you). Ask where something is, or say "walk me through…", "I'm stuck, help me in this app", "teach me how to use this in this app", and the marker flies to the spot, names it, and waits for your click before the next step; when Nova draws on your screen, the marker is the pen and traces each circle, box and arrow stroke by stroke, then flies back to the mouse. Background jobs ("in the background, …") are the agents: the marker's number counts them and Nova tells you when they're done. It dims when the mouse is still, hides in games, never gets in the way of a click, never appears in Nova's own screenshots, and does show in screen recordings. Turn it off with `companion.enabled`, or change its colour with `companion.color`.
+- **Circle to ask:** hold the talk key, draw a loop round what you mean with the mouse, and ask ("what does this error mean?"). A red trail shows what Nova sees, and the loop is drawn on the screenshot the AI gets, so it knows exactly what you marked. Only a real loop counts (closed, big enough), so ordinary mouse movement while holding Ctrl does nothing. Turn it off with `brain.circle_to_ask`.
+- **Your apps:** Settings → AI → Apps connects the AI to Linear, Notion, Jira, GitHub or any MCP server (Gmail, Salesforce and others through a service like Composio). Press Sign in, type `/mcp` in the Claude Code window that opens, pick the app and sign in. Reading is automatic; anything that changes an app (create, update, send, delete) asks you first, every time, and Plan mode blocks it. Only you can add an app: the safety guard stops the AI editing that setting, and a token goes in an environment variable (`"Authorization": "Bearer ${GITHUB_TOKEN}"`), never in the file. Claude Code only for now: Codex isn't given your apps because its safety hook isn't known to cover them. The guard judges a tool by its name, so connect only servers you trust: a tool called `query` that can also write (a database server) passes without a card, so give such a server a read-only account.
+- **Suggestions (off by default):** when you copy an error message, a link or a long text, a small card offers to explain or summarise it. Nothing goes to the AI until you press Do it, so it costs no quota meanwhile. If you chose a model on this computer for dictation, it only votes YES or NO on whether to interrupt (it never writes the card); without one, plain rules decide. At most 4 a day (2 without a local model), 20 minutes apart, never while you're in a game or a meeting, never for anything a password manager copied, and a kind you dismiss three times stops for a week. Nova remembers only counts and hashes, never the text.
 - **Walks you through it:** "walk me through exporting this as a PDF" and Nova's arrow shows each click on your screen, moving on after you click. Esc stops it.
 - **Routines:** "start my day" gives a short spoken rundown (each project's branch and uncommitted changes, open tasks in your notes, follow-ups from memory). Add your own in Settings → Routines, e.g. "deep code mode" = "pause music, open VS Code in portfolio, run npm run dev". Schedule them by voice: "every weekday at 9, run start my day".
+- **Background jobs:** start a request with "in the background, …" (or end it with "as a background task") and Nova keeps listening while the AI works on its own in `workspace/jobs/<id>/`, putting what it makes in `output/`. When it's done Nova says the result (never over something else you're doing) and opens a lone document. Say "stop the background jobs" to cancel; Esc and the shortcut only stop the request in front of you. The safety guard still checks every action, and a job's approval card names the job. Jobs don't use your browser, and each one spends your Claude / Codex allowance, so two run at a time (`brain.max_background`).
+- **Picks up where it stopped:** every request is recorded in `data/jobs/`. If Nova closes in the middle of one, say "pick that up" next time and the AI carries on from the same session (within a day).
 - **Keeps an eye on long jobs:** run `python <nova folder>/helpers/watch.py npm run build` and keep working; Nova says when it's done, or explains why it failed and offers to fix it. Turn on Settings → AI → "Tell me when Claude Code finishes" to hear when a Claude Code task you started in a terminal is done.
 - **Notices your meetings (Windows):** when Zoom, Teams or a Google Meet tab starts using your microphone, Nova offers to take notes.
 - **Listens to your computer:** say "listen to my computer" (or use the tray menu) during a video, lecture or call, then ask "what did they just say?" or "grab the command they mentioned". The transcript covers the last 15 minutes and stays in memory; "stop listening" ends it. On a Mac this needs macOS 13+, Apple's command-line tools (`xcode-select --install`) and the Screen Recording permission, and it listens only when you ask, because macOS shows its recording indicator the whole time it captures.
@@ -242,12 +250,22 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 | `hotkey_mode`, `hotkey_2_mode`, `hold_mode`, `hold_key_2_mode`, `triple_tap_mode` | `current`, `dictation`, `dictation`, `assistant`, `assistant` | What each one starts: `"current"` (the mode Nova is in), `"assistant"` or `"dictation"` (for that request only). The same key in two slots follows the current mode |
 | `wake_word` | `true` | Listen for "Hey Nova" |
 | `overlay.position` | `bottom` | `"top"` puts the bar at the top of the screen (from the notch on a MacBook) |
+| `overlay.sketch` | `true` | Draw a paper note on screen for spoken questions with a short factual answer |
+| `overlay.sketch_images` | `true` | Let a note show one photo: the lead image of the Wikipedia page the AI names |
 | `voice.tts_engine` | `piper` | `"piper"`, `"kitten"`, `"kokoro"` (downloads when picked) or `"system"` |
 | `voice.kokoro_voice` / `voice.kitten_voice` / `voice.tts_speed` | `af_heart` / `expr-voice-2-f` / `1.0` | Kokoro voice, e.g. `"bm_george"` (British man); Kitten voice, `expr-voice-2-m` to `expr-voice-5-f`; speed 0.75 to 1.4 |
 | `voice.tts_voice` | system default | System voice name, e.g. `"Microsoft Zira Desktop"` or `"Rishi"` (Mac) |
 | `voice.language` | `auto` | Or `"en"`, `"hi"`… |
 | `brain.engine` | set by setup | `"claude"` or `"codex"` |
 | `brain.claude_model` / `brain.codex_model` | CLI default | Model for assistant requests |
+| `brain.max_background` | `2` | How many background jobs run at once |
+| `companion.enabled` | `true` | The marker beside your mouse pointer (it still flies to what Nova points at when off) |
+| `companion.color` | `#3380FF` | The marker's colour |
+| `brain.circle_to_ask` | `true` | Circle something with the mouse while holding the talk key |
+| `mcp.servers` | `{}` | The apps the AI can use, set in Settings → AI → Apps: a name and an address, or an object with `url` + `headers` or `command` + `args` + `env` (secrets as `${VARIABLE}`) |
+| `proactive.enabled` | `false` | Offer help with what you copy (errors, links, long texts) |
+| `proactive.max_per_day` | `4` | At most this many suggestion cards a day (2 without a local model) |
+| `proactive.use_local_model` | `true` | Let the dictation model on this computer vote on whether to interrupt |
 | `brain.codex_sandbox` | `workspace-write` | Use `danger-full-access` if Codex's sandbox blocks opening apps (the guard still applies) |
 | `dictation.editing` | `light` | `verbatim`, `light` or `medium` |
 | `dictation.dictionary` / `replacements` | | Words to spell right, e.g. `{"wisper": "Wispr"}` |
@@ -309,8 +327,21 @@ core/stats.py         words dictated, speaking speed and time saved, for the Hom
 core/schedule.py      scheduled routines ("every weekday at 9, run start my day")
 core/walkthrough.py   the first-run walkthrough's clips: downloaded once, checked against the release's checksum
 core/brain.py         Claude Code and Codex adapters
+core/jobs.py          a record of every request (data/jobs) for "pick that up", and background jobs' folders
 core/bar.py           the bottom-centre bar
 core/overlay.py       the card for replies and approvals
+core/pointer.py       the companion: follows the mouse, flies to what the AI points at, is the pen
+core/circle.py        circle-to-ask: follows the mouse while a hold key is down and finds the loop
+core/mcp.py           the user's apps (MCP servers): validation and the files Claude Code reads
+core/proactive.py     suggestion cards for what you copy: the rules, the model's vote, and the daily limits
+core/background.py    background jobs ("in the background, …"), a part of the Nova class
+core/suggest.py       suggestion cards and follow-up chips as they appear and are answered, a part of the Nova class
+core/questions.py     what kind of question a request is (screen, sketch note, follow-up chip)
+core/errors.py        error messages a person can act on
+core/draw.py          the drawing language (`DRAW:` lines) and the click-through window that draws it
+core/sketch.py        reads the `:::sketch` block of a reply (the facts for the note)
+core/sketchpad.py     draws that note on screen with a pen, hand-drawn, with its photo and follow-up chips
+core/webimage.py      fetches a note's photo safely (public https only, size and time limits, decoded in memory)
 core/clipboard.py     keeps your clipboard intact around dictation
 core/tts.py           spoken replies: Piper, Kitten or Kokoro voices, or the system's
 guard/guard.py        safety hook for Claude Code and Codex

@@ -28,6 +28,8 @@ SECRETS = (r"login data|logins\.json|key4\.db|web data|cookies\.sqlite|[\\/]netw
            r"|\.git-credentials|\.netrc\b|\.npmrc|\.pypirc|gh[\\/]hosts\.yml|\.claude[\\/]\.credentials"
            r"|\.codex[\\/]auth\.json")
 NOVA_DATA = "reads Nova's own keys"
+NOVA_APPS = ("changes which apps the AI can reach (Linear, Notion, Jira...), which only the user may do (Settings → AI → "
+             "Apps)")
 NOVA_SAFETY = ("changes Nova's safety guard or safety settings, which only the user may do (Settings → Privacy & "
                "safety)")
 # the home folder, all users' folders or a whole drive: a search through one of these goes into .ssh, .aws and the
@@ -354,6 +356,40 @@ def classify_patch(patch, cwd, roots, home, notes, mode="accept_edits"):
     return max(verdicts, key=lambda v: SEVERITY[v[0]])
 
 
+# The user's own app servers (MCP: Linear, Notion, Jira, GitHub...). Nova can't know what a tool does, so a tool is
+# let through only when its name starts with a read verb and holds no write word anywhere. Everything else asks, in every
+# mode but Bypass (Auto doesn't wave it through the way it does an unfamiliar shell command): an app's changes reach
+# other people (an issue assigned, a mail sent), and Plan mode blocks them.
+MCP_READ = {"get", "list", "search", "find", "read", "fetch", "query", "describe", "view", "show", "lookup", "count",
+            "check", "retrieve", "browse", "inspect", "whoami", "status", "summarize", "summarise", "explain"}
+MCP_WRITE = {"create", "update", "delete", "remove", "send", "post", "add", "write", "edit", "set", "merge", "close",
+             "archive", "assign", "comment", "reply", "publish", "transfer", "move", "upload", "execute", "run", "invoke",
+             "trigger", "submit", "approve", "cancel", "revoke", "grant", "drop", "rename", "push", "deploy", "label",
+             "transition", "save", "insert", "patch", "put", "forward", "share", "invite", "import", "clone", "fork",
+             "reopen", "resolve", "link", "unlink", "attach", "apply", "start", "stop", "enable", "disable", "install",
+             "uninstall", "reset", "restore", "sync", "complete", "mark", "pin", "react", "vote", "subscribe", "schedule",
+             "book", "pay", "order", "buy", "log", "track", "destroy", "clear", "fix", "unassign", "replace"}
+
+
+MCP_JOIN = {"and", "or", "then", "after", "before"}
+
+
+def mcp_words(name):
+    return [w.lower() for w in re.split(r"[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])", name) if w]
+
+
+def classify_mcp(tool, mode):
+    """(tier, why) for a tool of one of the user's own app servers: mcp__<server>__<tool>."""
+    server, _, name = tool[5:].partition("__")
+    words = mcp_words(name)
+    # a write word counts when it is the verb: first, or after "and" / "or" / "then" (list_and_delete, get_or_create_label).
+    # "get_order" or "search_book" name a thing (an order, a book) and are reads.
+    verbs = {w for i, w in enumerate(words) if i == 0 or words[i - 1] in MCP_JOIN}
+    if words and words[0] in MCP_READ and not MCP_WRITE & verbs:
+        return "allow", f"reads from {server}"
+    return with_mode("confirm", f"changes something in {server} ({name})", mode, unfamiliar=False)
+
+
 def classify(tool, inp, cwd, roots, home, notes, mode="accept_edits"):
     if tool in ("Bash", "PowerShell"):
         command = inp.get("command", "")
@@ -383,11 +419,15 @@ def classify(tool, inp, cwd, roots, home, notes, mode="accept_edits"):
     # Nova applies its own rules to the real page element; only its own server's tools, not a look-alike name
     if re.match(r"mcp__nova[-_]browser__", tool):
         return "allow", "browser action checked by Nova"
+    if tool.startswith("mcp__"):
+        return classify_mcp(tool, mode)
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         full = os.path.realpath(os.path.join(cwd, os.path.expandvars(path)))
         if home and (_under(full, os.path.join(home, "guard"))
                      or _under(full, os.path.join(home, "config.json")) and "safety" in new_text(inp).lower()):
             return "block", NOVA_SAFETY
+        if home and _under(full, os.path.join(home, "config.json")) and changes_apps(full, tool, inp):
+            return "block", NOVA_APPS
         tier, why = _write(full, roots, home, notes)
         if mode == "plan":
             return "block", PLAN
@@ -399,6 +439,29 @@ def classify(tool, inp, cwd, roots, home, notes, mode="accept_edits"):
     if isinstance(inp.get("command"), (str, list)) and inp.get("command"):  # a shell tool by another name ("shell",
         return classify("Bash", inp, cwd, roots, home, notes, mode)         # "exec_command"): the same rules apply
     return with_mode("confirm", f"unrecognised tool {tool}", mode)
+
+
+def changes_apps(full, tool, inp):
+    """True if this edit of config.json would change its `mcp` section (the apps the AI can reach), judged on the file
+    as it would be afterwards, not by which words the edit mentions. When that can't be worked out, it counts."""
+    try:
+        with open(full, encoding="utf-8") as f:
+            before = f.read()
+    except OSError:
+        before = ""
+    try:
+        if tool == "Write":
+            after = str(inp.get("content", ""))
+        else:
+            after = before
+            for e in (inp.get("edits") or [inp]):
+                old, new = str(e.get("old_string", "")), str(e.get("new_string", ""))
+                if not old or old not in after:
+                    raise ValueError("an edit that can't be applied here")
+                after = after.replace(old, new) if e.get("replace_all") else after.replace(old, new, 1)
+        return json.loads(after or "{}").get("mcp") != json.loads(before or "{}").get("mcp")
+    except (ValueError, AttributeError):
+        return bool(re.search(r"mcp|\"servers\"|apps", new_text(inp).lower()))
 
 
 def new_text(inp):
@@ -488,6 +551,10 @@ def _plain_segment(seg, cwd):
 
 def plain(tool, inp, cwd):
     """One plain sentence of what this tool call does, or '' when it isn't sure."""
+    if tool.startswith("mcp__") and not re.match(r"mcp__nova[-_]browser__", tool):
+        server, _, name = tool[5:].partition("__")
+        detail = next((str(inp[k]) for k in ("title", "subject", "name", "summary", "body", "text", "query", "id") if inp.get(k)), "")
+        return f"Asks {server} to {' '.join(mcp_words(name))}" + (f": {detail[:100]}" if detail else "")
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         path = str(inp.get("file_path") or inp.get("notebook_path") or "")
         return f"{'Writes' if tool == 'Write' else 'Changes'} {_thing(path, cwd)}" if path else ""
@@ -510,7 +577,8 @@ def ask_nova(tool, summary, reason, plain_text=""):
     try:
         # a named pipe on Windows, a Unix socket on macOS: Client works out which from the address
         with Client(os.environ["NOVA_PIPE"], authkey=bytes.fromhex(os.environ["NOVA_KEY"])) as conn:
-            conn.send({"tool": tool, "summary": summary, "reason": reason, "plain": plain_text})
+            conn.send({"tool": tool, "summary": summary, "reason": reason, "plain": plain_text,
+                       "job": os.environ.get("NOVA_JOB", "")})  # set for a background job: the card names it
             return conn.poll(float(os.environ.get("NOVA_TIMEOUT", "30")) + 5) and conn.recv() is True
     except Exception:  # Nova not running, bad key, broken pipe: deny
         return False

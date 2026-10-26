@@ -82,9 +82,9 @@ class Card(Layered):
         self.hotkey = hotkey
 
     # ---------- content ----------
-    def show(self, title, body="", buttons=False, hide_after=None, kind=None, quote="", detail=""):
+    def show(self, title, body="", buttons=False, hide_after=None, kind=None, quote="", detail="", labels=None):
         self.kind = kind or ("approval" if buttons else "info")
-        self.base = self._render(title, plain(body), buttons, quote, detail)
+        self.base = self._render(title, plain(body), buttons, quote, detail, labels)
         left, top, right, bottom = system.work_area()
         width, height, k = self.base.width / self.px, self.base.height / self.px, self.logical
         self.x = int((left + right - width) / 2)
@@ -103,7 +103,7 @@ class Card(Layered):
             self._tick()
         self.hide_later(hide_after)
 
-    def _render(self, title, body, buttons, quote, detail):
+    def _render(self, title, body, buttons, quote, detail, labels=None):
         """The card at rest, at 1x: shadow, panel, text and buttons. Animated bits go on top per frame."""
         s = self.scale * SS
         inner = (WIDTH - 2 * PAD) * s
@@ -149,8 +149,8 @@ class Card(Layered):
         if buttons:
             y += 4 * s
             bx = x0
-            for label, color, action in ((f"Allow   {self.hotkey}" if self.hotkey else "Allow", ACCENT, self.on_allow),
-                                         ("Deny   Esc", TRACK, self.on_deny)):
+            yes, no = labels or (f"Allow   {self.hotkey}" if self.hotkey else "Allow", "Deny   Esc")
+            for label, color, action in ((yes, ACCENT, self.on_allow), (no, TRACK, self.on_deny)):
                 bw = self.f_button.getlength(label) + 28 * s
                 d.rounded_rectangle((bx, y, bx + bw, y + 34 * s), 17 * s, fill=color + (255,))
                 d.text((bx + bw / 2, y + 17 * s), label, font=self.f_button, fill=TEXT, anchor="mm")

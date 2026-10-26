@@ -138,6 +138,7 @@ class Layered:
                 self.ns = None
                 return self._init_tk_fallback()
         self.hwnd = system.no_activate(win, layered=True)
+        system.OWN_WINDOWS.append(self.hwnd)
         self.screen_dc = user32.GetDC(None)
         self.mem_dc = gdi32.CreateCompatibleDC(self.screen_dc)
         return win
@@ -158,6 +159,7 @@ class Layered:
             NSMakeRect(0, 0, 10, 10), 0x01 | 0x02 | 0x80 | 0x200, view, None))  # enter/exit, moved, always, in rect
         ns.setContentView_(view)
         self.ns, self.view, self.target = ns, view, _Target()
+        system.OWN_WINDOWS.append(ns)
         return self.target
 
     def _init_tk_fallback(self):
@@ -213,6 +215,23 @@ class Layered:
         user32.UpdateLayeredWindow(self.hwnd, self.screen_dc, ctypes.byref(w.POINT(x, y)),
                                    ctypes.byref(w.SIZE(*img.size)), self.mem_dc, ctypes.byref(w.POINT(0, 0)),
                                    0, ctypes.byref(BLENDFUNCTION(0, 0, alpha, 1)), 2)  # AC_SRC_ALPHA, ULW_ALPHA
+
+    def _move(self, x, y):
+        """Move the window without redrawing it: much cheaper than _present for something that follows the mouse."""
+        if self.ns is not None:
+            full = NSScreen.screens()[0].frame().size.height  # AppKit counts y from the bottom of the main screen
+            self.ns.setFrameOrigin_((x, full - y - self.ns.frame().size.height))
+        elif system.IS_MAC:
+            self.win.geometry(f"+{x}+{y}")
+        else:
+            user32.UpdateLayeredWindow(self.hwnd, None, ctypes.byref(w.POINT(x, y)), None, None, None, 0, None, 0)
+
+    def _click_through(self):
+        """Clicks go to the app underneath, even on the window's own pixels."""
+        if self.ns is not None:
+            self.ns.setIgnoresMouseEvents_(True)
+        elif self.hwnd:  # WS_EX_TRANSPARENT
+            user32.SetWindowLongW(self.hwnd, -20, user32.GetWindowLongW(self.hwnd, -20) | 0x20)
 
     def _show(self):
         if self.ns is not None:

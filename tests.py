@@ -529,6 +529,10 @@ import time  # noqa: E402
 import types  # noqa: E402
 import nova as nova_mod  # noqa: E402
 nova_mod.log = lambda *a, **k: None  # these checks don't belong in your history
+import core.background as background_mod  # noqa: E402
+import core.suggest as suggest_mod  # noqa: E402
+import core.jobs as _jobs_silenced  # noqa: E402
+background_mod.log = suggest_mod.log = _jobs_silenced.log = lambda *a, **k: None
 
 # dictation stays on after "that's it"; a loose "switch back to assistant mode" must still switch, not get typed
 for said, want in [("Switch back to assistant mode.", "assistant"), ("Nova, go back to assistant mode please", "assistant"),
@@ -632,7 +636,7 @@ assert [e["id"] for e in list(n.outbox.queue) if e.get("event") == "asking"] == 
 for bar_state, pending, want in [("thinking", None, []), ("speaking", None, ["abort"]), ("listening", None, ["abort"]),
                                  ("idle", None, []), ("approval", ("p",), ["deny"])]:
     did = []
-    n = types.SimpleNamespace(pending=pending, bar=types.SimpleNamespace(state=bar_state), phase="busy",
+    n = types.SimpleNamespace(pending=pending, bar=types.SimpleNamespace(state=bar_state), phase="busy", suggesting=lambda: False,
                               abort=lambda: did.append("abort"), answer=lambda ok: did.append("allow" if ok else "deny"))
     nova_mod.Nova.on_esc(n)
     assert did == want, (bar_state, did)
@@ -2786,5 +2790,1271 @@ n.recorder.started, cards[:] = t0 - 5 * 60, []
 n.reminded_at = 0.0
 nova_mod.Nova.meeting_tick(n)
 assert cards == [], cards                                        # nothing in the first 15 minutes
+
+# Nova's own windows leave its screenshots, and come back even when the grab fails (a recording must still see them)
+import PIL.ImageGrab  # noqa: E402
+calls, real_hidden, real_grab = [], system._own_windows_hidden, PIL.ImageGrab.grab
+system._own_windows_hidden = calls.append
+PIL.ImageGrab.grab = lambda **k: (_ for _ in ()).throw(OSError("screen locked"))
+try:
+    system.screenshot(Path(tempfile.gettempdir()) / "nova-test-shot.png")
+except OSError:
+    pass
+finally:
+    system._own_windows_hidden, PIL.ImageGrab.grab = real_hidden, real_grab
+assert calls == [True, False], calls
+
+# request records (core/jobs.py): written as the request runs, so closing Nova mid-request can be picked up
+import core.jobs as jobs  # noqa: E402
+jobs.DIR = Path(tempfile.mkdtemp(prefix="nova-jobs-"))
+r1 = jobs.begin("write the report", engine="Claude Code")
+assert jobs.load(r1["id"])["status"] == "running" and jobs.load(r1["id"])["session_id"] is None
+jobs.update(r1, session_id="abc")                      # the CLI named its session: a crash can now resume it
+r2 = jobs.begin("older and finished", engine="Claude Code")
+jobs.finish(r2, "done", reply="ok")
+jobs.interrupt_stale()                                  # "Nova closed": what was running is now interrupted
+assert jobs.load(r1["id"])["status"] == "interrupted" and jobs.load(r2["id"])["status"] == "done"
+assert jobs.resumable()["id"] == r1["id"]
+r3 = jobs.begin("no session yet", engine="Claude Code")
+jobs.interrupt_stale()
+assert jobs.resumable()["id"] == r1["id"]               # an interrupted request with no session can't be resumed
+jobs.update(r1, started=r1["started"] - 2 * 24 * 3600)
+assert jobs.resumable() is None                          # and one from two days ago is too old
+for i in range(jobs.KEEP + 5):
+    jobs.finish(jobs.begin(f"request {i}"), "done")
+jobs.interrupt_stale()
+assert len(jobs.all_records()) == jobs.KEEP
+jobs.DIR = Path(tempfile.mkdtemp()) / "a-file"; jobs.DIR.parent.joinpath("a-file").write_text("x")
+jobs.update(jobs.begin("the disk is unwritable"), status="done")  # a failing write is logged, never raised
+for yes in ("pick that up", "pick it back up", "continue where you left off", "carry on where you stopped",
+            "resume the last request"):
+    assert re.fullmatch(nova_mod.RESUME_RE, yes), yes
+for no in ("go on", "continue", "yes", "pick up the kids from school", "resume my music", "pick that up at five"):
+    assert not re.fullmatch(nova_mod.RESUME_RE, no), no
+
+# background jobs: "in the background, …" runs a second CLI in a folder of its own, away from the foreground request
+for text, task in (("In the background, research rocket startups", "research rocket startups"),
+                   ("do this in the background: summarise my notes", "summarise my notes"),
+                   ("background job: tidy the downloads folder", "tidy the downloads folder"),
+                   ("write a summary of the report, as a background task", "write a summary of the report")):
+    m = nova_mod.BACKGROUND_RE.fullmatch(text)
+    assert m and next(g for g in m.groups() if g).strip() == task, text
+for text in ("start the dev server in the background", "what runs in the background on my pc",
+             "keep Spotify playing in the background", "open the background settings", "background",
+             "In the background of this photo, what's that building?", "background task manager shows high CPU, why?",
+             "background job failed again, check the logs", "in the background research rocket startups"):
+    assert not nova_mod.BACKGROUND_RE.fullmatch(text), text
+assert re.fullmatch(nova_mod.STOP_BACKGROUND_RE, "stop the background jobs")
+assert not re.fullmatch(nova_mod.STOP_BACKGROUND_RE, "stop")
+
+import threading  # noqa: E402
+import types  # noqa: E402
+jobs.DIR, jobs.FOLDERS = Path(tempfile.mkdtemp(prefix="nova-jobs-")), Path(tempfile.mkdtemp(prefix="nova-jobdirs-"))
+
+
+class FakeBrain:
+    name, session_id, last, limited, mode, browser, cancelled = "Fake", None, 0.0, False, "auto", True, False
+
+    def __init__(self, workspace, env):
+        self.workspace, self.env = workspace, env
+        self.on_session = lambda sid: None
+
+    def run(self, prompt, projects, aliases, on_step, **k):
+        self.prompt = prompt
+        self.on_session("sess-1")
+        on_step("Writing")
+        Path(self.workspace, "output", "report.md").write_text("# hi", encoding="utf-8")
+        return "Done, see report.md", "The report is ready.", None
+
+    def cancel(self):
+        self.cancelled = True
+
+
+made, told = [], []
+real_make = background_mod.make_brain
+background_mod.make_brain = lambda cfg, ws, env, settings, hook: made.append(FakeBrain(ws, env)) or made[-1]
+n = object.__new__(nova_mod.Nova)
+n.cfg = merged(json.loads((Path(__file__).parent / "config.default.json").read_text(encoding="utf-8")), {})
+n.env, n.settings, n.hook, n.bg, n.quitting = {"NOVA_MODE": "auto", "NOVA_ROOTS": "x"}, "s", "h", {}, False
+n.apps = {"linear": {}}
+n.brain, n.outbox = FakeBrain("ws", n.env), queue.Queue()
+n.note = lambda title, text: told.append((title, text))
+n.say = lambda *a, **k: told.append(a)
+n.ui = lambda fn, *a: None
+n.push_state = lambda: None
+n.report_job = lambda *a: told.append(("report", a[1], a[5]))
+n.background("research rocket startups")
+job = next(iter(n.bg.values())) if n.bg else None
+if job:
+    job["thread"].join(10)
+recs = [r for r in jobs.all_records() if r["kind"] == "background"]
+assert len(recs) == 1 and recs[0]["status"] == "done" and recs[0]["files"] == ["report.md"], recs
+assert recs[0]["session_id"] == "sess-1" and recs[0]["prompt"] == "research rocket startups"
+b = made[0]
+assert Path(b.workspace) == jobs.FOLDERS / recs[0]["id"] and (Path(b.workspace) / "tmp").is_dir()
+assert b.browser is False and b.env is not n.env and b.env["NOVA_JOB"] == recs[0]["id"]
+assert b.workspace in b.env["NOVA_ROOTS"].split(os.pathsep) and n.env["NOVA_ROOTS"] == "x" and "NOVA_JOB" not in n.env
+assert "Don't ask questions" in b.prompt and "research rocket startups" in b.prompt
+assert ("report", "done", ["report.md"]) in told, told
+assert not n.bg                                           # a finished job is no longer running
+
+# a second job is refused past the limit; Esc and "stop" cancel the right things
+n.cfg["brain"]["max_background"] = 1
+gate = threading.Event()
+FakeBrain.run = lambda self, *a, **k: (gate.wait(5), ("x", "y", None))[1]
+n.background("first")
+n.background("second")
+assert told[-1][0] == "Already busy" and len(n.bg) == 1, told[-1]
+running = next(iter(n.bg.values()))
+n.pending, n.cancel, n.stop_rec, n.stop_tts = None, threading.Event(), threading.Event(), threading.Event()
+n.card = types.SimpleNamespace(show=lambda *a, **k: None)
+n.canvas = n.sketchpad = types.SimpleNamespace(hide=lambda: None)
+n.abort()                                                 # Esc / the shortcut: the foreground request only
+assert not running["cancel"].is_set() and not running["brain"].cancelled
+n.cancel_background()                                     # "stop the background jobs"
+assert running["cancel"].is_set() and running["brain"].cancelled
+gate.set()
+running["thread"].join(10)
+assert [r["status"] for r in jobs.all_records() if r["prompt"] == "first"] == ["cancelled"]
+
+n.cfg["safety"]["mode"] = "plan"
+n.background("anything")
+assert told[-1][0] == "Background jobs need Auto mode"
+background_mod.make_brain = real_make
+
+# a background job's approval card names the job, and a stray shortcut press can't approve it
+import time  # noqa: E402
+n.approval_lock, n.asking_id, n.pending, n.ask_event, n.asking, n.voice, n.phase = threading.Lock(), 0, None, None, "", False, "idle"
+n.asking_job, n.paused = False, False
+n.ui, n.show_bar = (lambda fn, *a: fn()), (lambda state: None)
+cards = []
+n.card = types.SimpleNamespace(show=lambda title, body="", **k: cards.append((title, body)))
+jrec = jobs.begin("tidy my notes", kind="background")
+verdict = []
+asker = threading.Thread(target=lambda: verdict.append(n.ask({"summary": "rm x", "reason": "deletes", "plain": "Deletes x",
+                                                              "job": jrec["id"]})))
+asker.start()
+while not (n.pending and cards):  # the card is shown just after the request is pending
+    time.sleep(0.01)
+assert n.asking_job and any("tidy my notes" in b and "Deletes x" in b for _, b in cards), cards
+n.on_hotkey()                           # the shortcut means "allow" for a request, not for a job
+assert n.pending and asker.is_alive() and not verdict
+n.answer(True)
+asker.join(5)
+assert verdict == [True] and not n.asking_job and n.pending is None
+
+# the drawing language (core/draw.py): DRAW: lines in the AI's reply become shapes on the screen
+import core.draw as draw  # noqa: E402
+reply = '''Look here.
+DRAW: box 100 50 200 80 "Export" red
+**DRAW:** arrow 10 10 90 60 “Click this” curve
+DRAW: circle 40 40 12 green fill
+DRAW: num 20 30 3
+DRAW: line 0 0 50 50 dashed
+DRAW: text 5 5 "hello there"
+DRAW: banana 1 2 3
+DRAW: box 10 10
+DRAW: text 5 5
+DRAW: circle 5 5 0
+Draw: hold Shift for a straight line
+DRAW: arrow 10,10 90,60
+DRAW: box 1, 2, 3, 4 blue,
+SAY: that one'''
+shown, shapes = draw.take(reply, (1000, 500, 2, 400, 300))       # a screenshot of twice the screen's pixels
+assert shown == "Look here.\nDraw: hold Shift for a straight line\nSAY: that one", shown  # DRAW lines leave, even bad ones
+assert [s["kind"] for s in shapes] == ["box", "arrow", "circle", "num", "line", "text", "arrow", "box"], shapes
+assert shapes[6]["p"] == [1005, 505, 1045, 530] and shapes[7]["p"] == [1000, 501, 2, 2] and shapes[7]["color"] == "blue"
+box, arrow, circle, num = shapes[:4]
+assert box["p"] == [1050, 525, 100, 40] and box["label"] == "Export" and box["color"] == "red"   # place: left + x/k; size: w/k
+assert arrow["p"] == [1005, 505, 1045, 530] and arrow["label"] == "Click this" and arrow["curve"]
+assert circle["p"] == [1020, 520, 6] and circle["fill"] and circle["color"] == "green"
+assert num["p"] == [1010, 515] and num["label"] == "3" and shapes[4]["dashed"]
+shown, shapes = draw.take("DRAW: dot 900 900", (0, 0, 1, 400, 300))
+assert shapes[0]["p"] == [400, 300]                                # a guess past the edge stays on the screenshot
+assert draw.take("a\nDRAW: dot 1 1\nb", None) == ("a\nb", [])      # no screenshot: removed, never drawn or read out
+assert len(draw.take("\n".join(f"DRAW: dot {i} {i}" for i in range(30)), (0, 0, 1, 99, 99))[1]) == draw.MAX_SHAPES
+font = draw._font(13 * draw.SS)
+for text in ("box 20 20 100 60 \"Label\"", "arrow 10 10 150 90 curve", "circle 80 60 40 fill", "dot 50 50 \"x\"",
+             "num 50 50 4 orange", "text 20 20 \"hi\" yellow", "line 10 10 120 80 dashed"):
+    img, x, y, _ = draw.render(draw.parse(text), draw.SS, draw.SS, font)
+    assert img.width > 10 and img.getchannel("A").getbbox(), text   # something was drawn, in a small image, not a screen
+    assert x < 80 and y < 80 and img.width < 400, (text, x, y, img.size)
+cover = lambda t: sum(draw.render(draw.parse(t), draw.SS, draw.SS, font)[0].getchannel("A").point(lambda a: a > 128 and 255)  # noqa: E731
+                      .histogram()[255:])
+assert cover("line 10 10 300 10 dashed") < cover("line 10 10 300 10") * 0.9   # dashes leave gaps
+
+# sketch notes (core/sketch.py, core/sketchpad.py): a spoken answer comes with a small drawing of its facts
+import core.sketch as sketch_mod  # noqa: E402
+import core.sketchpad as sketchpad_mod  # noqa: E402
+block = """Antonelli won.
+:::sketch Antonelli wins at Suzuka
+sub Japanese Grand Prix
+row 1 | Antonelli | Mercedes
+row Piastri | +13.7 s
+bar Antonelli | 100
+bar Piastri | lots
+bar | 5
+flow Qualify -> Race → Podium > Party > Extra
+item a plain bullet
+note remember this
+src Formula 1, ESPN
+bogus line
+:::
+SAY: Kimi Antonelli won."""
+rest, sk = sketch_mod.take(block)
+assert rest == "Antonelli won.\nSAY: Kimi Antonelli won.", rest
+assert sk["title"] == "Antonelli wins at Suzuka" and sk["sub"] == "Japanese Grand Prix" and sk["src"] == ["Formula 1", "ESPN"]
+assert sk["elements"] == [("row", ("1", "Antonelli", "Mercedes")), ("row", ("", "Piastri", "+13.7 s")),
+                          ("bar", ("Antonelli", 100.0)), ("flow", ["Qualify", "Race", "Podium", "Party"]),
+                          ("item", "a plain bullet"), ("note", "remember this")], sk["elements"]   # bad bars and lines are dropped
+assert sketch_mod.take("```\n:::sketch T\nrow a\n:::\n```\nok")[0] == "ok"                           # a code fence goes with it
+rest, sk = sketch_mod.take("Intro\n:::sketch Never closed\nrow a | b\nitem c\nSAY: hi")              # the model forgot the closing :::
+assert rest == "Intro" and len(sk["elements"]) == 2
+assert sketch_mod.take("Intro\n:::sketch Empty\nnothing useful\n:::\nafter") == ("Intro\nafter", None)
+assert sketch_mod.take("no block here") == ("no block here", None)
+rest, sk2 = sketch_mod.take(":::sketch T\nrow a | b\nimg https://pics.example/a.jpg | A link\nimg wiki Kimi Antonelli | A face\n"
+                            "ask Inside?\n:::\nask Why is that?\nask not a question\nSAY: hi")   # asks may follow the block
+assert rest == "ask not a question\nSAY: hi" and sk2["asks"] == ["Inside?", "Why is that?"], (rest, sk2)
+assert sk2["image"] == ("wiki:Kimi Antonelli", "A face")               # a Wikipedia page only: never a link the AI wrote
+assert sketch_mod.take(":::sketch T\nrow a\nimg https://pics.example/a.jpg\n:::")[1]["image"] is None
+assert len(sketch_mod.take(":::sketch T\nrow a\n" + "ask q?\n" * 6 + ":::")[1]["asks"]) == sketch_mod.MAX_ASKS
+many = ":::sketch T\n" + "\n".join(f"item {i}" for i in range(30)) + "\n:::"
+assert len(sketch_mod.take(many)[1]["elements"]) == sketch_mod.MAX_ELEMENTS
+assert sketch_mod.as_text(sk).splitlines()[0] == "Never closed"
+# no SAY: line: the spoken fallback is a sentence of the answer, never a sketch block or DRAW / POINT line
+from core.brain import split_say  # noqa: E402
+for first in (":::sketch Title\nrow 1 | a | b\n:::", "DRAW: num 12 40 2", "**POINT: 10,20 Create**"):
+    shown, say, ask = split_say(f"{first}\nThe winner was Antonelli. He drove well.")
+    assert say == "The winner was Antonelli.", (first, say)
+
+# built off the screen thread, drawn by a pen; a click clears it; a timer set for one sketch never clears the next
+import numpy as np  # noqa: E402
+built = sketchpad_mod.build(sk, 1.0)
+assert built["base"].width > 400 and len(built["elements"]) == 3 and built["sketch"] is sk   # the paper, a title, two lines
+assert all(el["y"] > 0 and len(el["frames"]) >= 2 for el in built["elements"])
+rich = sketch_mod.take(":::sketch Pen test\nrow 1 | Alpha | Beta\nbar Alpha | 5\nflow A > B > C\nnote hello there\nsrc X, Y\n"
+                       "ask Why?\n:::")[1]
+b1, b2 = sketchpad_mod.build(rich, 1.0, total_frames=70), sketchpad_mod.build(rich, 1.0, total_frames=70)
+ink = lambda img: int(np.asarray(img.getchannel("A"), dtype=int).sum())  # noqa: E731
+for e1, e2 in zip(b1["elements"], b2["elements"]):
+    assert [f.tobytes() for f in e1["frames"]] == [f.tobytes() for f in e2["frames"]]     # the same wobble every time
+    amount = [ink(f) for f in e1["frames"]]
+    assert amount[0] < amount[-1], amount                                                  # it starts empty-ish, ends full
+    assert all(b >= a - 60 * 255 for a, b in zip(amount, amount[1:])), amount              # a line only grows (a pen tip aside)
+for scale in (1.0, 1.25):                                                                  # chips: clickable where they are drawn
+    b = sketchpad_mod.build(rich, scale)
+    page = b["base"].copy()
+    for el in b["elements"]:
+        page.alpha_composite(el["frames"][-1], (el["x"], el["y"]))
+    assert [c[0] for c in b["chips"]] == ["Why?"]
+    text, x0, y0, x1, y1 = b["chips"][0]
+    assert 0 < x0 < x1 <= b["base"].width and 0 < y0 < y1 <= b["base"].height
+    assert page.getpixel((round(x0) + 6, round((y0 + y1) / 2)))[:3] == (226, 237, 255), scale   # the chip's own colour
+    asked_q, gone = [], []
+    chip_pad = object.__new__(sketchpad_mod.SketchPad)
+    chip_pad.on_chip, chip_pad._jobs, chip_pad._hide_job, chip_pad.held = asked_q.append, [], None, None
+    chip_pad.win, chip_pad._hide = types.SimpleNamespace(after_cancel=lambda j: None), lambda: gone.append(1)
+    chip_pad.current = b
+    chip_pad._click(types.SimpleNamespace(x=(x0 + x1) / 2, y=(y0 + y1) / 2))
+    assert asked_q == ["Why?"] and chip_pad.current is None, scale                          # a click on the chip asks it, and clears
+    chip_pad.current = b
+    chip_pad._click(types.SimpleNamespace(x=5, y=5))
+    assert asked_q == ["Why?"] and chip_pad.current is None                                 # anywhere else just clears
+timers = []
+pad = object.__new__(sketchpad_mod.SketchPad)
+pad.win = types.SimpleNamespace(after=lambda ms, fn: timers.append((ms, fn)) or len(timers),
+                                after_cancel=lambda job: timers.append(("cancelled", job)))
+pad._hide, pad._jobs, pad._hide_job, pad.held = lambda: None, [], None, None
+other = {"title": "other"}
+pad.current = built
+pad.hold(other)
+assert not timers                                                       # `other` isn't on screen: nothing scheduled
+pad.hold(sk, 5)
+assert timers[0][0] == 5000
+pad.current = {"sketch": other}                                         # a newer sketch replaced it before the timer fired
+timers[0][1]()
+assert pad.current == {"sketch": other}                                 # so the old timer cleared nothing
+pad.hide()
+assert pad.current is None and pad.held is None and ("cancelled", 1) in timers
+timers.clear()
+pad.current, pad._jobs, pad._hide_job = built, ["drawing"], None
+pad.hold(sk, 5)
+assert not timers and pad.held == (sk, 5)                               # still drawing: remembered, the timer starts after
+
+# a sketch is asked for only on a spoken question with no screenshot
+asked = object.__new__(nova_mod.Nova)
+asked.cfg, asked.sysaudio, asked.clips, asked.image, asked.shot = merged(json.loads((Path(__file__).parent / "config.default.json")
+                                                                         .read_text(encoding="utf-8")), {}), None, History(), None, None
+asked.cfg["brain"]["screen_context"] = False
+asked.ui = lambda fn, *a: None
+asked.canvas = asked.sketchpad = types.SimpleNamespace(hide=lambda: None)
+asked.voice = True
+assert ":::sketch" in asked.context("who won today's grand prix?")
+assert ":::sketch" not in asked.context("open Spotify")                  # a command
+for q in ("can you tell me who won the race", "do you know who won", "so who won the grand prix", "explain how a heat pump works"):
+    assert nova_mod.sketch_question(q), q
+for q in ("open Spotify", "so open Spotify", "can you open the settings", "play some music"):
+    assert not nova_mod.sketch_question(q), q
+asked.voice = False
+assert ":::sketch" not in asked.context("who won today's grand prix?")  # typed or from the phone: nothing pops up on the PC
+asked.voice = True
+asked.cfg["overlay"]["sketch"] = False
+assert ":::sketch" not in asked.context("who won today's grand prix?")  # turned off in settings
+
+# the wiring in assist(): the note is shown before Nova speaks, speech gets the reply without the block, the history
+# keeps the facts as text, the note is held after speech; and a pointer or drawing on screen means no note
+events, logged = [], []
+real_log, nova_mod.log = nova_mod.log, lambda event, **f: logged.append((event, f))
+w = object.__new__(nova_mod.Nova)
+w.cfg = merged(json.loads((Path(__file__).parent / "config.default.json").read_text(encoding="utf-8")), {})
+w.cfg["brain"]["screen_context"] = False
+w.env, w.heard, w.asked, w.followup, w.voice, w.quitting, w.web_target = {}, "", False, False, True, False, "x"
+w.sysaudio, w.clips, w.image, w.shot, w.cancel = None, History(), None, None, threading.Event()
+w.ui = lambda fn, *a: fn()
+w.card = w.canvas = types.SimpleNamespace(show=lambda *a, **k: None, hide=lambda: None)
+w.pointer = types.SimpleNamespace(fly=lambda *a, **k: events.append("point"))
+w.sketchpad = types.SimpleNamespace(prepare=lambda sk: {"sk": sk}, show=lambda b: events.append("show"),
+                                    hold=lambda b: events.append("hold"), hide=lambda: None)
+w.say = lambda title, spoken, shown="": events.append(("say", spoken, shown))
+reply = {"text": "Antonelli won.\n:::sketch Suzuka result\nrow 1 | Antonelli | Mercedes\n:::\nSAY: Kimi Antonelli won at Suzuka."}
+
+
+class FakeAsk:
+    name, session_id, limited, mode, browser_name = "Fake", None, False, "auto", ""
+    on_session = lambda self, sid: None  # noqa: E731
+    run = lambda self, *a, **k: split_say(reply["text"])  # noqa: E731
+
+
+w.brain = FakeAsk()
+w.assist("who won today's grand prix?")
+assert events == ["show", ("say", "Kimi Antonelli won at Suzuka.", "Antonelli won."), "hold"], events
+history = next(f["reply"] for e, f in logged if e == "reply")
+assert "Antonelli won." in history and "Suzuka result" in history and "Antonelli (Mercedes)" in history, history
+assert ":::" not in history
+events.clear()
+w.context = lambda text: setattr(w, "shot", (0, 0, 1, 100, 100)) or ""   # a screenshot was taken, and the AI points at something
+reply["text"] = "Here.\nPOINT: 10,20 Create\n" + reply["text"]
+w.assist("where is the create button?")
+assert "show" not in events and "point" in events, events                 # one thing on screen at a time
+events.clear()
+w.context = lambda text: ""
+w.shot, w.voice = None, False
+w.assist("who won today's grand prix?")
+assert "show" not in events, events                                       # typed or phone: never on the PC
+nova_mod.log = real_log
+
+# the picture on a note (core/webimage.py): a link the AI wrote may come from a web page, so nothing unsafe is fetched
+import core.webimage as webimage  # noqa: E402
+from PIL import Image as PILImage  # noqa: E402
+
+
+def fetch_url(url, resolve, request, max_bytes=webimage.MAX_BYTES, deadline_s=webimage.DEADLINE_S, max_pixels=webimage.MAX_PIXELS):
+    """The picture checks of webimage, for any address (Nova itself only uses them on the ones Wikipedia names)."""
+    return webimage._image(url, resolve, request, max_bytes, time.monotonic() + deadline_s, max_pixels)
+
+
+def picture(fmt="PNG", size=(40, 30)):
+    out = io.BytesIO()
+    PILImage.new("RGB", size, (200, 0, 0)).save(out, fmt)
+    return out.getvalue()
+
+
+class Reply:
+    def __init__(self, status=200, kind="image/png", body=b"", location=None):
+        self.status, self.kind, self.body, self.location = status, kind, io.BytesIO(body), location
+
+    def getheader(self, name):
+        return {"Content-Type": self.kind, "Location": self.location}.get(name)
+
+    def read(self, n):
+        return self.body.read(n)
+
+    def close(self):
+        pass
+
+
+def got(url, replies, resolved=("93.184.216.34",), **kw):
+    """fetch() with no network: `replies` are what the host answers in turn; returns (image, [(host, ip, path)])."""
+    asked, queue_ = [], list(replies)
+    request = lambda host, ip, path, timeout: asked.append((host, ip, path)) or queue_.pop(0)  # noqa: E731
+    return fetch_url(url, resolve=lambda host: list(resolved), request=request, **kw), asked
+
+
+def refused(url, replies=(), resolved=("93.184.216.34",), **kw):
+    try:
+        got(url, replies, resolved, **kw)
+    except (ValueError, OSError):
+        return True
+    return False
+
+
+img, asked = got("https://pics.example/a/b.png?x=1", [Reply(body=picture())])
+assert img.size == (40, 30) and img.mode == "RGB" and asked == [("pics.example", "93.184.216.34", "/a/b.png?x=1")]  # pinned address
+for bad in ("http://pics.example/a.png", "https://pics.example:8443/a.png", "https://127.0.0.1/a.png", "https://[::1]/a.png",
+            "https://user@pics.example/a.png", "file:///etc/passwd", "ftp://pics.example/a.png", "//pics.example/a.png"):
+    assert refused(bad, [Reply(body=picture())]), bad                    # nothing is even asked for
+for private in (["127.0.0.1"], ["10.0.0.5"], ["192.168.1.1"], ["169.254.169.254"], ["::1"], ["::ffff:127.0.0.1"],
+                ["fe80::1"], ["0.0.0.0"], ["224.0.0.1"], ["93.184.216.34", "10.0.0.5"], []):
+    assert refused("https://pics.example/a.png", [Reply(body=picture())], resolved=private), private
+assert not refused("https://pics.example/a.png", [Reply(body=picture())], resolved=["2606:2800:220:1:248:1893:25c8:1946"])
+img, asked = got("https://a.example/x.png", [Reply(302, location="https://b.example/y.png"), Reply(body=picture())])
+assert img and [a[0] for a in asked] == ["a.example", "b.example"]       # a redirect is followed, and checked again
+assert refused("https://a.example/x.png", [Reply(302, location="http://b.example/y.png")])
+assert refused("https://a.example/x.png", [Reply(302, location="https://127.0.0.1/y.png")])
+assert refused("https://a.example/x.png", [Reply(302, location="https://a.example/x.png")] * 6)         # a redirect loop
+redirected = []                                                          # the second host resolves to a private address
+try:
+    fetch_url("https://a.example/x.png", resolve=lambda h: ["93.184.216.34"] if h == "a.example" else ["10.0.0.9"],
+                   request=lambda h, ip, p, t: redirected.append(h) or Reply(302, location="https://evil.example/z.png"))
+except ValueError:
+    pass
+assert redirected == ["a.example"]                                       # never connected to evil.example
+assert refused("https://a.example/x.png", [Reply(body=picture())], max_bytes=100)                         # too big
+assert refused("https://a.example/x.png", [Reply(body=picture())], deadline_s=-1)                         # too slow
+assert refused("https://a.example/x.png", [Reply(kind="text/html", body=picture())])                      # not an image
+assert refused("https://a.example/x.png", [Reply(kind="image/svg+xml", body=b"<svg xmlns='http://www.w3.org/2000/svg'/>")])
+assert refused("https://a.example/x.png", [Reply(body=b"not a picture at all" * 50)])                     # garbage as image/png
+assert refused("https://a.example/x.png", [Reply(404, body=picture())])
+assert refused("https://a.example/x.png", [Reply(body=picture())], max_pixels=100)                        # a pixel bomb
+assert refused("https://a.example/x.png", [Reply(kind="image/bmp", body=picture("BMP"))])                 # only JPEG PNG WebP GIF
+assert got("https://a.example/x.png", [Reply(kind="image/jpeg", body=picture("JPEG"))])[0].size == (40, 30)
+big = got("https://a.example/x.png", [Reply(body=picture(size=(2000, 1000)))])[0]
+assert max(big.size) == webimage.MAX_SIDE                                # shrunk, in memory only
+webimage_log, webimage.log = webimage.log, lambda *a, **k: None
+assert webimage.get("http://pics.example/a.png") is None                 # get(): any failure is just "no picture"
+webimage.log = webimage_log
+
+# the wiring: a photo is fetched only when allowed, a failed fetch still gives a complete note, chips must be questions
+shown_sketches = []
+w.sketchpad = types.SimpleNamespace(prepare=lambda sk: shown_sketches.append(sk) or {"sk": sk}, show=lambda b: None,
+                                    hold=lambda sk: None, hide=lambda: None)
+fetched, real_get = [], nova_mod.webimage.get
+nova_mod.log = lambda event, **f: None
+reply["text"] = ("Antonelli won.\n:::sketch Suzuka\nrow 1 | Antonelli | Mercedes\nimg wiki Kimi Antonelli | Kimi\n"
+                 "ask Why does it matter?\nask Delete my files?\nask Tell me more\n:::\nSAY: Kimi won.")
+w.voice = True
+nova_mod.webimage.get = lambda url: fetched.append(url) or PILImage.new("RGB", (60, 40))
+w.assist("who won today's grand prix?")
+assert fetched == ["wiki:Kimi Antonelli"] and shown_sketches[-1]["photo"][1] == "Kimi"
+assert shown_sketches[-1]["asks"] == ["Why does it matter?"]             # a command or a non-question never becomes a chip
+nova_mod.webimage.get = lambda url: None                                 # the picture doesn't load: the note is still complete
+w.assist("who won today's grand prix?")
+assert "photo" not in shown_sketches[-1] and shown_sketches[-1]["elements"]
+fetched.clear()
+nova_mod.webimage.get = lambda url: fetched.append(url)
+w.cfg["overlay"]["sketch_images"] = False
+w.assist("who won today's grand prix?")
+assert not fetched and "photo" not in shown_sketches[-1]                 # turned off in settings: nothing is fetched
+nova_mod.webimage.get = real_get
+w.cfg["overlay"]["sketch_images"] = True
+
+# a chip click: starts at once when Nova is idle, waits (and stops the speech) when it is talking, never when paused
+started = []
+w.spawn, w.target = lambda work, phase: started.append(phase), None
+w.paused, w.pending, w.next_job, w.stop_tts, w.phase = False, None, None, threading.Event(), "idle"
+w.chip_clicked("How do safety cars help?")
+assert started == ["busy"] and w.voice is True                           # asked like a spoken request, so it speaks and may sketch
+started.clear()
+w.phase = "busy"
+w.chip_clicked("How do safety cars help?")
+assert not started and w.stop_tts.is_set() and w.next_job             # queued, and what was being said stops
+w.phase = "idle"
+w.next_job()                                                             # the request ended: the question starts
+assert started == ["busy"]
+started.clear()
+w.next_job, w.stop_tts = None, threading.Event()
+w.chip_clicked("delete everything now")                                  # not a question: ignored
+w.paused = True
+w.chip_clicked("How do safety cars help?")
+w.paused, w.pending = False, (threading.Event(), [None])                 # an approval is open: not now
+w.chip_clicked("How do safety cars help?")
+assert not started and not w.next_job and not w.stop_tts.is_set()
+assert sketch_mod.take(":::sketch T\nimg wiki Eiffel Tower | Iron tower\n:::")[1]["image"] == ("wiki:Eiffel Tower", "Iron tower")
+assert sketch_mod.take(":::sketch T\nrow a\nimg wiki | nothing\n:::")[1]["image"] is None        # no page title
+for q in ("When is the Mexico GP?", "Did he win last year?", "Can it be repaired?", "Who is Kimi Antonelli?"):
+    assert nova_mod.chip_question(q), q
+assert nova_mod.chip_question("Want to hear about Apollo 13?") and not nova_mod.chip_question("Want me to delete it?")
+rows = lambda t: [e[1][0] for e in sketch_mod.take(t)[1]["elements"]]  # noqa: E731
+assert rows(":::sketch T\nrow 1 | A | x\nrow 1 | B | y\nrow 1 | C\n:::") == ["", "", ""]   # "1, 1, 1" is not a ranking
+assert rows(":::sketch T\nrow 1 | A\nrow 2 | B\nrow Z | C\n:::") == ["1", "2", ""]          # a real ranking keeps its numbers
+for q in ("Can you delete my files?", "Will you send this email?", "Tell me more?", "Delete my files?", "When is it", "Run the tests?"):
+    assert not nova_mod.chip_question(q), q                              # a chip is a question, never a task or a statement
+
+
+def wiki_replies(summary, image=None):
+    """What en.wikipedia.org and the image host say, by host, for fetch_wikipedia()."""
+    seen = []
+
+    def request(host, ip, path, timeout):
+        seen.append((host, path))
+        if host == "en.wikipedia.org":
+            return Reply(kind="application/json", body=json.dumps(summary).encode())
+        return Reply(body=image or picture())
+    return request, seen
+
+
+good = {"thumbnail": {"source": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Tower.jpg/330px-Tower.jpg"}}
+request, seen = wiki_replies(good)
+photo = webimage.fetch_wikipedia("AC/DC (band)", resolve=lambda h: ["93.184.216.34"], request=request)
+assert photo.size == (40, 30)
+assert seen[0] == ("en.wikipedia.org", "/api/rest_v1/page/summary/AC%2FDC_%28band%29")  # one path segment, whatever the title says
+assert seen[1][0] == "upload.wikimedia.org"
+for summary in ({"thumbnail": {"source": "https://evil.example/a.jpg"}},                    # not Wikimedia's own image host
+                {"thumbnail": {"source": "http://upload.wikimedia.org/a.jpg"}}, {"thumbnail": {}}, {}, {"type": "disambiguation"},
+                {"thumbnail": {"source": "https://upload.wikimedia.org.evil.example/a.jpg"}}):
+    request, seen = wiki_replies(summary)
+    try:
+        webimage.fetch_wikipedia("Tower", resolve=lambda h: ["93.184.216.34"], request=request)
+        raise AssertionError(summary)
+    except ValueError:
+        assert [h for h, _ in seen] == ["en.wikipedia.org"]              # nothing was fetched from the bad address
+for title in ("", "   ", "x" * 101):
+    try:
+        webimage.fetch_wikipedia(title, resolve=lambda h: ["93.184.216.34"], request=lambda *a: None)
+        raise AssertionError(title)
+    except ValueError:
+        pass
+webimage_log, webimage.log = webimage.log, lambda *a, **k: None
+assert webimage.get("wiki:") is None and webimage.get("http://x.example/a.png") is None
+webimage.log = webimage_log
+
+w.next_job = None                                                        # during the follow-up listen after an answer
+w.phase, w.in_followup, w.holding, w.pending = "listening", True, False, None
+w.cancel, w.stop_rec, w.stop_tts = threading.Event(), threading.Event(), threading.Event()
+w.chip_clicked("How do safety cars help?")
+assert w.cancel.is_set() and w.stop_rec.is_set() and w.next_job and not w.stop_tts.is_set()   # the listen ends, the chip runs
+w.next_job, w.holding = None, True                                       # but not one the user is holding the key for
+w.cancel, w.stop_rec = threading.Event(), threading.Event()
+w.chip_clicked("How do safety cars help?")
+assert not w.cancel.is_set() and not w.stop_rec.is_set() and w.next_job
+w.next_job, w.phase, w.holding = None, "idle", False
+nova_mod.log = real_log
+
+# a chip is drawn whole or not at all, so what is drawn is what a click asks; a name lookup can't stall past the limit
+longq = "Why did Mercedes choose Antonelli over everybody else?"
+chipped = sketch_mod.take(f":::sketch T\nrow a\nask Why?\nask {longq}\n:::")[1]
+for scale in (1.0, 1.25):
+    assert [c[0] for c in sketchpad_mod.build(chipped, scale)["chips"]] == ["Why?"], scale
+assert [c[0] for c in sketchpad_mod.build(sketch_mod.take(":::sketch T\nrow a\nask Who leads the championship?\n:::")[1], 1.25)["chips"]]
+assert sketch_mod.take(":::sketch T\nrow a\n:::\n\nask After a blank line?\nSAY: hi") == ("SAY: hi", {**sketch_mod.take(
+    ":::sketch T\nrow a\nask After a blank line?\n:::")[1]})
+slow = time.monotonic()
+try:
+    fetch_url("https://a.example/x.png", resolve=lambda h: time.sleep(5), request=lambda *a: None, deadline_s=0.3)
+except ValueError:
+    pass
+assert time.monotonic() - slow < 2
+
+# the user's own apps (core/mcp.py + the guard): only a named https server or a command, secrets only as ${NAME},
+# reads pass, changes ask, and the AI can't add a server itself
+import core.mcp as mcp_mod  # noqa: E402
+from guard.guard import classify_mcp  # noqa: E402
+from core.config import ROOT  # noqa: E402
+good, problems = mcp_mod.servers({"mcp": {"servers": {
+    "linear": "https://mcp.linear.app/mcp", "local": "http://localhost:8123/mcp",
+    "gh": {"url": "https://api.githubcopilot.com/mcp/", "headers": {"Authorization": "Bearer ${GITHUB_TOKEN}"}},
+    "files": {"command": "npx", "args": ["-y", "some-server"], "env": {"API_KEY": "${API_KEY}", "REGION": "eu"}},
+    "off": {"url": "https://x.example/mcp", "enabled": False}}}})
+assert sorted(good) == ["files", "gh", "linear", "local"] and not problems, (good, problems)
+assert good["linear"] == {"type": "http", "url": "https://mcp.linear.app/mcp"}
+assert good["gh"]["headers"]["Authorization"] == "Bearer ${GITHUB_TOKEN}" and good["files"]["env"]["REGION"] == "eu"
+bad, problems = mcp_mod.servers({"mcp": {"servers": {
+    "http": "http://evil.example/mcp", "nova-browser": "https://x.example/mcp", "Has Space": "https://x.example/mcp",
+    "a__b": "https://x.example/mcp", "leaky": {"url": "https://x.example/mcp", "headers": {"Authorization": "Bearer sk-live-123"}},
+    "leaky2": {"command": "x", "env": {"API_TOKEN": "literal-secret"}}, "empty": {}, "num": 5,
+    "args": {"command": "x", "args": [1, 2]}}}})
+assert bad == {} and len(problems) == 9, (bad, problems)                      # each one left out, with its reason
+assert mcp_mod.servers({})[0] == {} and mcp_mod.servers({"mcp": None})[0] == {}
+assert json.loads(mcp_mod.config_json(good, {"nova-browser": {"command": "p"}}))["mcpServers"].keys() >= {"nova-browser", "linear"}
+assert mcp_mod.allow_list({"linear": {}, "gh": {}}) == ["mcp__linear", "mcp__gh"]
+for tool in ("mcp__linear__list_issues", "mcp__linear__get_issue", "mcp__gh__search_code", "mcp__x__whoami",
+             "mcp__x__readDocument", "mcp__x__fetch_page"):
+    assert classify_mcp(tool, "auto")[0] == "allow", tool                     # a read verb, no write word
+for tool in ("mcp__linear__create_issue", "mcp__linear__save_issue", "mcp__x__DeleteIssue", "mcp__gh__get_or_create_label",
+             "mcp__x__list_and_delete", "mcp__x__send_email", "mcp__x__do_thing", "mcp__x__"):
+    assert classify_mcp(tool, "auto")[0] == "confirm", tool                    # Auto mode does not wave a change through
+    assert classify_mcp(tool, "plan")[0] == "block" and classify_mcp(tool, "manual")[0] == "confirm", tool
+assert classify_mcp("mcp__x__create_issue", "bypass")[0] == "allow"           # the user's own choice of Bypass
+assert classify("mcp__nova-browser__click", {}, ".", [], str(ROOT), "", "auto")[0] == "allow"  # the browser has its own rules
+assert classify("mcp__linear__create_issue", {}, ".", [], str(ROOT), "", "auto")[0] == "confirm"
+assert classify("Write", {"file_path": str(ROOT / "config.json"), "content": '{"mcp": {"servers": {"evil": "https://x"}}}'},
+                str(ROOT), [], str(ROOT), "", "auto")[0] == "block"              # only the user adds an app
+
+# files Nova writes for Claude Code: strict always, the browser only when it is on, a background job never has it
+import core.brain as brain_mod  # noqa: E402
+app_dir = Path(tempfile.mkdtemp(prefix="nova-apps-"))
+real_data, nova_mod.DATA = nova_mod.DATA, app_dir
+stub = object.__new__(nova_mod.Nova)
+stub.cfg = merged(json.loads((Path(__file__).parent / "config.default.json").read_text(encoding="utf-8")), {})
+stub.cfg["mcp"]["servers"] = {"linear": "https://mcp.linear.app/mcp", "bad name": "https://x.example"}
+stub.cfg["browser"]["enabled"] = ["chrome"]
+stub.browser_server, stub.hook = {"command": "py", "args": ["b.py"]}, "hookcmd"
+stub.write_mcp()
+assert sorted(json.loads((app_dir / "mcp.json").read_text())["mcpServers"]) == ["linear", "nova-browser"]
+assert sorted(json.loads((app_dir / "mcp-jobs.json").read_text())["mcpServers"]) == ["linear"]
+assert stub.apps_problems and list(stub.apps) == ["linear"]
+stub.cfg["browser"]["enabled"] = []
+stub.write_mcp()
+assert sorted(json.loads((app_dir / "mcp.json").read_text())["mcpServers"]) == ["linear"]     # browser off: not offered
+saved = json.loads(Path(stub.write_claude_settings()).read_text())
+assert "mcp__linear" in saved["permissions"]["allow"] and "mcp__.*" in saved["hooks"]["PreToolUse"][0]["matcher"]
+nova_mod.DATA = real_data
+
+captured = {}
+for browser, expect in ((True, brain_mod.MCP), (False, brain_mod.MCP_JOBS)):
+    cb = brain_mod.Claude("claude", stub.cfg, str(app_dir), {}, "settings.json")
+    cb.browser, cb.apps = browser, ["linear"]
+    cb._stream = lambda args, prompt, on_event: captured.update(args=args) or ""
+    real_files = (brain_mod.MCP, brain_mod.MCP_JOBS)
+    brain_mod.MCP = brain_mod.MCP_JOBS = app_dir / "mcp.json"                # a file that exists
+    try:
+        cb._run("hi", {}, {}, lambda s: None)
+    finally:
+        brain_mod.MCP, brain_mod.MCP_JOBS = real_files
+    assert "--strict-mcp-config" in captured["args"] and "--mcp-config" in captured["args"], browser
+    assert "linear" in cb.system_prompt({}, {}) and "mcp__<app>__<tool>" in cb.system_prompt({}, {})
+nobrowser = brain_mod.Claude("claude", stub.cfg, str(app_dir), {}, "settings.json")
+nobrowser._stream = lambda args, prompt, on_event: captured.update(args=args) or ""
+nobrowser._run("hi", {}, {}, lambda s: None, tools=False)
+assert "--strict-mcp-config" not in captured["args"]                           # a no-tools answer loads no servers at all
+
+# circle something while holding the talk key (core/circle.py): a loop in the mouse path is found, and drawn on the screenshot
+import core.circle as circle_mod  # noqa: E402
+import math as _m  # noqa: E402
+
+
+def ring(cx, cy, r, turns=1.1, n=70, start=0.0):
+    return [(round(cx + r * _m.cos(start + 6.283 * turns * i / n)), round(cy + r * _m.sin(start + 6.283 * turns * i / n))) for i in range(n)]
+
+
+def line(a, b, n=40):
+    return [(round(a[0] + (b[0] - a[0]) * i / n), round(a[1] + (b[1] - a[1]) * i / n)) for i in range(n + 1)]
+
+
+found = circle_mod.find_loop(ring(500, 400, 80))
+assert found and abs((found["box"][0] + found["box"][2]) / 2 - 500) < 12 and abs((found["box"][1] + found["box"][3]) / 2 - 400) < 12
+assert 160 < found["box"][2] - found["box"][0] < 230                      # the loop's size, a little bigger
+found = circle_mod.find_loop(line((100, 100), (380, 330)) + ring(600, 500, 60))
+assert found and found["box"][0] > 450, found                              # the wandering before it isn't part of it
+found = circle_mod.find_loop(ring(600, 500, 60) + line((600, 560), (900, 700)))
+assert found is None or found["box"][2] < 700                              # nor the wandering after it (or none: a drift)
+for path in (line((100, 100), (800, 600), 120), ring(500, 400, 10), ring(500, 400, 80, turns=0.5),   # a line, a tiny loop, half a circle
+             [(500 + (i % 7), 400 + (i % 5)) for i in range(120)],                                    # a hand resting on the mouse
+             [(100 + 40 * (i % 2), 100 + i * 5) for i in range(100)], [], [(5, 5)] * 3):             # a zigzag, nothing
+    assert circle_mod.find_loop(path) is None, path[:3]
+assert circle_mod.find_loop(ring(500, 400, 80, turns=2.5)) and circle_mod.find_loop(ring(500, 400, 80, start=3.0))  # round twice, or from the side
+shot_png = Path(tempfile.mkdtemp()) / "shot.png"
+for k in (1.0, 0.8, 0.5):                                                  # a screenshot's pixels per screen pixel, as at 125% scale
+    PILImage.new("RGB", (round(900 * k), round(700 * k)), (20, 20, 20)).save(shot_png)
+    loop = circle_mod.find_loop(ring(500, 400, 100))
+    area = circle_mod.mark(shot_png, (100, 50, k, round(900 * k), round(700 * k)), loop)
+    marked = PILImage.open(shot_png).convert("RGB")
+    on_ring = marked.getpixel((round((500 + 100 - 100) * k), round((400 - 50) * k)))
+    assert on_ring[0] > 200 and on_ring[1] < 120 or on_ring == (255, 255, 255), (k, on_ring)   # red (or its white edge) on the ring
+    assert marked.getpixel((round((500 - 100) * k), round((400 - 50) * k))) == (20, 20, 20)    # nothing in the middle
+    assert abs((area[0] + area[2]) / 2 - (500 - 100) * k) < 8 * k + 2 and abs((area[1] + area[3]) / 2 - (400 - 50) * k) < 8 * k + 2, (k, area)
+off = circle_mod.mark(shot_png, (5000, 5000, 1.0, 100, 100), loop)
+assert off is None                                                          # a loop off the screenshot isn't reported
+samples = iter(range(1000))
+trail = circle_mod.Trail(pos=lambda: (next(samples), 0))
+trail.start()
+time.sleep(0.2)
+got = trail.stop()
+assert 5 <= len(got) <= 20 and got == sorted(got) and not trail.running   # about 60 a second, in order, and it stops
+time.sleep(0.1)
+assert len(trail.points) == len(got)
+
+hold_events = []                                                            # key-down and key-up reach Nova, even for a combo
+hold.on_down, hold.on_up = lambda: hold_events.append("down"), lambda: hold_events.append("up")
+hold.held = hold.started = False
+calls.clear()
+hold.event("right ctrl", True); hold.event("right ctrl", False); time.sleep(hold.delay + 0.1)  # noqa: E702
+assert hold_events == ["down", "up"] and calls == [], (hold_events, calls)
+hold_events.clear()
+hold.event("right ctrl", True); hold.event("c", True); hold.event("right ctrl", False)  # noqa: E702  (Ctrl+C)
+assert hold_events == ["down", "up"], hold_events
+hold_events.clear()
+hold.event("right ctrl", True); time.sleep(hold.delay + 0.1); hold.event("right ctrl", False)  # noqa: E702
+assert hold_events == ["down", "up"] and calls == ["start", "stop"], (hold_events, calls)
+
+# Nova: the trail starts only for a request to the AI, the loop reaches the screenshot, one request's circle isn't the next's
+c = object.__new__(nova_mod.Nova)
+c.cfg = merged(json.loads((Path(__file__).parent / "config.default.json").read_text(encoding="utf-8")), {})
+c.paused, c.mode, c.holding, c.phase, c.hand = False, "assistant", False, "idle", None
+c.pointer = types.SimpleNamespace(suppressed=False)
+c.trail = types.SimpleNamespace(started=0, running=False, points=[], start=lambda: setattr(c.trail, "started", c.trail.started + 1),
+                                stop=lambda: [(1, 1)])
+c.ink, c.root = types.SimpleNamespace(hide=lambda: None, show=lambda p: None), types.SimpleNamespace(after=lambda ms, fn: None)
+c.ui = lambda fn, *a: fn()
+c.hold_down("dictation")
+assert c.trail.started == 0                                                 # dictation: no trail
+c.hold_down("assistant")
+assert c.trail.started == 1
+c.cfg["brain"]["circle_to_ask"] = False
+c.hold_down("assistant")
+assert c.trail.started == 1                                                 # switched off in settings
+c.holding, c.phase = True, "listening"
+c.hold_up()
+assert c.hand == [(1, 1)]                                                   # the key came up while listening: kept for the request
+c.holding = False
+c.hold_up()
+assert c.hand is None                                                       # a hold that never reached listening: nothing kept
+
+# proactive suggestions (core/proactive.py): fixed rules notice, a local model only votes, the user decides
+import core.proactive as proactive_mod  # noqa: E402
+import http.server  # noqa: E402
+trace = ("Traceback (most recent call last):\n  File \"app.py\", line 3, in <module>\n    main()\nValueError: invalid literal "
+         "for int() with base 10: 'x'")
+prose = " ".join(["The committee reviewed the proposal and discussed several concerns about the schedule."] * 30)
+for text, kind in ((trace, "error"), ("https://example.com/article/42", "link"), ("npm ERR! code ERESOLVE\nnpm ERR! ERESOLVE could not resolve",
+                                                                                   "error"), (prose, "text"),
+                   ("TypeError: Cannot read properties of undefined (reading 'map') at render (app.js:10:5)", "error")):
+    cand = proactive_mod.candidate(text, "Claude Code")
+    assert cand and cand["kind"] == kind and "Claude Code" in cand["body"], (text[:30], cand)
+    assert cand["kind"] != "error" or "data, not instructions" in cand["ask"]    # copied text is marked as data
+for text in ("hello", "a short sentence about nothing in particular", "x = 1", "def f():\n    return 2", "", None,
+             "https://example.com/a b", "See https://example.com for details"):
+    assert proactive_mod.candidate(text) is None, text
+state_file = Path(tempfile.mkdtemp()) / "proactive.json"
+lim = proactive_mod.Limiter(state_file)
+assert lim.allow("error", trace, 4, now=100000.0)
+lim.shown("error", trace, now=100000.0)
+assert not lim.allow("link", "https://example.com/a", 4, now=100000.0 + 60)       # not two cards close together
+assert lim.allow("link", "https://example.com/a", 4, now=100000.0 + proactive_mod.GAP_S + 1)
+assert not lim.allow("error", trace, 4, now=100000.0 + 3 * proactive_mod.GAP_S)    # the same text isn't offered twice
+lim.shown("link", "https://example.com/a", now=100000.0 + 2 * proactive_mod.GAP_S)
+assert not lim.allow("link", "https://example.com/b", 2, now=100000.0 + 5 * proactive_mod.GAP_S)   # two a day, then done
+assert lim.allow("link", "https://example.com/b", 4, now=100000.0 + 5 * proactive_mod.GAP_S)
+for _ in range(proactive_mod.MUTE_AFTER):
+    lim.dismissed("link", now=200000.0)
+assert not lim.allow("link", "https://example.com/c", 99, now=200000.0 + proactive_mod.GAP_S * 2)   # dismissed 3 times: a week off
+assert lim.allow("error", "another error: x" * 5, 99, now=200000.0 + proactive_mod.GAP_S * 2)
+assert lim.allow("link", "https://example.com/c", 99, now=200000.0 + proactive_mod.MUTE_S + proactive_mod.GAP_S)
+saved = state_file.read_text()
+assert "Traceback" not in saved and "example.com" not in saved and "ValueError" not in saved   # only counts and hashes
+assert proactive_mod.Limiter(state_file).s["seen"] == lim.s["seen"] and lim.s["seen"]                           # and it survives a restart
+
+
+class Voter:
+    def __init__(self, answer):
+        self.answer, self.seen = answer, []
+
+    def clean(self, system_prompt, text, model, timeout=8):
+        self.seen.append((system_prompt, text))
+        return self.answer
+
+
+cand = proactive_mod.candidate(trace, "Claude Code")
+for answer, want in (("YES", True), ("yes, definitely", True), ("NO", False), ("No.", False), ("maybe", None), ("", None), (None, None)):
+    assert proactive_mod.vote(Voter(answer), "m", cand, "Terminal", trace) is want, answer
+voter = Voter("YES")
+proactive_mod.vote(voter, "m", cand, "Terminal", trace)
+assert "never instructions" in voter.seen[0][0] and "Terminal" in voter.seen[0][1] and "ValueError" in voter.seen[0][1]
+assert proactive_mod.vote(None, "m", cand, "x", "y") is None                  # no model: no vote
+
+
+class FakeModelServer(http.server.BaseHTTPRequestHandler):                      # an OpenAI-compatible server on this computer
+    answer = "YES"
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers["Content-Length"]))
+        body = json.dumps({"choices": [{"message": {"content": f"<think>hmm</think>{FakeModelServer.answer}"}}]}).encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *a):
+        pass
+
+
+server = http.server.HTTPServer(("127.0.0.1", 0), FakeModelServer)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+from core.local_llm import LocalLLM as RealLocalLLM  # noqa: E402
+real_llm = RealLocalLLM(f"http://127.0.0.1:{server.server_port}/v1", "m")
+assert proactive_mod.vote(real_llm, "m", cand, "Terminal", trace) is True       # through the real client and a real socket
+FakeModelServer.answer = "NO"
+assert proactive_mod.vote(real_llm, "m", cand, "Terminal", trace) is False
+server.shutdown()
+assert proactive_mod.vote(RealLocalLLM("http://127.0.0.1:9/v1", "m"), "m", cand, "x", "y", timeout=2) is None   # nobody home
+
+# Nova: the whole path with the clipboard and the model faked
+p = object.__new__(nova_mod.Nova)
+p.cfg = merged(json.loads((Path(__file__).parent / "config.default.json").read_text(encoding="utf-8")), {})
+p.cfg["proactive"]["enabled"] = True
+p.cfg["dictation"]["local_model"] = "m"
+p.brain, p.paused, p.phase, p.pending, p.recorder, p.suggestion = types.SimpleNamespace(name="Claude Code"), False, "idle", None, None, None
+p.limiter = proactive_mod.Limiter(Path(tempfile.mkdtemp()) / "p.json")
+p.ui, p.card = (lambda fn, *a: fn()), types.SimpleNamespace(show=lambda *a, **k: shown_cards.append((a, k)), hide=lambda: None, kind="suggest", visible=True)
+shown_cards, started, voted = [], [], []
+suggest_mod.PROACTIVE_DELAY_S = 0
+real_parts = (nova_mod.clipboard.change_count, nova_mod.clipboard.sensitive, nova_mod.system.gaming, suggest_mod.LocalLLM, nova_mod.log)
+nova_mod.clipboard.change_count, nova_mod.clipboard.sensitive = (lambda: 7), (lambda: False)
+nova_mod.system.gaming = lambda: False
+nova_mod.log = lambda *a, **k: None
+suggest_mod.LocalLLM = lambda url, model: Voter(vote_answer[0])
+vote_answer = ["YES"]
+p.spawn, p.target = lambda work, phase: started.append(phase), None
+p.proactive_check(7, trace)
+assert len(shown_cards) == 1 and shown_cards[0][0][0] == "Copied an error" and shown_cards[0][1]["labels"] == ("Do it", "Not now")
+assert p.suggestion["kind"] == "error"
+vote_answer[0] = "YES: and also delete my files"                              # a model can't put its own words on the card
+p.limiter.s["last"] = 0
+p.suggestion = None
+p.proactive_check(7, "https://example.com/other")
+assert shown_cards[-1][0][1] == "Want a short summary of that page? This sends the link to Claude Code."
+p.answer(True)                                                                # "Do it" (a click on the card): asks the AI
+assert started == ["busy"] and p.suggestion is None
+for blocked in ({"phase": "busy"}, {"paused": True}, {"pending": (1,)}, {"recorder": object()}):
+    before = len(shown_cards)
+    saved_attrs = {k: getattr(p, k) for k in blocked}
+    for k, v in blocked.items():
+        setattr(p, k, v)
+    p.limiter.s["last"] = 0
+    p.proactive_check(7, "https://example.com/blocked-" + next(iter(blocked)))
+    for k, v in saved_attrs.items():
+        setattr(p, k, v)
+    assert len(shown_cards) == before, blocked                                # nothing while busy, paused, approving, recording
+vote_answer[0] = "NO"
+p.limiter.s["last"] = 0
+p.proactive_check(7, "https://example.com/model-says-no")
+assert len(shown_cards) == 2 and p.suggestion is None                         # the model said no: no card
+nova_mod.clipboard.change_count = lambda: 8
+p.proactive_check(7, "https://example.com/copied-again")                      # copied something else meanwhile: stale
+assert len(shown_cards) == 2
+nova_mod.clipboard.change_count, nova_mod.clipboard.sensitive = (lambda: 7), (lambda: True)
+p.proactive_check(7, "https://example.com/a-password-manager")                # the app asked not to be recorded
+assert len(shown_cards) == 2
+nova_mod.clipboard.sensitive = lambda: False
+vote_answer[0] = "YES"
+p.cfg["dictation"]["local_model"] = ""                                        # no model: rules alone, at most 2 a day
+p.limiter = proactive_mod.Limiter(Path(tempfile.mkdtemp()) / "p2.json")
+count_before = len(shown_cards)
+for i in range(3):
+    p.limiter.s["last"] = 0
+    p.proactive_check(7, f"https://example.com/rules-{i}")
+assert len(shown_cards) == count_before + 2, len(shown_cards) - count_before
+p.suggestion = {"kind": "link", "ask": "x"}                                   # a suggestion and the shortcut/approvals stay apart
+p.show_bar = lambda state: None
+p.card.kind, p.pending = "suggest", (threading.Event(), [None])
+p.answer(True)
+assert p.suggestion is not None and p.pending[1] == [True]                    # an open approval is answered first
+p.pending, p.card.kind = None, "reply"
+p.answer(True)
+assert p.suggestion is not None                                               # another card on screen: the suggestion isn't "Do it"
+(nova_mod.clipboard.change_count, nova_mod.clipboard.sensitive, nova_mod.system.gaming, suggest_mod.LocalLLM, nova_mod.log) = real_parts
+
+# with the default settings (a local model named, but dictation not using one) cards still appear; accepting one sends only
+# what was copied; only a local click or Esc answers it, and only while its card is on screen
+d = object.__new__(nova_mod.Nova)
+d.cfg = merged(json.loads((Path(__file__).parent / "config.default.json").read_text(encoding="utf-8")), {})
+d.cfg["proactive"]["enabled"] = True
+assert d.cfg["dictation"]["cleanup_engine"] != "local" and d.cfg["dictation"]["local_model"]   # the shipped defaults
+d.brain, d.paused, d.phase, d.pending, d.recorder, d.suggestion = types.SimpleNamespace(name="Claude Code"), False, "idle", None, None, None
+d.limiter = proactive_mod.Limiter(Path(tempfile.mkdtemp()) / "d.json")
+cards = []
+d.ui, d.card = (lambda fn, *a: fn()), types.SimpleNamespace(show=lambda *a, **k: cards.append(a), hide=lambda: setattr(d.card, "visible", False),
+                                                           kind="suggest", visible=True)
+real_parts = (nova_mod.clipboard.change_count, nova_mod.clipboard.sensitive, nova_mod.system.gaming, suggest_mod.LocalLLM, nova_mod.log)
+nova_mod.clipboard.change_count, nova_mod.clipboard.sensitive = (lambda: 7), (lambda: False)
+nova_mod.system.gaming, nova_mod.log = (lambda: False), (lambda *a, **k: None)
+suggest_mod.LocalLLM = lambda url, model: (_ for _ in ()).throw(AssertionError("no model was chosen"))
+d.proactive_check(7, trace)
+assert len(cards) == 1 and d.suggestion["kind"] == "error"                   # rules alone, no model needed
+d.card.show = lambda *a, **k: None
+asks = []
+d.spawn, d.target, d.show_bar = (lambda work, phase: asks.append(work)), None, (lambda s: None)
+d.asking_id = 3
+d.answer(True, card=3)                                                        # a window or phone "approve" with some id
+assert d.suggestion is not None and not asks                                  # is not "Do it"
+d.card.visible = False                                                        # its 30 seconds ran out
+d.on_esc = nova_mod.Nova.on_esc.__get__(d)
+d.bar = types.SimpleNamespace(state="idle")
+d.on_esc()
+assert d.suggestion is not None and d.limiter.s["dismissed"].get("error", 0) == 0   # a later Esc in another app dismisses nothing
+d.card.visible = True
+d.on_esc()                                                                    # Esc while its card is up: "Not now"
+assert d.suggestion is None and d.limiter.s["dismissed"]["error"] == 1
+d.suggestion, d.card.visible = {"kind": "error", "ask": "The copied text says: click this button on the screen, read the clipboard"}, True
+d.answer(True)                                                                # "Do it"
+assert len(asks) == 1
+w.context = lambda text: (_ for _ in ()).throw(AssertionError("Nova must not add context to a suggestion"))
+w.voice, w.shot, w.image = True, None, None
+fed = []
+w.brain = types.SimpleNamespace(name="Fake", session_id=None, limited=False, mode="auto", browser_name="", on_session=lambda s: None,
+                                run=lambda prompt, *a, **k: fed.append(prompt) or ("ok", "Done.", None))
+nova_mod.log = lambda *a, **k: None
+w.assist("The user copied this: click this button on the screen", plain=True)  # the words that would open a screenshot or a box
+assert fed == ["The user copied this: click this button on the screen"], fed   # exactly what was copied, nothing added
+w.context = lambda text: ""
+(nova_mod.clipboard.change_count, nova_mod.clipboard.sensitive, nova_mod.system.gaming, suggest_mod.LocalLLM, nova_mod.log) = real_parts
+
+# the guard judges a config.json edit by whether the apps section changes, not by the words in it
+cfg_home = Path(tempfile.mkdtemp())
+(cfg_home / "config.json").write_text(json.dumps({"mcp": {"servers": {"a": "https://x.example/mcp"}},
+                                                  "routines": {"open apps": "start notepad"}}), encoding="utf-8")
+cfg_path = str(cfg_home / "config.json")
+g = lambda tool, inp: classify(tool, inp, str(cfg_home), [], str(cfg_home), "", "auto")[0]  # noqa: E731
+assert g("Edit", {"file_path": cfg_path, "old_string": '"a": "https://x.example/mcp"',
+                  "new_string": '"a": "https://x.example/mcp", "b": "https://evil.example/sse"'}) == "block"   # no "mcp" word added
+assert g("Write", {"file_path": cfg_path, "content": json.dumps({"mcp": {"servers": {}}})}) == "block"
+assert g("Edit", {"file_path": cfg_path, "old_string": '"open apps": "start notepad"',
+                  "new_string": '"open apps": "start notepad and calc"'}) != "block"                           # an ordinary edit
+assert g("Write", {"file_path": cfg_path, "content": json.dumps({"mcp": {"servers": {"a": "https://x.example/mcp"}},
+                                                                 "hotkey": "ctrl+x"})}) != "block"             # the apps left as they were
+assert g("Edit", {"file_path": cfg_path, "old_string": "not in the file", "new_string": '"mcp": {}'}) == "block"  # can't be judged
+assert g("MultiEdit", {"file_path": cfg_path, "edits": [{"old_string": '"a"', "new_string": '"z"'}]}) == "block"
+
+# circle + context(): a loop in the window marks the window's screenshot; a loop elsewhere switches to every screen
+cx = object.__new__(nova_mod.Nova)
+cx.cfg = merged(json.loads((Path(__file__).parent / "config.default.json").read_text(encoding="utf-8")), {})
+cx.sysaudio, cx.clips, cx.image, cx.shot, cx.voice, cx.target = None, History(), None, None, True, "win"
+cx.ui, cx.canvas, cx.sketchpad = (lambda fn, *a: None), types.SimpleNamespace(hide=lambda: None), types.SimpleNamespace(hide=lambda: None)
+taken = []
+
+
+def fake_screenshot(path, box=None):
+    taken.append(box)
+    PILImage.new("RGB", (1000, 800), (20, 20, 20)).save(path)
+    return path, (0, 0, 1.0, 1000, 800)
+
+
+real_sys = (nova_mod.system.screenshot, nova_mod.system.window_rect, nova_mod.system.window_title, nova_mod.screen_text.window_text)
+nova_mod.system.screenshot, nova_mod.system.window_rect = fake_screenshot, (lambda t: (0, 0, 1000, 800))
+nova_mod.system.window_title, nova_mod.screen_text.window_text = (lambda t: "Editor"), (lambda t: "")
+cx.hand = ring(500, 400, 100)
+said = cx.context("what does this error mean?")
+assert taken == [(0, 0, 1000, 800)] and "circled part of the screen" in said and "x=" in said and cx.hand is None
+marked = PILImage.open(Path(nova_mod.WORKSPACE) / "screen.png").convert("RGB")
+assert marked.getpixel((600, 400))[0] > 200 and marked.getpixel((500, 400)) == (20, 20, 20)   # red on the ring, nothing inside
+assert "their window" in said
+taken.clear()
+cx.hand = ring(1500, 400, 100)                                                  # circled on another screen
+said = cx.context("what is this?")
+assert taken == [None] and "all their screens" in said
+taken.clear()
+said = cx.context("hello there")                                                # no loop, nothing about the screen
+assert taken == [] and "circled" not in said
+cx.cfg["brain"]["circle_to_ask"] = False
+cx.hand = ring(500, 400, 100)
+said = cx.context("hello there")
+assert taken == [] and "circled" not in said                                    # switched off in settings
+(nova_mod.system.screenshot, nova_mod.system.window_rect, nova_mod.system.window_title, nova_mod.screen_text.window_text) = real_sys
+
+# the companion (core/pointer.py): one loop owns the window; it follows the mouse, flies, is the pen, and goes home
+import core.pointer as pointer_mod  # noqa: E402
+import math  # noqa: E402
+clock_now, mouse_at, calls_made, scheduled = [100.0], [(500, 400)], [], []
+
+
+def make_companion(logical=1.25, enabled=True):
+    c = object.__new__(pointer_mod.Pointer)
+    c.px = 1
+    c.win = types.SimpleNamespace(after=lambda ms, fn: scheduled.append(ms) or "job", after_cancel=lambda j: None)
+    c._present = lambda img, x, y, alpha=255: calls_made.append(("present", x, y, alpha, img.size))
+    c._move = lambda x, y: calls_made.append(("move", x, y))
+    c._show, c._hide = lambda: calls_made.append(("show",)), lambda: calls_made.append(("hide",))
+    c.setup(logical, pointer_mod.BLUE, enabled, mouse=lambda: mouse_at[0], clock=lambda: clock_now[0],
+            cursor_visible=lambda: True)
+    return c
+
+
+def run(c, seconds, step=0.016, mouse=None):
+    n_before = len(calls_made)
+    for _ in range(int(seconds / step)):
+        clock_now[0] += step
+        before = len(calls_made)
+        c.tick()
+        assert len(calls_made) - before <= 2, calls_made[before:]            # a show and a paint at most, never a second paint
+        assert sum(1 for k in calls_made[before:] if k[0] in ("present", "move")) <= 1
+    return calls_made[n_before:]
+
+
+def home_of(c):
+    return 500 + pointer_mod.OFFSET[0] * c.logical, 400 + pointer_mod.OFFSET[1] * c.logical
+
+
+c = make_companion()
+run(c, 1.0)
+assert math.dist(c.pos, home_of(c)) < 1 and c.visible                         # it settles beside the mouse, 1.25x scale offset
+last_paint = [k for k in calls_made if k[0] == "present"][-1]
+assert abs(last_paint[1] - (round(c.pos[0]) - round(pointer_mod.MARGIN * 1.25))) <= 1   # and the window sits so its tip is there
+mouse_at[0] = (800, 600)
+moved = run(c, 0.3)
+assert [k[0] for k in moved].count("move") > 3 and [k[0] for k in moved].count("present") == 0   # following is a move, not a repaint
+run(c, 1.0)
+assert math.dist(c.pos, (800 + 14 * 1.25, 600 + 16 * 1.25)) < 1
+calls_made.clear(); scheduled.clear()
+run(c, 2.0)
+assert not calls_made and scheduled and all(ms >= 100 for ms in scheduled[-5:])    # a still mouse: no drawing, and the loop slows down
+run(c, pointer_mod.FADE_AFTER_S)
+assert [k for k in calls_made if k[0] == "present"][-1][3] == pointer_mod.FADE_ALPHA   # then it dims
+mouse_at[0] = (810, 600)
+assert run(c, 0.1)[0][0] in ("present", "move") and [k for k in calls_made if k[0] == "present"][-1][3] == 255   # moving wakes it
+mouse_at[0] = (500, 400)
+run(c, 1.0)
+
+fly_from = len(calls_made)
+c.fly(900, 300, "Save", hold_s=1.0)                                            # flies to what the AI points at
+trail = []
+for _ in range(80):
+    clock_now[0] += 0.016
+    c.tick()
+    trail.append(c.mode)
+    if c.mode == "hold":
+        break
+assert c.mode == "hold" and math.dist(c.pos, (900, 300)) < 1 and "fly" in trail
+assert any(k[0] == "present" and k[4][0] > 100 for k in calls_made[fly_from:])     # the label's pill makes the image wider
+run(c, 1.2)
+assert c.mode in ("home", "follow")                                            # the hold ran out: back to the mouse
+run(c, 2.0)
+assert c.mode == "follow" and math.dist(c.pos, home_of(c)) < 3
+c.fly(900, 300, "", hold_s=None)
+run(c, 3.0)
+assert c.mode == "hold"                                                        # a walkthrough step stays until told
+c.hide()
+run(c, 3.0)
+assert c.mode == "follow" and math.dist(c.pos, home_of(c)) < 3                # hide() means "go home", not vanish
+c.pen(300, 300)
+for k in range(30):
+    clock_now[0] += 0.016
+    c.pen(300 + k * 4, 300)
+    c.tick()
+assert c.mode == "pen" and abs(c.pos[0] - (300 + 29 * 4)) < 25                 # the pen follows what it is told
+run(c, 0.7)
+assert c.mode in ("home", "follow")                                            # told no more: the drawing is done
+
+c.set_suppressed(True)                                                         # a game is in front
+calls_made.clear()
+run(c, 0.2)
+assert c.visible is False and ("hide",) in calls_made and not [k for k in calls_made if k[0] in ("present", "move")]
+c.set_suppressed(False)
+run(c, 0.2)
+assert c.visible is True
+c.set_badge(2); c.set_state("thinking")  # noqa: E702
+painted = run(c, 0.4)
+assert len([k for k in painted if k[0] == "present"]) >= 3                    # the badge and the orbit are repainted
+c.set_state("approval"); c.set_badge(0)  # noqa: E702
+run(c, 0.1)
+assert c.shown_key[0] == "approval"
+c.set_enabled(False)                                                           # no companion: hidden, but it still points
+run(c, 0.6)
+assert c.visible is False
+c.fly(700, 500, "Here", hold_s=0.3)
+run(c, 1.0)
+assert c.mode in ("gone", "follow") and c.visible is False                    # flew there, showed, and left (no home to go to)
+assert pointer_mod.rgb("#3380FF") == (51, 128, 255) and pointer_mod.rgb("bad") == pointer_mod.BLUE and pointer_mod.rgb("ff0000") == (255, 0, 0)
+
+# drawing by pen: partial frames, a tip while a stroke is being drawn, and the finished shape is what it always was
+font_ = draw._font(13 * draw.SS)
+shape = draw.parse("box 20 20 120 70")
+sizes, tips, inks = set(), [], []
+for t in (0.2, 0.4, 0.6, 0.8, 1.0):
+    img_, x_, y_, tip_ = draw.render(shape, draw.SS, draw.SS, font_, t)
+    sizes.add((img_.size, x_, y_))
+    tips.append(tip_)
+    inks.append(int(np.asarray(img_.getchannel("A"), dtype=int).sum()))
+assert len(sizes) == 1 and tips[-1] is None and all(t is not None for t in tips[:3])   # same image every frame; a pen until done
+assert inks == sorted(inks) and inks[0] < inks[-1]                                    # the stroke grows
+assert draw.render(shape, draw.SS, draw.SS, font_)[3] is None
+canvas_ = object.__new__(draw.Canvas)
+canvas_.px, canvas_.scale, canvas_.font = 1, 1.0, font_
+canvas_._font_cache = {draw.SS: font_}
+built_ = draw.Canvas.prepare(canvas_, [draw.parse("circle 100 100 40 \"A\""), draw.parse("arrow 10 10 90 90"), draw.parse("dot 50 50")])
+assert len(built_["steps"]) == 3 * draw.FRAMES and built_["size"][0] > 40
+assert [s_[4] for s_ in built_["steps"]].count(True) == 3                              # one last frame per shape
+assert any(s_[3] for s_ in built_["steps"]) and all(s_[3] is None for s_ in built_["steps"] if s_[4])
+many_ = draw.Canvas.prepare(canvas_, [draw.parse(f"dot {i * 20} {i * 20}") for i in range(9)])
+assert len(many_["steps"]) == 9 * (draw.FRAMES // 2)                                  # lots of shapes: fewer frames each, same total time
+assert [s_[5] is not None for s_ in built_["steps"]].count(True) == 2                  # each stroked shape says where the pen starts (a dot has no stroke)
+firsts = [i_ for i_, s_ in enumerate(built_["steps"]) if s_[5]]
+assert firsts == [0, draw.FRAMES]                                    # and only on its first frame
+huge_ = draw.Canvas.prepare(canvas_, [draw.parse("box 10 10 3800 2100")])             # a box round a 4K window
+assert len(huge_["steps"]) == 1 and huge_["steps"][0][4] and huge_["size"][0] > 3700   # one frame: quick and small
+big_ = draw.Canvas.prepare(canvas_, [draw.parse("box 10 10 1880 1040")])               # a box round a full-HD window
+assert len(big_["steps"]) == draw.FRAMES and big_["steps"][-1][0].size == big_["steps"][0][0].size
+began = time.time()
+draw.Canvas.prepare(canvas_, [draw.parse("box 10 10 1880 1040 \"Window\"")])
+assert time.time() - began < 1.0, time.time() - began                                  # it used to take over a second
+shown_at, led_ = [], []
+pad_ = object.__new__(draw.Canvas)                                                     # the pen reaches a shape before its ink
+pad_.px, pad_.scale, pad_.font, pad_._jobs = 1, 1.0, font_, []
+pad_.win = types.SimpleNamespace(after=lambda ms, fn, *a: led_.append((ms, a)) or "j", after_cancel=lambda j: None)
+pad_._show, pad_._hide, pad_._present = lambda: None, lambda: None, lambda img, x, y: shown_at.append((x, y))
+pad_.pen = lambda x, y: led_.append(("pen", round(x), round(y)))
+pad_._font_cache = {draw.SS: font_}
+pad_.show(draw.Canvas.prepare(pad_, [draw.parse("circle 300 300 50")]), hold_s=None)
+assert led_[0][0] == "pen" and led_[1][0] == draw.LEAD_MS and not shown_at          # the pen goes first, the ink waits
+
+# the companion hides with the system cursor, and does not fly to a corner when there is no pointer position
+cursor = [True]
+c = make_companion()
+c.cursor_visible = lambda: cursor[0]
+mouse_at[0] = (500, 400)
+run(c, 0.5)
+assert c.visible
+cursor[0] = False                                                              # a full-screen video hid the pointer
+calls_made.clear()
+run(c, 0.3)
+assert c.visible is False and ("hide",) in calls_made
+cursor[0] = True
+run(c, 0.3)
+assert c.visible is True
+
+
+def no_pointer():
+    raise OSError("no mouse pointer position")
+
+
+c.mouse = no_pointer                                                           # a locked desktop
+calls_made.clear()
+before_pos = c.pos
+run(c, 0.3)
+assert not [k for k in calls_made if k[0] in ("present", "move")] and c.pos == before_pos
+assert system.cursor_visible() in (True, False) and len(system.mouse_pos()) == 2   # the real calls work on this computer
+
+# the walkthrough starts only with a cue that it is about the screen; the companion follows Nova's state
+for phrase in ("walk me through exporting this", "guide me through the settings", "I'm stuck, help me in this app",
+               "teach me how to use the layers panel in this app", "how do I export this in this window",
+               "show me how to do this on my screen", "step by step in this menu", "I am lost in this dashboard",
+               "help me with this in the editor", "show me how to do it here"):
+    assert nova_mod.WALK_RE.search(phrase), phrase
+for phrase in ("teach me photosynthesis", "I'm stuck on this bug", "show me how DNS works", "how do I reverse a list in Python",
+               "help me with my homework", "how can I learn guitar", "step by step explain DNS",
+               "I'm stuck on a math problem here", "how do I get here from the station"):
+    assert not nova_mod.WALK_RE.search(phrase), phrase
+nb = object.__new__(nova_mod.Nova)
+nb.pointer = make_companion()
+nb.bar, nb.outbox, nb.bg, nb.root = (types.SimpleNamespace(set=lambda s: None), queue.Queue(), {"a": 1, "b": 2},
+                                     types.SimpleNamespace(after=lambda ms, fn: None))
+nb.show_bar("approval")
+assert nb.pointer.state == "approval"                                          # one hook: every state change reaches it
+nb.show_bar("hover")
+assert nb.pointer.state == "approval"                                          # the bar's own hover state isn't one of Nova's
+real_gaming = nova_mod.system.gaming
+nova_mod.system.gaming = lambda: True
+nb.companion_poll()
+assert nb.pointer.suppressed is True and nb.pointer.badge == 2                 # a game in front; two agents at work
+nova_mod.system.gaming = lambda: False
+nb.bg = {}
+nb.companion_poll()
+assert nb.pointer.suppressed is False and nb.pointer.badge == 0
+nova_mod.system.gaming = real_gaming
+
+# audit fixes: tools named for a thing aren't writes, a finishing job can't break the count, suggestions explain without tools,
+# records are tidied as requests come in
+for tool in ("mcp__shop__list_orders", "mcp__x__get_log", "mcp__jira__get_transition", "mcp__x__search_book",
+             "mcp__x__get_schedule", "mcp__crm__get_order", "mcp__db__query"):
+    assert classify_mcp(tool, "auto")[0] == "allow", tool                      # a thing's name (order, log, book) isn't a verb
+for tool in ("mcp__x__search_and_replace", "mcp__x__read_then_send", "mcp__x__GetOrCreateUser", "mcp__x__list_issues_and_comment",
+             "mcp__x__list_and_delete", "mcp__x__run_query"):
+    assert classify_mcp(tool, "auto")[0] == "confirm", tool                    # but a verb after and / or / then still is
+
+busy = object.__new__(nova_mod.Nova)
+busy.cfg = merged(json.loads((Path(__file__).parent / "config.default.json").read_text(encoding="utf-8")), {})
+busy.brain, busy.bg, busy.outbox = types.SimpleNamespace(name="Fake"), {}, queue.Queue()
+told = []
+busy.note = lambda title, text: told.append(title)
+
+
+class Finishing:                                                               # a job that removes itself as it is counted
+    def is_alive(self):
+        busy.bg.pop("a", None)
+        busy.bg.pop("b", None)
+        return True
+
+
+busy.bg = {"a": {"thread": Finishing()}, "b": {"thread": Finishing()}}
+busy.cfg["brain"]["max_background"] = 2
+busy.background("another")                                                     # used to raise "dictionary changed size"
+assert told == ["Already busy"], told
+
+for kind, tools_on in (("error", False), ("text", False), ("link", True)):
+    sug = object.__new__(nova_mod.Nova)
+    sug.suggestion, sug.limiter, sug.card, sug.phase, sug.paused = ({"kind": kind, "ask": "x"}, proactive_mod.Limiter(Path(tempfile.mkdtemp()) / "s.json"),
+                                                                    types.SimpleNamespace(hide=lambda: None), "idle", False)
+    sug.target, sug.voice = None, False
+    ran = {}
+    sug.spawn = lambda work, phase: work()
+    sug.assist = lambda text, **kw: ran.update(kw)
+    real_log_ = nova_mod.log
+    nova_mod.log = lambda *a, **k: None
+    sug.answer_suggestion(True)
+    nova_mod.log = real_log_
+    assert ran == {"plain": True, "tools": tools_on}, (kind, ran)              # only a link needs the AI to fetch something
+
+w.context = lambda text: ""
+tool_flags = []
+w.brain = types.SimpleNamespace(name="Fake", session_id=None, limited=False, mode="auto", browser_name="", on_session=lambda s: None,
+                                run=lambda prompt, *a, **k: tool_flags.append(k.get("tools")) or ("ok", "Done.", None))
+nova_mod.log = lambda *a, **k: None
+w.voice = True
+w.assist("hello", tools=False)
+w.assist("hello")
+nova_mod.log = real_log
+assert tool_flags == [False, True], tool_flags
+
+old_dir, old_keep, old_every = jobs.DIR, jobs.KEEP, jobs.PRUNE_EVERY
+jobs.DIR, jobs.KEEP, jobs.PRUNE_EVERY = Path(tempfile.mkdtemp(prefix="nova-prune-")), 5, 4
+for i in range(12):
+    jobs.finish(jobs.begin(f"request {i}"), "done")
+    time.sleep(0.002)
+assert len(list(jobs.DIR.glob("*.json"))) <= 5 + 3                             # tidied every 4th request, never grows without limit
+jobs.DIR, jobs.KEEP, jobs.PRUNE_EVERY = old_dir, old_keep, old_every
+
+# Settings → AI → Apps → Sign in starts Claude Code on the apps-only server file; the window's script still parses; moving
+# a layered window repaints nothing
+import shutil  # noqa: E402
+import core.app as app_mod  # noqa: E402
+api = object.__new__(app_mod.Api)
+sign_dir, started_files = Path(tempfile.mkdtemp(prefix="nova-signin-")), []
+real_app = (app_mod.DATA, app_mod.find_cli, getattr(app_mod.os, "startfile", None), app_mod.subprocess.Popen)
+app_mod.DATA = sign_dir
+app_mod.find_cli = lambda name: "C:\\cli\\claude.exe" if system.os.name == "nt" else "/usr/local/bin/claude"
+app_mod.os.startfile = lambda path: started_files.append(str(path))
+app_mod.subprocess.Popen = lambda args, **k: started_files.append(args[-1])
+assert api.apps_signin() == "ok" and len(started_files) == 1
+script = Path(started_files[0]).read_text(encoding="utf-8")
+assert "--strict-mcp-config" in script and str(app_mod.MCP_JOBS) in script and "type /mcp" in script
+assert str(brain_mod.MCP) not in script                                        # not Nova's browser server and its key
+app_mod.find_cli = lambda name: None
+assert "isn't installed" in api.apps_signin() and len(started_files) == 1      # no Claude Code: a message, nothing started
+app_mod.DATA, app_mod.find_cli = real_app[0], real_app[1]
+if real_app[2]:
+    app_mod.os.startfile = real_app[2]
+app_mod.subprocess.Popen = real_app[3]
+
+page = (Path(__file__).parent / "core" / "app.html").read_text(encoding="utf-8")
+scripts = [b for b in re.findall(r"<script[^>]*>(.*?)</script>", page, re.S) if len(b) > 500]
+assert scripts and "apps_signin" in scripts[0] and 'id="apps"' in page and 'data-bind="companion.enabled"' in page
+if shutil.which("node"):                                                       # a typo in the window's code fails here, not in front of the user
+    for body in scripts:
+        mod = Path(tempfile.mkdtemp()) / "app.mjs"
+        mod.write_text(body, encoding="utf-8")
+        check = subprocess.run(["node", "--check", str(mod)], capture_output=True, text=True)
+        assert check.returncode == 0, check.stderr[:300]
+
+if not system.IS_MAC:
+    import core.bar as bar_mod
+    seen = []
+    real_user32 = bar_mod.user32
+    bar_mod.user32 = types.SimpleNamespace(UpdateLayeredWindow=lambda *a: seen.append(a) or 1)
+    win_ = object.__new__(bar_mod.Layered)
+    win_.ns, win_.hwnd = None, 4242
+    win_._move(30, 50)
+    bar_mod.user32 = real_user32
+    hwnd_, _, pos_, size_, *rest_ = seen[0]
+    assert hwnd_ == 4242 and (pos_._obj.x, pos_._obj.y) == (30, 50)            # only a new position: no bitmap, size or blend
+    assert size_ is None and all(x is None or x == 0 for x in rest_), seen[0]
+
+gh = object.__new__(nova_mod.Nova)                                              # a game in front: no trail, and no process check per press
+gh.cfg = merged(json.loads((Path(__file__).parent / "config.default.json").read_text(encoding="utf-8")), {})
+gh.paused, gh.mode, gh.pointer, gh.ink_tick, started_n = False, "assistant", types.SimpleNamespace(suppressed=True), (lambda: None), []
+gh.trail = types.SimpleNamespace(start=lambda: started_n.append(1))
+gh.hold_down("assistant")
+assert started_n == []
+gh.pointer.suppressed = False
+gh.hold_down("assistant")
+assert started_n == [1]
 
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it

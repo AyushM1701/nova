@@ -64,7 +64,9 @@
     "codex_sandbox": "workspace-write",
     "max_turns": 25,
     "followup_window_min": 5,
+    "max_background": 2,
     "screen_context": true,
+    "circle_to_ask": true,
     "audio_memory_min": 10,
     "auto_model": true,
     "clipboard_history": true,
@@ -103,8 +105,22 @@
     "mode": "auto",
     "confirm_timeout_s": 30
   },
+  "companion": {
+    "enabled": true,
+    "color": "#3380FF"
+  },
+  "proactive": {
+    "enabled": false,
+    "max_per_day": 4,
+    "use_local_model": true
+  },
+  "mcp": {
+    "servers": {}
+  },
   "overlay": {
     "hide_after_s": 6,
-    "position": "bottom"
+    "position": "bottom",
+    "sketch": true,
+    "sketch_images": true
   }
 }

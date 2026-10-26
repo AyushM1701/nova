@@ -23,7 +23,7 @@ import webview
 from core import browser as web
 from core import (calendar_ics, clipboard, cloud_stt, deepgram, diagnostics, fallback, meetings, models, phone,
                   stats, system, tts, update, walkthrough)
-from core.brain import find_cli, too_broad
+from core.brain import MCP_JOBS, find_cli, too_broad
 from core.local_llm import LocalLLM
 from core.config import (CONFIG, DATA, LOGS, NOTES, ROOT, defaults, load_config, log, read_history, save_config,
                          update_config, write_private)
@@ -118,6 +118,30 @@ class Api:
             return f"Couldn't run {cli}: {e}"
         out = (p.stdout + p.stderr).strip()
         return "ok" if p.returncode == 0 or "already exists" in out.lower() else out[-300:] or f"{cli} failed"
+
+    def apps_signin(self):
+        """Settings → AI → Apps → Sign in: Claude Code in a terminal, started with the same server file Nova uses, so
+        what you sign in to there (/mcp) is what Nova's requests use."""
+        exe = find_cli("claude")
+        if not exe:
+            return "Claude Code isn't installed. Set it up in Settings → AI first."
+        note = "In Claude Code, type /mcp, choose the app, and sign in with your account. Then close this window."
+        try:
+            if system.IS_MAC:
+                script = DATA / "apps-signin.command"
+                lines = ["#!/bin/sh", f'echo "{note}"', "cd ~", f'exec "{exe}" --mcp-config "{MCP_JOBS}" --strict-mcp-config']
+                script.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                script.chmod(0o755)
+                subprocess.Popen(["open", str(script)])
+            else:
+                script = DATA / "apps-signin.cmd"
+                lines = ["@echo off", f"echo {note}", "echo.", 'cd /d "%USERPROFILE%"',
+                         f'"{exe}" --mcp-config "{MCP_JOBS}" --strict-mcp-config']
+                script.write_text("\r\n".join(lines) + "\r\n", encoding="utf-8")
+                os.startfile(script)
+        except OSError as e:
+            return f"Couldn't open Claude Code: {e}"
+        return "ok"
 
     def local_llm_test(self, url, model):
         """Settings → Dictation's Test: "ok" when the local model answers, else what to check."""
