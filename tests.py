@@ -3331,7 +3331,7 @@ w.next_job, w.phase, w.holding = None, "idle", False
 nova_mod.log = real_log
 
 # a chip is drawn whole or not at all, so what is drawn is what a click asks; a name lookup can't stall past the limit
-longq = "Why did Mercedes choose Antonelli over everybody else?"
+longq = "W" * 58 + "?"                                              # wider than a chip in any font (the handwriting fonts differ per OS)
 chipped = sketch_mod.take(f":::sketch T\nrow a\nask Why?\nask {longq}\n:::")[1]
 for scale in (1.0, 1.25):
     assert [c[0] for c in sketchpad_mod.build(chipped, scale)["chips"]] == ["Why?"], scale
@@ -3911,7 +3911,8 @@ calls_made.clear()
 before_pos = c.pos
 run(c, 0.3)
 assert not [k for k in calls_made if k[0] in ("present", "move")] and c.pos == before_pos
-assert system.cursor_visible() in (True, False) and len(system.mouse_pos()) == 2   # the real calls work on this computer
+if not system.IS_MAC:                                                          # (a CI Mac has no pointer to ask)
+    assert system.cursor_visible() in (True, False) and len(system.mouse_pos()) == 2   # the real calls work on this computer
 
 # the walkthrough starts only with a cue that it is about the screen; the companion follows Nova's state
 for phrase in ("walk me through exporting this", "guide me through the settings", "I'm stuck, help me in this app",
