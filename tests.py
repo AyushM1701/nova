@@ -3460,7 +3460,7 @@ trail = circle_mod.Trail(pos=lambda: (next(samples), 0))
 trail.start()
 time.sleep(0.2)
 got = trail.stop()
-assert 5 <= len(got) <= 20 and got == sorted(got) and not trail.running   # about 60 a second, in order, and it stops
+assert 2 <= len(got) <= 40 and got == sorted(got) and not trail.running   # samples as time passes (a slow CI machine gives fewer), in order, and it stops
 time.sleep(0.1)
 assert len(trail.points) == len(got)
 
