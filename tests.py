@@ -4081,7 +4081,7 @@ import core.system as system_mod                                               #
 F = frozenset
 assert system_mod.chord_parse("ctrl+win") == system_mod.chord_parse("Ctrl+Windows") == (F({"ctrl", "win"}), "") and system_mod.chord_parse("ctrl+`") == (F({"ctrl"}), "`")
 assert system_mod.chord_parse("ctrl") is None and system_mod.chord_parse("a+b") is None and system_mod.chord_parse("") is None
-assert system_mod.chord_key("right alt") == "alt" and system_mod.chord_key("alt gr") == "alt" and system_mod.chord_key("space") is None
+assert [system_mod.chord_key(n) for n in ("ctrl_l", "cmd_r", "alt_gr", "shift")] == ["ctrl", "win", "alt", "shift"] and system_mod.chord_key("right alt") == "alt" and system_mod.chord_key("alt gr") == "alt" and system_mod.chord_key("space") is None
 _log = []
 _mk = lambda name: (lambda: _log.append(name))
 _hold = (_mk("start"), _mk("stop"), _mk("cancel"), _mk("down"), _mk("up"))

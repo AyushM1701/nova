@@ -234,7 +234,7 @@ def chord_key(name):
     n = str(name or "").lower().replace("key.", "").replace("_", " ")
     if n == "alt gr":
         return "alt"
-    n = re.sub(r"^(left|right) ", "", n).strip()
+    n = re.sub(r"( [lr])$|^(left|right) ", "", n).strip()  # pynput: ctrl_l, cmd_r
     return next((v for k, v in _CHORD_NAMES if n == k), None)
 
 

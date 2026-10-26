@@ -39,10 +39,12 @@ listener.join(5)
 assert hasattr(listener, "_nova_tap"), "the patched tap maker didn't run"
 print(f"ok: pynput patch active (tap {'created' if listener._nova_tap is not None else 'refused: no Input Monitoring'})")
 
-# hold to talk on a Mac: Cmd is offered and is the default, as the triple tap uses Cmd; pynput's keys get the
+# hold to talk on a Mac: Cmd is offered (no key is held by default: the shortcuts are chords); pynput's keys get the
 # names the hold keys match
 from core.config import defaults  # noqa: E402
-assert defaults()["hold_key"] == "left cmd", defaults()["hold_key"]
+assert defaults()["hold_key"] == "", defaults()["hold_key"]
+assert {system.chord_key(k.name) for k in (keyboard.Key.cmd_r, keyboard.Key.cmd_l, keyboard.Key.cmd)} == {"win"}
+assert {system.chord_key(k.name) for k in (keyboard.Key.ctrl_r, keyboard.Key.ctrl_l, keyboard.Key.ctrl)} == {"ctrl"}
 assert {"left cmd", "right cmd", "cmd"} <= set(system.HOLD_KEYS), system.HOLD_KEYS
 names = {k: system.MAC_HOLD[k] for k in (keyboard.Key.cmd_r, keyboard.Key.cmd, keyboard.Key.cmd_l, keyboard.Key.ctrl_r,
                                          keyboard.Key.ctrl, keyboard.Key.alt_r, keyboard.Key.shift_r)}
