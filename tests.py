@@ -556,7 +556,7 @@ from core.config import defaults  # noqa: E402
 shipped = defaults()  # the shipped settings, not this computer's config.json
 assert nova_mod.system.HOLD_DELAY_S >= 1.5 and shipped["hold_delay_s"] >= 1.5  # long enough to pause before Ctrl+C
 assert shipped["triple_tap_mode"] == "assistant" and shipped["hold_mode"] == "dictation"
-assert shipped["hold_key"] == ("left cmd" if sys.platform == "darwin" else "left ctrl")  # a Mac holds Cmd
+assert shipped["hold_key"] == "" and (shipped["push_to_talk"], shipped["text_mode"], shipped["dictate"], shipped["dictate_hands_free"]) == ("ctrl+`", "ctrl+alt", "ctrl+win", "ctrl+win")  # the five shortcuts
 # the left key on its own: Windows names it "ctrl" or "left ctrl"; the right one never counts
 assert "left ctrl" in nova_mod.system.HOLD_KEYS and hm("left ctrl", "ctrl") and hm("left ctrl", "left ctrl")
 assert not hm("left ctrl", "right ctrl") and hm("left cmd", "left cmd") and not hm("left cmd", "right cmd")
@@ -4057,5 +4057,68 @@ assert started_n == []
 gh.pointer.suppressed = False
 gh.hold_down("assistant")
 assert started_n == [1]
+
+import core.audio as audio_mod                                                 # the chosen microphone and speaker become sounddevice's defaults
+_devs = [dict(name="Sound Mapper", hostapi=0, max_input_channels=2, max_output_channels=0), dict(name="Mic A", hostapi=0, max_input_channels=1, max_output_channels=0),
+         dict(name="Mic B", hostapi=0, max_input_channels=2, max_output_channels=0), dict(name="Speaker A", hostapi=0, max_input_channels=0, max_output_channels=2),
+         dict(name="Speaker B", hostapi=0, max_input_channels=0, max_output_channels=2), dict(name="Mic B", hostapi=1, max_input_channels=2, max_output_channels=0)]
+_real_sd = audio_mod.sd
+audio_mod.sd = types.SimpleNamespace(default=types.SimpleNamespace(hostapi=0, device=(None, None)), query_devices=lambda: _devs,
+                                     query_hostapis=lambda i: {"default_input_device": 1, "default_output_device": 3})
+assert audio_mod.devices() == {"input": ["Mic A", "Mic B"], "output": ["Speaker A", "Speaker B"]}   # no Sound Mapper, no other host API
+audio_mod.apply_devices({"input_device": "Mic B", "output_device": ""})
+assert tuple(audio_mod.sd.default.device) == (2, 3)                             # picked mic; the system's speaker
+audio_mod.apply_devices({"input_device": "gone", "output_device": "Speaker B"})
+assert tuple(audio_mod.sd.default.device) == (1, 4)                             # an unplugged mic falls back to the system's
+audio_mod.sd = _real_sd
+assert audio_mod.apply_devices.__doc__ and json.loads(Path("config.default.json").read_text(encoding="utf-8"))["voice"]["input_device"] == ""
+for tab in ("shortcuts", "cursor", "microphone"):                               # every settings tab has a panel, and the moved rows kept their ids
+    assert f'data-tab="{tab}"' in app_js and f'data-panel="{tab}"' in app_js
+for ident in ("setKeyBtn", "colorTiles", "inDevs", "outDevs", "speedPills", "setMicBtn", "enrollBtn"):
+    assert app_js.count(f'id="{ident}"') == 1, ident
+
+import core.system as system_mod                                               # modifier chords: hold, tap, double tap; never when another key joins
+F = frozenset
+assert system_mod.chord_parse("ctrl+win") == system_mod.chord_parse("Ctrl+Windows") == (F({"ctrl", "win"}), "") and system_mod.chord_parse("ctrl+`") == (F({"ctrl"}), "`")
+assert system_mod.chord_parse("ctrl") is None and system_mod.chord_parse("a+b") is None and system_mod.chord_parse("") is None
+assert system_mod.chord_key("right alt") == "alt" and system_mod.chord_key("alt gr") == "alt" and system_mod.chord_key("space") is None
+_log = []
+_mk = lambda name: (lambda: _log.append(name))
+_hold = (_mk("start"), _mk("stop"), _mk("cancel"), _mk("down"), _mk("up"))
+_ch = object.__new__(system_mod.Chords)
+_ch.specs = {(F({"ctrl", "win"}), ""): {"keys": (F({"ctrl", "win"}), ""), "hold": _hold, "double": _mk("double")},
+             (F({"ctrl", "alt"}), ""): {"keys": (F({"ctrl", "alt"}), ""), "tap": _mk("tap")},
+             (F({"ctrl"}), "`"): {"keys": (F({"ctrl"}), "`"), "hold": _hold}}
+_ch.down, _ch.active, _ch.started, _ch.tainted, _ch.t0, _ch.taps, _ch.timer, _ch.lock = set(), None, False, False, 0.0, [], None, threading.Lock()
+def _press(*seq):
+    for key, down, t in seq:
+        _ch.event(key, down, t)
+_press(("ctrl", True, 0), ("alt", True, .01), ("alt", False, .1), ("ctrl", False, .11))
+assert _log == ["tap"], _log                                                    # Ctrl+Alt tapped: text mode
+_log.clear()
+_press(("ctrl", True, 1), ("alt", True, 1.01), ("space", True, 1.1), ("space", False, 1.12), ("alt", False, 1.2), ("ctrl", False, 1.21))
+assert _log == [], _log                                                         # Ctrl+Alt+Space is a shortcut, not the chord
+_press(("ctrl", True, 2), ("win", True, 2.01), ("win", False, 2.1), ("ctrl", False, 2.11), ("ctrl", True, 2.3), ("win", True, 2.31), ("win", False, 2.4), ("ctrl", False, 2.41))
+assert _log == ["down", "up", "down", "up", "double"], _log                     # two quick taps: hands-free dictation
+_log.clear()
+_press(("ctrl", True, 3), ("win", True, 3.01))
+_ch.fire(_ch.active)                                                            # held past CHORD_HOLD_S
+_press(("win", False, 4), ("ctrl", False, 4.01))
+assert _log == ["down", "start", "up", "stop"], _log                            # held: listens until let go
+_log.clear()
+_press(("ctrl", True, 5), ("win", True, 5.01))
+_ch.fire(_ch.active)
+_press(("c", True, 5.5), ("win", False, 6), ("ctrl", False, 6.01))
+assert _log == ["down", "start", "cancel", "up"], _log                          # typed meanwhile: the recording is dropped
+_log.clear()
+_press(("ctrl", True, 7), ("`", True, 7.01), ("`", True, 7.1))                    # Ctrl+` held (the key repeats)
+_ch.fire(_ch.active)
+_press(("`", False, 8), ("ctrl", False, 8.01))
+assert _log == ["down", "start", "up", "stop"], _log
+_log.clear()
+_press(("ctrl", True, 9), ("a", True, 9.01), ("a", False, 9.02), ("`", True, 9.03), ("`", False, 9.04), ("ctrl", False, 9.05))
+assert _log == [], _log                                                         # Ctrl+A then `: not the chord
+_press(("`", True, 10), ("`", False, 10.01))
+assert not _log                                                                 # ` alone is just a key
 
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it

@@ -14,6 +14,37 @@ BLOCK = 480  # 30 ms
 SPEECH_OVER_FLOOR, MIN_SPEECH = 4, 0.0003
 
 
+def devices():
+    """Microphones and speakers on the default host API (one entry per real device, no duplicates by name)."""
+    host, out = sd.default.hostapi, {"input": [], "output": []}
+    for d in sd.query_devices():
+        if d["hostapi"] != host or "Sound Mapper" in d["name"]:
+            continue
+        for kind in out:
+            if d[f"max_{kind}_channels"] and d["name"] not in out[kind]:
+                out[kind].append(d["name"])
+    return out
+
+
+def apply_devices(voice_cfg):
+    """Point sounddevice's defaults at the chosen microphone and speaker (name or empty = the system's).
+    Every stream in Nova opens the default, so this is the one place a device is picked."""
+    host, pick = sd.default.hostapi, [None, None]
+    for i, key in enumerate(("input_device", "output_device")):
+        name = (voice_cfg.get(key) or "").strip()
+        for n, d in enumerate(sd.query_devices()):
+            if name and d["name"] == name and d["hostapi"] == host and d["max_" + ("input", "output")[i] + "_channels"]:
+                pick[i] = n
+                break
+    if None in pick:  # the system's own choice for whatever isn't picked
+        try:
+            sys_in, sys_out = sd.query_hostapis(host)["default_input_device"], sd.query_hostapis(host)["default_output_device"]
+        except Exception:
+            sys_in = sys_out = -1
+        pick = [pick[0] if pick[0] is not None else sys_in, pick[1] if pick[1] is not None else sys_out]
+    sd.default.device = tuple(pick)
+
+
 def is_speech(rms, floor):
     return rms > max(MIN_SPEECH, floor * SPEECH_OVER_FLOOR)
 

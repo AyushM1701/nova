@@ -211,6 +211,9 @@ def local_address(name):
 
 
 
+HOLD_SETTINGS = ("hold_key", "hold_key_2", "hold_delay_s", "push_to_talk", "text_mode", "dictate", "dictate_hands_free")
+
+
 class Nova(BackgroundMixin, SuggestMixin):
     job_mode = None  # the mode a shortcut asked for, this request only (None: the current mode)
 
@@ -301,6 +304,7 @@ class Nova(BackgroundMixin, SuggestMixin):
                          on_open=lambda: self.open_app("chat"), hotkey=system.pretty_hotkey(self.hotkey), position=position)
         # clicking the bar works like the shortcut; right-click opens the Nova window
         self.bar = Bar(self.root, self.on_hotkey, on_menu=self.open_app, hint=self.hint(), position=position)
+        audio.apply_devices(self.cfg["voice"])
         self.pointer, self.shot = Pointer(self.root), None  # flies to what the AI points at on the screenshot
         self.pointer.set_color(rgb(self.cfg["companion"]["color"]))
         self.pointer.set_enabled(self.cfg["companion"]["enabled"])
@@ -366,7 +370,7 @@ class Nova(BackgroundMixin, SuggestMixin):
             log("error", error=f"speech model failed to load: {e!r}")
             message = f"{friendly(e)}\n\nRun Nova's setup again to download it."  # `e` is gone once except ends
             return self.ui(lambda: self.card.show("Speech model didn't load", message, hide_after=15, kind="error"))
-        hint = (f"Say \"Hey Nova\", press {self.pretty()} or click the bar. Mode: {self.mode}. "
+        hint = (f"Say \"Hey Nova\", hold {system.pretty_hotkey(self.cfg["push_to_talk"])} or click the bar. Mode: {self.mode}. "
                 f"Brain: {self.brain.name if self.brain else 'none'}. Speech runs on the {self.stt.device}.")
         if not self.brain:
             hint += " No Claude Code or Codex found: open Nova's settings to connect one."
@@ -501,6 +505,27 @@ class Nova(BackgroundMixin, SuggestMixin):
                                                  on_up=lambda: self.ui(self.hold_up)))
             except Exception as e:  # macOS without Input Monitoring permission
                 log("error", error=f"hold-to-talk {key!r} failed: {e!r}")
+        self.bind_chords()
+
+    def bind_chords(self):
+        """Push to talk, dictate (hold), text mode (tap) and hands-free dictation (double tap): modifier keys together."""
+        c, ui = self.cfg, self.ui
+
+        specs = {}
+
+        def spec(combo, **cbs):
+            parsed = system.chord_parse(combo)
+            if parsed:
+                specs.setdefault(parsed, {"keys": parsed}).update(cbs)
+        for mode, combo in (("assistant", c["push_to_talk"]), ("dictation", c["dictate"])):
+            spec(combo, hold=(lambda m=mode: ui(lambda: self.on_hold(m)), lambda: ui(self.on_release), lambda: ui(self.on_typed),
+                              lambda m=mode: ui(lambda: self.hold_down(m)), lambda: ui(self.hold_up)))
+        spec(c["text_mode"], tap=lambda: ui(lambda: self.open_app("chat")))
+        spec(c["dictate_hands_free"], double=lambda: ui(lambda: self.on_hotkey("dictation")))
+        try:
+            self.holds.append(system.Chords(list(specs.values())))
+        except Exception as e:  # macOS without Input Monitoring permission
+            log("error", error=f"shortcut keys failed: {e!r}")
 
     def bind_triple(self, on):
         if self.triple:
@@ -624,6 +649,9 @@ class Nova(BackgroundMixin, SuggestMixin):
         if cfg["phone"] != old["phone"]:
             # turned on just now: the network you're on is the one Phone trusts
             self.phone.enable(cfg["phone"]["enabled"], here=cfg["phone"]["enabled"] and not old["phone"]["enabled"])
+        if [cfg["voice"].get(k) for k in ("input_device", "output_device")] != [old["voice"].get(k) for k in ("input_device", "output_device")]:
+            audio.apply_devices(cfg["voice"])
+            audio.MIC.close()  # the warm microphone reopens on the new device
         if cfg["companion"] != old["companion"]:
             self.pointer.set_enabled(cfg["companion"]["enabled"])
             self.pointer.set_color(rgb(cfg["companion"]["color"]))
@@ -637,7 +665,7 @@ class Nova(BackgroundMixin, SuggestMixin):
         hotkey = cfg["hotkey"] or system.DEFAULT_HOTKEY
         if cfg["brain"]["audio_memory_min"] != old["brain"]["audio_memory_min"]:
             self.audio_memory()
-        if [cfg[k] for k in ("hold_key", "hold_key_2", "hold_delay_s")] != [old[k] for k in ("hold_key", "hold_key_2", "hold_delay_s")]:
+        if [cfg[k] for k in HOLD_SETTINGS] != [old[k] for k in HOLD_SETTINGS]:
             self.bind_holds()
         if cfg["triple_tap"] != old["triple_tap"]:
             self.bind_triple(cfg["triple_tap"])

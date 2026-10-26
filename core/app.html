@@ -496,6 +496,41 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 @keyframes nv-talk { from { transform: scaleY(1.12); } to { transform: scaleY(.5); } }
 @keyframes nv-breathe { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .mark * { animation: none !important; transition: none !important; } }
+
+/* ---------- settings: glass cards, side nav, big titles ---------- */
+#page-settings.page.wide { max-width: 1060px; }
+#page-settings .set-grid { display: grid; grid-template-columns: 188px minmax(0, 1fr); gap: 36px; align-items: start; }
+#page-settings .tabs { display: flex; flex-direction: column; gap: 2px; border: 0; margin: 0; overflow: visible; position: sticky; top: 24px; }
+#page-settings .tabs button { text-align: left; padding: 9px 14px; border: 0; margin: 0; border-radius: 10px; font-size: 14px; }
+#page-settings .tabs button:hover { background: var(--raised); }
+#page-settings .tabs button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent-text); }
+#page-settings .ptitle { font-size: 34px; letter-spacing: -.02em; font-weight: 700; line-height: 1.15; }
+#page-settings .psub { color: var(--muted); font-size: 14px; margin: 6px 0 22px; max-width: 62ch; min-height: 1px; }
+#page-settings .rows { border: 0; display: flex; flex-direction: column; gap: 12px; }
+#page-settings .row { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px; box-shadow: var(--shadow); }
+#page-settings .sec { font-size: 11.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--faint); margin: 14px 4px -2px; }
+#page-settings .sec:first-child { margin-top: 0; }
+#page-settings .btn { border-radius: 999px; }
+#page-settings kbd { min-width: 2.3em; padding: 3px 11px; border-radius: 9px; font-size: 13px; background: var(--raised); box-shadow: 0 1px 0 var(--line-strong); }
+#page-settings .seg, #page-settings .seg button { border-radius: 999px; }
+#page-settings .switch[aria-checked="true"] { background: #4aa8ff; }
+#page-settings .pills { display: inline-flex; gap: 6px; }
+#page-settings .pills button { border: 1px solid var(--line-strong); background: none; color: var(--muted); border-radius: 999px; padding: 6px 16px; font-weight: 600; font-size: 13px; }
+#page-settings .pills button[aria-checked="true"] { background: #4aa8ff; border-color: transparent; color: #fff; }
+.tiles { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
+.tiles button { width: 74px; height: 74px; border-radius: 16px; border: 2px solid transparent; background: var(--raised); display: grid; place-items: center; }
+.tiles button[aria-checked="true"] { border-color: #4aa8ff; background: var(--accent-soft); }
+.tiles button i { width: 26px; height: 26px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 5px color-mix(in srgb, currentColor 22%, transparent); }
+.devlist { display: flex; flex-direction: column; gap: 4px; }
+.devlist button { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 0; border-radius: 12px; background: none; text-align: left; color: var(--text); font-size: 14px; }
+.devlist button:hover { background: var(--raised); }
+.devlist button[aria-checked="true"] { background: var(--accent-soft); }
+.devlist button[aria-checked="true"] .radio { border-color: #4aa8ff; }
+.devlist button[aria-checked="true"] .radio::after { content: ""; width: 9px; height: 9px; border-radius: 50%; background: #4aa8ff; }
+@media (max-width: 760px) {
+  #page-settings .set-grid { grid-template-columns: 1fr; gap: 16px; }
+  #page-settings .tabs { flex-direction: row; overflow-x: auto; position: static; }
+}
 </style>
 </head>
 <body>
@@ -656,11 +691,13 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 
     <!-- SETTINGS -->
     <section class="page wide" id="page-settings" hidden>
-      <h1>Settings</h1>
-      <p class="lede">Changes save as you make them and apply right away. You can also ask Nova in Chat, for example “use Ctrl+Shift+N as my shortcut”.</p>
-      <div class="tabs" role="tablist" id="setTabs">
+      <div class="set-grid">
+      <div class="tabs" role="tablist" id="setTabs" aria-orientation="vertical">
         <button role="tab" data-tab="general">General</button>
+        <button role="tab" data-tab="shortcuts">Shortcuts</button>
+        <button role="tab" data-tab="cursor">Cursor</button>
         <button role="tab" data-tab="voice">Voice</button>
+        <button role="tab" data-tab="microphone">Microphone</button>
         <button role="tab" data-tab="dictation">Dictation</button>
         <button role="tab" data-tab="meetings">Meetings</button>
         <button role="tab" data-tab="ai">AI</button>
@@ -670,11 +707,38 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
         <button role="tab" data-tab="privacy">Privacy &amp; safety</button>
         <button role="tab" data-tab="advanced">Advanced</button>
       </div>
+      <div class="set-main">
+      <h1 class="ptitle" id="setTitle">General</h1>
+      <p class="psub" id="setSub"></p>
 
       <div data-panel="general" class="rows">
         <div id="setMacPerms" style="display:contents" hidden></div>
+        <div class="row"><div class="what"><h2>Start in</h2><p>The mode Nova opens in. Switch any time with the sidebar or by saying “switch to dictation”.</p></div>
+          <div class="how"><div class="seg" role="radiogroup" data-bind="start_mode" data-options="assistant:Assistant,dictation:Dictation"></div></div></div>
+        <div class="row"><div class="what"><h2>Open Nova when you sign in</h2><p>Nova waits quietly in the tray (the ^ by the clock) or the menu bar.</p></div>
+          <div class="how"><button class="switch" role="switch" id="autostart" aria-label="Open Nova when you sign in"></button></div></div>
+        <div class="row"><div class="what"><h2>Where the bar sits</h2><p>Bottom: above the taskbar or Dock. Top: along the top of the screen; on a MacBook with a notch, Nova hangs from the notch and grows out of it while it listens and talks.</p></div>
+          <div class="how"><div class="seg" role="radiogroup" data-bind="overlay.position" data-options="bottom:Bottom,top:Top"></div></div></div>
+        <div class="row"><div class="what"><h2>Hide replies after</h2><p>How long the reply card stays on screen after Nova finishes talking.</p></div>
+          <div class="how"><input class="input short num" type="number" min="2" max="60" data-bind="overlay.hide_after_s" aria-label="Seconds"><span class="muted">seconds</span></div></div>
+      </div>
+
+      <div data-panel="shortcuts" class="rows" hidden>
+        <div class="sec">Talk to Nova</div>
+        <div class="row"><div class="what"><h2>Push to talk</h2><p>Hold to talk to Nova. Release to send. Hold the keys, draw a circle around something, and Nova asks about it.</p></div>
+          <div class="how"><span class="keys" data-chord="push_to_talk"></span><button class="btn sm" data-chord-btn="push_to_talk">Change</button></div></div>
+        <div class="row"><div class="what"><h2>Text mode</h2><p>Press to type to Nova instead of talking: opens Chat, ready to type.</p></div>
+          <div class="how"><span class="keys" data-chord="text_mode"></span><button class="btn sm" data-chord-btn="text_mode">Change</button></div></div>
+        <div class="row"><div class="what"><h2>Hands-free: “Hey Nova”</h2><p>Say “Hey Nova”, or tap Ctrl three times, in any app. Nova keeps listening until you stop. Off while a game is in front, where Ctrl is part of the game.</p></div>
+          <div class="how"><span class="keys" id="tripleKeys"></span><button class="switch" role="switch" data-bind="triple_tap" aria-label="Tap Ctrl three times"></button></div></div>
+        <div class="sec">Dictation</div>
+        <div class="row"><div class="what"><h2>Dictate</h2><p>Hold and speak. Release to insert what you said at your cursor.</p></div>
+          <div class="how"><span class="keys" data-chord="dictate"></span><button class="btn sm" data-chord-btn="dictate">Change</button></div></div>
+        <div class="row"><div class="what"><h2>Hands-free dictation</h2><p>Dictate without holding a key down. Press twice to start, press twice again to stop.</p></div>
+          <div class="how"><span class="keys" data-chord="dictate_hands_free"></span><button class="btn sm" data-chord-btn="dictate_hands_free">Change</button></div></div>
+        <div class="sec">More ways to talk</div>
         <div class="row"><div class="what"><h2>Shortcut</h2><p>Press it to talk, again to stop early, or while Nova works to cancel. When Nova asks for your OK, it means “allow”. “Current mode” follows the mode Nova is in; Assistant or Dictation uses that mode for this request only.</p></div>
-          <div class="how"><span class="keys" id="setKeys"></span><button class="btn sm" id="setKeyBtn">Change</button>
+          <div class="how"><span class="keys" id="setKeys"></span><button class="btn sm" id="setKeyBtn">Change</button><button class="btn sm" id="clearKeyBtn">Off</button>
             <select class="input" data-bind="hotkey_mode" aria-label="Shortcut mode"><option value="current">Current mode</option><option value="assistant">Assistant</option><option value="dictation">Dictation</option></select></div></div>
         <div class="row"><div class="what"><h2>Second shortcut</h2><p>Another shortcut, often for the other mode. The same keys as the first shortcut work as one shortcut for both modes.</p></div>
           <div class="how"><span class="keys" id="setKeys2"></span><button class="btn sm" id="setKey2Btn">Set</button><button class="btn sm" id="clearKey2Btn">Off</button>
@@ -687,23 +751,34 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
         <div class="row"><div class="what"><h2>Second hold key</h2><p>Hold one key to dictate and another to ask Nova. Pick the same key in both to use one key for both modes.</p></div>
           <div class="how"><select class="input hold-key" data-bind="hold_key_2" aria-label="Second hold key"></select>
             <select class="input" data-bind="hold_key_2_mode" aria-label="Second hold key mode"><option value="current">Current mode</option><option value="assistant">Assistant</option><option value="dictation">Dictation</option></select></div></div>
-        <div class="row"><div class="what"><h2>Tap Ctrl three times</h2><p>Works like the shortcut, from any app. Off while a game is in front, where Ctrl is part of the game.</p></div>
-          <div class="how"><button class="switch" role="switch" data-bind="triple_tap" aria-label="Tap Ctrl three times"></button>
-            <select class="input" data-bind="triple_tap_mode" aria-label="Triple tap mode"><option value="current">Current mode</option><option value="assistant">Assistant</option><option value="dictation">Dictation</option></select></div></div>
         <div class="row"><div class="what"><h2>Listen for “Hey Nova”</h2><p>Runs on this computer. Nothing is kept unless it hears “Hey Nova”.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="wake_word" aria-label="Listen for Hey Nova"></button></div></div>
         <div class="row"><div class="what"><h2>How easily “Hey Nova” wakes Nova</h2><p>High (the default) hears a soft or distant voice best. If Nova wakes when you didn't call it, try Normal; Low needs you to say it clearly. The listening runs on this computer.</p></div>
           <div class="how"><div class="seg" role="radiogroup" data-bind="wake_sensitivity" data-options="low:Low,normal:Normal,high:High"></div></div></div>
         <div class="row"><div class="what"><h2>Teach Nova your “Hey Nova”</h2><p id="enrollNote">If Nova often misses your “Hey Nova”, say it 8 times here. Nova also listens with a detector trained on Indian English, which wakes only for your voice; the voiceprint stays on this computer.</p><p class="small" id="enrollStatus" style="margin-top:8px" hidden></p></div>
           <div class="how"><button class="btn sm" id="enrollBtn">Start</button></div></div>
-        <div class="row"><div class="what"><h2>Start in</h2><p>The mode Nova opens in. Switch any time with the sidebar or by saying “switch to dictation”.</p></div>
-          <div class="how"><div class="seg" role="radiogroup" data-bind="start_mode" data-options="assistant:Assistant,dictation:Dictation"></div></div></div>
-        <div class="row"><div class="what"><h2>Open Nova when you sign in</h2><p>Nova waits quietly in the tray (the ^ by the clock) or the menu bar.</p></div>
-          <div class="how"><button class="switch" role="switch" id="autostart" aria-label="Open Nova when you sign in"></button></div></div>
-        <div class="row"><div class="what"><h2>Where the bar sits</h2><p>Bottom: above the taskbar or Dock. Top: along the top of the screen; on a MacBook with a notch, Nova hangs from the notch and grows out of it while it listens and talks.</p></div>
-          <div class="how"><div class="seg" role="radiogroup" data-bind="overlay.position" data-options="bottom:Bottom,top:Top"></div></div></div>
-        <div class="row"><div class="what"><h2>Hide replies after</h2><p>How long the reply card stays on screen after Nova finishes talking.</p></div>
-          <div class="how"><input class="input short num" type="number" min="2" max="60" data-bind="overlay.hide_after_s" aria-label="Seconds"><span class="muted">seconds</span></div></div>
+        <div class="row"><div class="what"><h2>Reset to defaults</h2><p>Puts the five shortcuts at the top back to how Nova came.</p></div>
+          <div class="how"><button class="btn sm" id="resetChords">Reset</button></div></div>
+      </div>
+
+      <div data-panel="cursor" class="rows" hidden>
+        <div class="sec">Colour</div>
+        <div class="row" style="display:block"><div class="what"><h2>Cursor colour</h2><p>The colour of the marker beside your mouse pointer, and of what Nova draws with it.</p></div>
+          <div class="tiles" id="colorTiles" role="radiogroup" aria-label="Cursor colour"></div></div>
+        <div class="sec">Behaviour</div>
+        <div class="row"><div class="what"><h2>Companion</h2><p>A small glowing marker that stays beside your mouse pointer. It shows what Nova is doing (listening, thinking, speaking, waiting for your OK, and a number when agents are working for you), flies to what Nova is pointing at, draws with its tip when Nova draws on your screen, then comes back. It dims when you stop moving the mouse, hides in games, and shows in screen recordings.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="companion.enabled" aria-label="Show the cursor"></button></div></div>
+        <div class="row"><div class="what"><h2>Circle to ask</h2><p>Hold the shortcut and draw a circle around something on screen: Nova asks about exactly that.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="brain.circle_to_ask" aria-label="Circle to ask"></button></div></div>
+      </div>
+
+      <div data-panel="microphone" class="rows" hidden>
+        <div class="sec">Input device</div>
+        <div class="row" style="display:block"><div class="devlist" id="inDevs" role="radiogroup" aria-label="Microphone"></div></div>
+        <div class="sec">Test</div>
+        <div class="row"><div class="what"><h2>Test microphone</h2><p id="micName">Check that Nova hears you.</p></div>
+          <div class="how"><button class="btn sm" id="setMicBtn">Test microphone</button></div></div>
+        <div class="row"><canvas id="setMic" width="640" height="96" style="width:100%;height:48px" aria-label="Microphone level"></canvas></div>
       </div>
 
       <div data-panel="voice" class="rows" hidden>
@@ -742,15 +817,17 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
         <div class="row" data-engine="system"><div class="what"><h2>System voice</h2><p>Windows and macOS let you add more voices in their speech settings.</p></div>
           <div class="how"><select class="input" id="voiceSel" data-bind="voice.tts_voice" aria-label="System voice"><option value="">System default</option></select><button class="btn sm" id="testVoice">Play</button></div></div>
         <div class="row" data-engine="piper kitten kokoro"><div class="what"><h2>Speaking speed</h2><p>How fast Nova talks.</p></div>
-          <div class="how"><input type="range" min="0.75" max="1.4" step="0.05" data-bind="voice.tts_speed" aria-label="Speaking speed"><span class="value num" data-show="voice.tts_speed" data-unit="x"></span></div></div>
+          <div class="how"><div class="pills" id="speedPills" role="radiogroup" aria-label="Speaking speed"></div></div></div>
+        <div class="sec">Output device</div>
+        <div class="row" style="display:block"><div class="devlist" id="outDevs" role="radiogroup" aria-label="Speaker"></div>
+          <button class="btn sm" id="testOut" style="margin-top:12px">Play a test sound</button></div>
+        <div class="sec">Conversation</div>
         <div class="row"><div class="what"><h2>Keep listening after an answer</h2><p>After Nova answers, the mic opens again so you can keep talking without “Hey Nova”. Say “that's it”, “ok thanks” or “bye”, stay quiet for a few seconds, or press Esc to end the conversation.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="voice.conversation" aria-label="Keep listening after an answer"></button></div></div>
         <div class="row"><div class="what"><h2>Interrupt by talking</h2><p>Start speaking while Nova answers and it stops to listen. Nova ignores its own voice coming back through your speakers; headphones make it even more reliable.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="voice.barge_in" aria-label="Interrupt by talking"></button></div></div>
         <div class="row"><div class="what"><h2>Stop listening after a pause of</h2><p>For requests. Shorter feels snappier; longer lets you think mid-sentence.</p></div>
           <div class="how"><input type="range" min="600" max="4000" step="100" data-bind="voice.silence_ms" aria-label="Pause length"><span class="value num" data-show="voice.silence_ms" data-unit="s"></span></div></div>
-        <div class="row"><div class="what"><h2>Microphone</h2><p id="micName">Check that Nova hears you.</p></div>
-          <div class="how"><canvas id="setMic" width="152" height="60" style="width:76px;height:30px"></canvas><button class="btn sm" id="setMicBtn">Test</button></div></div>
       </div>
 
       <div data-panel="dictation" class="rows" hidden>
@@ -835,8 +912,6 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
             <button class="btn sm" data-app="github|https://api.githubcopilot.com/mcp/">+ GitHub</button>
             <button class="btn sm" id="addApp"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Other</button>
             <button class="btn primary sm" id="appsSignin">Sign in</button></div></div>
-        <div class="row"><div class="what"><h2>Companion</h2><p>A small glowing marker that stays beside your mouse pointer. It shows what Nova is doing (listening, thinking, speaking, waiting for your OK, and a number when agents are working for you), flies to what Nova is pointing at, draws with its tip when Nova draws on your screen, then comes back. It dims when you stop moving the mouse, hides in games, and shows in screen recordings.</p></div>
-          <div class="how"><button class="switch" role="switch" data-bind="companion.enabled" aria-label="Show the companion"></button></div></div>
         <div class="row"><div class="what"><h2>Suggestions</h2><p>When you copy an error message, a link or a long text, a small card offers to explain or summarise it. Nothing goes to the AI until you press Do it. At most a few a day, and if you chose a model on this computer for dictation, it decides whether the moment is right.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="proactive.enabled" aria-label="Suggest help"></button></div></div>
         <div class="row" style="display:block"><div class="what"><h2>Project nicknames</h2><p>Say “my site” and Nova knows you mean the folder “portfolio”. Nova already knows every project you've opened in Claude Code or Codex.</p></div>
@@ -911,6 +986,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><button class="btn sm" id="rerunSetup">Run setup</button></div></div>
         <div class="row"><div class="what"><h2>Reset settings</h2><p>Back to the defaults. Your dictionary, history and AI choice are kept.</p></div>
           <div class="how"><button class="btn danger sm" id="resetBtn">Reset</button></div></div>
+      </div>
+      </div>
       </div>
     </section>
   </main>
@@ -1008,7 +1085,7 @@ const api = () => window.pywebview.api;
 const S = {
   cfg: null, defaults: null, platform: "win", state: {}, bar: "idle", levels: new Array(15).fill(0), mic: 0,
   history: [], connected: false, histFilter: "all", work: null, asks: [], languages: {}, page: "home",
-  defaultHotkey: "ctrl+alt+space", engines: null, gone: false,
+  defaultHotkey: "", engines: null, gone: false,
 };
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -1022,11 +1099,11 @@ function toast(text, bad = false) {
 function fail(e) { toast(String(e && e.message || e).replace(/^Error:\s*/, ""), true); }
 function prettyKeys(combo) {  // a Mac shows modifiers as the symbols on its keys and in its menus
   const names = S.platform === "mac"
-    ? { ctrl: "⌃", alt: "⌥", cmd: "⌘", shift: "⇧", space: "Space", enter: "Return", tab: "Tab" }
-    : { ctrl: "Ctrl", alt: "Alt", shift: "Shift", windows: "Win", win: "Win", space: "Space", enter: "Enter", tab: "Tab" };
+    ? { ctrl: "⌃", alt: "⌥", cmd: "⌘", win: "⌘", fn: "fn", shift: "⇧", space: "Space", enter: "Return", tab: "Tab" }
+    : { ctrl: "Ctrl", alt: "Alt", shift: "Shift", windows: "Win", win: "Win", fn: "Fn", space: "Space", enter: "Enter", tab: "Tab" };
   return combo.split("+").map(k => names[k] || (k.length <= 3 ? k.toUpperCase() : k[0].toUpperCase() + k.slice(1)));
 }
-function keysText(combo) { return prettyKeys(combo).join(S.platform === "mac" ? "" : "+"); }  // ⌘⇧Space, Ctrl+Alt+Space
+function keysText(combo) { if (!combo) return `tap ${prettyKeys(S.platform === "mac" ? "cmd" : "ctrl")[0]} three times`; return prettyKeys(combo).join(S.platform === "mac" ? "" : "+"); }  // ⌘⇧Space, Ctrl+Alt+Space
 /* the copy is written with Windows words; on a Mac these become the Mac's own */
 const MAC_WORDS = [
   ["Enter to send, Shift+Enter for a new line", "Return to send, Shift-Return for a new line"],
@@ -1052,11 +1129,11 @@ function macify() {
     if (e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "w") { e.preventDefault(); api().close().catch(() => {}); }
   });
 }
-function keycaps(combo, el) { el.replaceChildren(...prettyKeys(combo).map(k => h("kbd", {}, k))); return el; }
+function keycaps(combo, el) { el.replaceChildren(...(combo ? prettyKeys(combo).map(k => h("kbd", {}, k)) : [h("span", { class: "faint small" }, "Off")])); return el; }
 function hotkey() { return S.cfg.hotkey || S.defaultHotkey; }
 // how to talk from the keyboard, as keycaps: Ctrl (Cmd on a Mac) tapped three times when that's on, else the shortcut
 function talkKeys() {
-  const keys = S.cfg.triple_tap ? Array(3).fill(prettyKeys(S.platform === "mac" ? "cmd" : "ctrl")[0]) : prettyKeys(hotkey());
+  const keys = S.cfg.triple_tap || !hotkey() ? Array(3).fill(prettyKeys(S.platform === "mac" ? "cmd" : "ctrl")[0]) : prettyKeys(hotkey());
   return `<span class="keys">${keys.map(k => `<kbd>${esc(k)}</kbd>`).join("")}</span>`;
 }
 function when(t) { return new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
@@ -1567,7 +1644,9 @@ function showTab(tab) {
   S.tab = tab;
   $$("#setTabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
   $$("[data-panel]").forEach(p => p.hidden = p.dataset.panel !== tab);
-  if (tab !== "voice") stopMic();
+  if (tab !== "microphone") { stopMic(); $("#setMicBtn").textContent = "Test microphone"; }
+  const [title, sub] = SET_PAGES[tab] || [tab, ""]; $("#setTitle").textContent = title; $("#setSub").textContent = sub;
+  if (tab === "microphone" || tab === "voice") loadDevices();
   if (tab === "ai") { loadEngines($("#setEngines"), $("#setLog")); loadFallback(); }
   if (tab === "browsers") loadBrowsers($("#setBrowsers"), $("#browserLog"), false);
   if (tab === "phone") loadPhone();
@@ -1616,6 +1695,8 @@ function bindSettings() {
       showValue(path);
     }
   }
+  paintCursorSpeed();
+  paintChords();
   keycaps(hotkey(), $("#setKeys")); showKeys2();
   $("#cfgPath").textContent = S.paths.config;
   $("#autostart").setAttribute("aria-checked", !!S.autostart);
@@ -1728,6 +1809,7 @@ $("#setKeyBtn").addEventListener("click", () => recordHotkey($("#setKeys"), $("#
 // the second shortcut: "Off" until one is set
 function showKeys2() { const el = $("#setKeys2"); if (get("hotkey_2")) keycaps(get("hotkey_2"), el); else el.replaceChildren(h("span", { class: "faint small" }, "Off")); }
 $("#setKey2Btn").addEventListener("click", () => recordHotkey($("#setKeys2"), $("#setKey2Btn"), combo => { set("hotkey_2", combo); save(true); }, showKeys2));
+$("#clearKeyBtn").addEventListener("click", () => { set("hotkey", ""); save(true); keycaps("", $("#setKeys")); });
 $("#clearKey2Btn").addEventListener("click", () => { set("hotkey_2", ""); save(true); showKeys2(); });
 // hold keys: a Mac also offers Cmd (Windows' Win key would open Start), and calls Alt "Option"
 function fillHoldKeys() {
@@ -1765,6 +1847,64 @@ function recordHotkey(capsEl, btn, done, show = () => keycaps(hotkey(), capsEl))
   window.addEventListener("keydown", onKey, true);
 }
 
+
+const SET_PAGES = { general: ["General", "How Nova starts and where it shows up."], shortcuts: ["Shortcuts", "Press, hold or tap to talk to Nova from any app."], cursor: ["Cursor", "The marker beside your mouse pointer: colour, and what it does."],
+  voice: ["Voice", "How Nova listens, and how it sounds."], microphone: ["Microphone", "Pick the microphone and check that Nova hears you."], dictation: ["Dictation", "How Nova turns speech into text in any app."], meetings: ["Meetings", "Record, transcribe and summarise calls."],
+  ai: ["AI", "The AI that does the work, and the apps it can use."], routines: ["Routines", "Things Nova does on a schedule."], browsers: ["Browsers", "Which browsers Nova can use for you."], phone: ["Phone", "Use Nova from your phone."],
+  privacy: ["Privacy & safety", "What Nova asks about, and what stays on this computer."], advanced: ["Advanced", "Files, updates and resets."] };
+const COLORS = ["#3380FF", "#9B5CFF", "#FF5C8A", "#FF6B3D", "#F5B800", "#22C55E", "#14B8A6", "#EDEDED"];
+const SPEEDS = [["Slow", 0.85], ["Normal", 1], ["Fast", 1.2], ["Faster", 1.4]];
+function radios(box, items, cur, pick, mk = label => label) {
+  const paint = () => $$("button", box).forEach(b => b.setAttribute("aria-checked", b.dataset.v === String(cur())));
+  box.replaceChildren(...items.map(([v, label]) => { const b = h("button", { role: "radio", type: "button", "data-v": String(v), title: label }, mk(label, v)); b.onclick = () => { pick(v); paint(); }; return b; }));
+  paint();
+}
+function paintCursorSpeed() {
+  radios($("#colorTiles"), COLORS.map(c => [c, c]), () => String(get("companion.color")).toUpperCase(), c => { set("companion.color", c); save(true); }, (_, c) => { const i = h("i"); i.style.color = c; return i; });
+  const near = () => SPEEDS.reduce((a, b) => Math.abs(b[1] - get("voice.tts_speed")) < Math.abs(a[1] - get("voice.tts_speed")) ? b : a)[1];
+  radios($("#speedPills"), SPEEDS.map(([l, v]) => [v, l]), near, v => { set("voice.tts_speed", Number(v)); save(); });
+}
+async function loadDevices() {
+  let d; try { d = await api().audio_devices(); } catch (e) { return fail(e); }
+  const list = (box, key, names) => radios(box, [["", "System default"], ...names.map(n => [n, n])], () => get("voice." + key) || "", v => { set("voice." + key, v); save(true); }, label => [h("span", { class: "radio" }), label]);
+  list($("#inDevs"), "input_device", d.input); list($("#outDevs"), "output_device", d.output);
+}
+$("#testOut").addEventListener("click", () => api().test_voice(voiceTest()).catch(fail));
+
+
+/* shortcut chips: modifier keys held together */
+const CHORD_TIMES = { dictate_hands_free: 2 };
+const MOD_ORDER = ["ctrl", "alt", "shift", "win"];
+function paintChords() {
+  for (const el of $$("[data-chord]")) { const k = el.dataset.chord, caps = prettyKeys(get(k) || ""); el.replaceChildren(...Array.from({ length: CHORD_TIMES[k] || 1 }, () => caps).flat().map(c => h("kbd", {}, c))); }
+  const t = prettyKeys(S.platform === "mac" ? "cmd" : "ctrl")[0]; $("#tripleKeys").replaceChildren(...[t, t, t].map(c => h("kbd", {}, c)));
+}
+function recordChord(key, btn) {
+  const caps = $(`[data-chord="${key}"]`), old = btn.textContent; btn.textContent = "Press the keys… (Esc to cancel)";
+  let best = new Set(); caps.replaceChildren(h("kbd", {}, "…"));
+  const mods = e => { const m = new Set(); if (e.ctrlKey) m.add("ctrl"); if (e.altKey) m.add("alt"); if (e.shiftKey) m.add("shift"); if (e.metaKey) m.add("win"); return m; };
+  const done = () => { window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up, true); btn.textContent = old; paintChords(); };
+  const down = e => {
+    e.preventDefault(); e.stopPropagation();
+    if (e.code === "Escape") return done();
+    const m = mods(e); if (m.size > best.size) best = m;
+    if (!/^(Control|Alt|Shift|Meta|OS)/.test(e.code)) {  // one ordinary key with the modifiers, like Ctrl+`
+      const c = comboFrom(e); if (!c) return toast("Hold Ctrl, Alt, Shift or " + (S.platform === "mac" ? "Cmd" : "Win") + " with it", true);
+      set(key, c); save(true); return done();
+    }
+    caps.replaceChildren(...MOD_ORDER.filter(k => best.has(k)).map(k => h("kbd", {}, prettyKeys(k)[0])));
+  };
+  const up = e => {
+    e.preventDefault(); e.stopPropagation();
+    if (mods(e).size) return;  // wait until every key is up
+    if (best.size < 2) { toast("Hold at least two of Ctrl, Alt, Shift or " + (S.platform === "mac" ? "Cmd" : "Win") + " together", true); return done(); }
+    set(key, MOD_ORDER.filter(k => best.has(k)).join("+")); save(true); done();
+  };
+  window.addEventListener("keydown", down, true); window.addEventListener("keyup", up, true);
+}
+$$("[data-chord-btn]").forEach(b => b.addEventListener("click", () => recordChord(b.dataset.chordBtn, b)));
+$("#resetChords").addEventListener("click", () => { for (const k of ["push_to_talk", "text_mode", "dictate", "dictate_hands_free"]) set(k, S.defaults[k]); save(true); paintChords(); toast("Shortcuts reset"); });
+
 /* microphone test */
 let micOn = false;
 async function startMic(nameEl) {
@@ -1773,7 +1913,7 @@ async function startMic(nameEl) {
   catch (e) { micOn = false; if (nameEl) nameEl.textContent = "No microphone found. Plug one in or check your privacy settings, then try again."; throw e; }
 }
 function stopMic() { if (micOn) { micOn = false; api().mic_stop(); micLevels.fill(0); } }
-$("#setMicBtn").addEventListener("click", () => { if (micOn) { stopMic(); $("#setMicBtn").textContent = "Test"; } else startMic($("#micName")).then(() => $("#setMicBtn").textContent = "Stop").catch(() => {}); });
+$("#setMicBtn").addEventListener("click", () => { if (micOn) { stopMic(); $("#setMicBtn").textContent = "Test microphone"; } else startMic($("#micName")).then(() => $("#setMicBtn").textContent = "Stop").catch(() => {}); });
 pill($("#setMic"), micSource);
 
 /* engines */

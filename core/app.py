@@ -513,6 +513,8 @@ class Api:
         """Play a sample with the unsaved voice settings; Nova speaks it, so the model is loaded only once."""
         if self._conn:
             return self.send("test_voice", settings)
+        from core import audio
+        audio.apply_devices(load_config()[0]["voice"])
         threading.Thread(target=tts.speak, args=("Hi, I'm Nova.", settings, threading.Event()), daemon=True).start()
         return True
 
@@ -524,19 +526,25 @@ class Api:
             raise RuntimeError("The download didn't finish. Check your internet connection and try again.")
         return tts.installed(engine)
 
+    def audio_devices(self):
+        """Names of the microphones and speakers, for the pickers."""
+        from core import audio
+        return audio.devices()
+
     def mic_start(self):
         """Start the microphone test; levels arrive as {event: 'mic'}. Returns the device name."""
         import numpy as np
         import sounddevice as sd
         from core import audio
         if self._mic is None:
+            audio.apply_devices(load_config()[0]["voice"])
             def callback(data, *_):
                 self._level = max(self._level * 0.6, audio.level(float(np.sqrt(np.mean(data ** 2)))))
             self._mic = sd.InputStream(samplerate=16000, channels=1, dtype="float32", blocksize=480,
                                        callback=callback)
             self._mic.start()
             threading.Thread(target=self._meter, daemon=True).start()
-        return sd.query_devices(kind="input")["name"]
+        return sd.query_devices(sd.default.device[0])["name"]
 
     def _meter(self):
         while self._mic is not None:
@@ -544,7 +552,7 @@ class Api:
             time.sleep(0.05)
 
     def mic_stop(self):
-        mic, self._mic = self._mic, None
+        mic, self._mic = self._mic, None  # a new pick takes effect on the next Test
         if mic:
             mic.close()
         return True

@@ -64,7 +64,7 @@ else:
     MEDIA = {"play_pause": "play/pause media", "next": "next track", "previous": "previous track",
              "mute": "volume mute", "volume_up": "volume up", "volume_down": "volume down"}
 
-DEFAULT_HOTKEY = "cmd+shift+space" if IS_MAC else "ctrl+alt+space"
+DEFAULT_HOTKEY = ""  # no press-to-toggle shortcut until one is chosen: hands-free is "Hey Nova" or Ctrl three times
 from core.config import DATA, NO_WINDOW  # noqa: E402,F401  (callers import NO_WINDOW from here too)
 # Nova runs under pythonw on Windows, which has no stdout; hooks and helpers must answer on stdout
 CONSOLE_PYTHON = Path(sys.executable).with_name("python.exe") if os.name == "nt" else Path(sys.executable)
@@ -91,10 +91,10 @@ class Hotkeys:
         self.combo = combo
         if IS_MAC:
             fmt = "+".join(f"<{k}>" if len(k) > 1 else k for k in combo.lower().split("+"))
-            self.listener = pk.GlobalHotKeys({fmt: on_hotkey, **({"<esc>": on_esc} if on_esc else {})})
+            self.listener = pk.GlobalHotKeys({**({fmt: on_hotkey} if combo else {}), **({"<esc>": on_esc} if on_esc else {})})
             self.listener.start()
         else:
-            self.handles = [keyboard.add_hotkey(combo, on_hotkey, suppress=True)]
+            self.handles = [keyboard.add_hotkey(combo, on_hotkey, suppress=True)] if combo else []
             if on_esc:
                 self.handles.append(keyboard.add_hotkey("esc", on_esc))
 
@@ -223,6 +223,129 @@ class TripleTap:
             keyboard.unhook(self.hook)
 
 
+CHORD_HOLD_S = 0.35  # two modifiers held together on purpose: listening starts this soon (a tap is TAP_S or less)
+DOUBLE_WITHIN_S = 0.7
+_CHORD_NAMES = (("ctrl", "ctrl"), ("alt", "alt"), ("option", "alt"), ("shift", "shift"), ("windows", "win"), ("win", "win"),
+                ("cmd", "win"), ("command", "win"), ("fn", "fn"))
+
+
+def chord_key(name):
+    """The modifier a key name stands for ("left ctrl", "alt gr", "right windows", Mac Key.cmd_r...), or None for any other key."""
+    n = str(name or "").lower().replace("key.", "").replace("_", " ")
+    if n == "alt gr":
+        return "alt"
+    n = re.sub(r"^(left|right) ", "", n).strip()
+    return next((v for k, v in _CHORD_NAMES if n == k), None)
+
+
+def chord_parse(combo):
+    """"ctrl+win" -> (frozenset({"ctrl", "win"}), ""); "ctrl+`" -> (frozenset({"ctrl"}), "`"). None when empty or invalid."""
+    parts = [k.strip() for k in str(combo or "").lower().split("+") if k.strip()]
+    mods = frozenset(m for m in map(chord_key, parts) if m)
+    mains = [k for k in parts if not chord_key(k)]
+    return (mods, mains[0] if mains else "") if mods and len(mains) <= 1 and (len(mods) >= 2 or mains) else None
+
+
+class Chords:
+    """Shortcuts made of modifier keys held together (Ctrl+Win), never swallowed. Per chord, any of:
+    hold: listening starts once the chord has been held CHORD_HOLD_S and ends when it is let go (on_cancel if another key
+    is pressed meanwhile: that was a shortcut or typing); tap: a quick press and release; double: two taps in a row.
+    Another key pressed while the chord is down (Ctrl+Alt+Space) makes it an ordinary shortcut, so nothing fires.
+    A chord is its modifiers plus at most one other key (Ctrl+`).
+    Each spec is {"keys": (modifiers, other key or ""), "hold": (start, stop, cancel, down, up), "tap": fn, "double": fn}."""
+
+    def __init__(self, specs):
+        self.specs = {s["keys"]: s for s in specs if s["keys"]}
+        self.down, self.active, self.started, self.tainted = set(), None, False, False
+        self.t0, self.taps, self.timer, self.lock = 0.0, [], None, threading.Lock()
+        if IS_MAC:
+            name = lambda k: getattr(k, "name", None) or getattr(k, "char", None)
+            self.listener = pk.Listener(on_press=lambda k: self.event(name(k), True), on_release=lambda k: self.event(name(k), False))
+            self.listener.start()
+        else:
+            self.hook = keyboard.hook(lambda e: self.event(e.name, e.event_type == "down"))
+
+    @property
+    def held(self):
+        return self.active is not None and bool(self.active.get("hold"))
+
+    def event(self, name, down, now=None):
+        """A key went down or up (`name` as the keyboard library or pynput names it)."""
+        now, then, mod = time.monotonic() if now is None else now, None, chord_key(name)
+        main = "" if mod else str(name or "").lower()
+        with self.lock:
+            if down:
+                if mod:
+                    if mod in self.down:
+                        return
+                    self.down.add(mod)
+                spec = self.specs.get((frozenset(self.down), main))
+                if self.active is not None:
+                    if not main or main != self.active["keys"][1]:  # the chord's own key repeating is nothing new
+                        then = self.taint()
+                elif spec and not self.tainted:
+                    self.active, self.t0 = spec, now
+                    if spec.get("hold"):
+                        self.timer = threading.Timer(CHORD_HOLD_S, self.fire, args=(spec,))
+                        self.timer.daemon = True
+                        self.timer.start()
+                        then = spec["hold"][3]
+                elif main:
+                    then = self.taint()
+            else:
+                self.down.discard(mod)
+                if self.active and (mod in self.active["keys"][0] or (main and main == self.active["keys"][1])):
+                    then = self.finish(now)
+                if not self.down and not self.active:
+                    self.tainted = False
+        if then:
+            then()
+
+    def taint(self):
+        """Another key joined: a shortcut or typing, not the chord. Returns what to call (the recording dropped)."""
+        self.tainted = True
+        self.cancel_timer()
+        if self.started:
+            self.started = False
+            return self.active["hold"][2]
+
+    def finish(self, now):
+        spec, self.active = self.active, None
+        self.cancel_timer()
+        if spec.get("hold"):
+            spec["hold"][4]()
+        if self.started:
+            self.started = False
+            return spec["hold"][1]
+        if not self.tainted and now - self.t0 <= TAP_S:
+            return self.tapped(spec, now)
+
+    def tapped(self, spec, now):
+        self.taps = [(sp, t) for sp, t in self.taps if now - t <= DOUBLE_WITHIN_S and sp is spec]
+        if spec.get("double") and self.taps:
+            self.taps = []
+            return spec["double"]
+        self.taps.append((spec, now))
+        return spec.get("tap")
+
+    def fire(self, spec):
+        with self.lock:
+            if self.active is not spec or self.tainted:
+                return
+            self.started = True
+        spec["hold"][0]()
+
+    def cancel_timer(self):
+        self.timer and self.timer.cancel()
+
+    def stop(self):
+        self.cancel_timer()
+        if IS_MAC:
+            self.listener.stop()
+        else:
+            keyboard.unhook(self.hook)
+
+
 # shortcut: a game from anywhere else is caught only when full-screen (Windows) or filed as a game (macOS); add its
 # folder here if one is missed
 GAME_DIRS = re.compile(r"steamapps[\\/]common|[\\/](?:epic games|riot games|xboxgames|gog galaxy[\\/]games|ea games"
@@ -262,9 +385,11 @@ def _exe(pid):
 
 
 def pretty_hotkey(combo):
-    """'ctrl+alt+space' -> 'Ctrl+Alt+Space', for showing the shortcut to people."""
+    """'ctrl+alt+space' -> 'Ctrl+Alt+Space', for showing the shortcut to people. With none set, the triple tap."""
+    if not combo:
+        return "Cmd three times" if IS_MAC else "Ctrl three times"
     names = {"ctrl": "Ctrl", "alt": "Option" if IS_MAC else "Alt", "cmd": "Cmd", "shift": "Shift",
-             "windows": "Win", "win": "Win", "space": "Space", "esc": "Esc", "enter": "Enter", "tab": "Tab"}
+             "windows": "Win", "win": "Win", "space": "Space", "esc": "Esc", "enter": "Enter", "tab": "Tab", "`": "Backtick"}
     return "+".join(names.get(k, k.upper() if len(k) <= 3 else k.title()) for k in combo.lower().split("+"))
 
 

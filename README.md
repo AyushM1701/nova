@@ -135,7 +135,7 @@ Nova then shows its own first-run screens:
 
 1. **Microphone:** a live level meter shows that Nova hears you.
 2. **Brain:** pick **Claude Code** or **Codex**. If it isn't installed, one click installs it (and Node.js if needed); **Sign in** opens its login (your Claude or ChatGPT account). Skip it and dictation still works.
-3. **Shortcut:** keep Ctrl+Alt+Space or press a new one, and turn "Hey Nova" on or off.
+3. **Shortcut:** see the shortcuts (hold Ctrl+` to talk, tap Ctrl three times for hands-free) and turn "Hey Nova" on or off.
 4. **Start at login**, and a first try.
 5. **A 2-minute walkthrough:** a short video for each thing Nova does (talking, dictation, rewriting a selection, questions about your screen, approvals), each followed by a "your turn" step that waits until you've really tried it. Skip any step, or take it again from Home. The clips (about 1.5 MB) download the first time it opens and are checked against the release's checksum.
 
@@ -153,7 +153,7 @@ Only tagged releases reach the Update button, never unreleased work on `main`. T
 
 | Do this | What happens |
 |---|---|
-| Say "Hey Nova", press **Ctrl+Alt+Space** (Mac: **Cmd+Shift+Space**), or click the bar | Nova listens. Press again to stop early, or press while it's working to cancel. |
+| Say "Hey Nova", tap **Ctrl** three times (Mac: **Cmd**), hold **Ctrl+`**, or click the bar | Nova listens. Press again to stop early, or press while it's working to cancel. |
 | "Hey Nova, play some music" in one breath | Runs straight away |
 | Esc | Stop listening or talking; when Nova is asking for permission, Esc denies. A request Nova is working on keeps going (Esc in another app shouldn't stop it): press the shortcut again, or Stop in the Nova window or on your phone |
 | "switch to dictation" / "switch to assistant" | Change mode |
@@ -243,7 +243,7 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `hotkey` | Ctrl+Alt+Space / Cmd+Shift+Space | e.g. `"ctrl+shift+n"` |
+| `hotkey` | none | a press-to-toggle shortcut, e.g. `"ctrl+shift+n"` |
 | `hotkey_2` | off | A second shortcut, e.g. one for each mode |
 | `hold_key` / `hold_key_2` | `left ctrl` (`left cmd` on a Mac) / off | Hold to talk: `"left ctrl"`, `"right ctrl"`, `"right alt"`, `"right shift"`, or `"ctrl"`, `"alt"`, `"shift"` (either side); on a Mac also `"left cmd"`, `"right cmd"`, `"cmd"` |
 | `hold_delay_s` | `1.5` | Seconds a hold key is held on its own before Nova listens |
