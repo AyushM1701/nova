@@ -577,9 +577,10 @@ shown = [(1, "(34) What is NOT Random? - YouTube", "brave", 100), (2, "Spotify P
          (3, "notes - Visual Studio Code", "code", 300), (4, "Nova", "python", 400), (5, "Door - Notepad", "notepad", 500)]
 winctl._windows, winctl.is_nova = lambda: shown, lambda pid: pid == 400
 assert winctl.find("youtube") is None and winctl.find("door") is None, "a page title is not a program"
-assert winctl.find("brave") == 1 and winctl.find("spotify") == 2 and winctl.find("spot") == 2
-assert winctl.find("vs code") == 3 and winctl.find("visual studio code") == 3 and winctl.find("notepad") == 5
-assert winctl.find("x") is None and winctl.find("python") is None, "Nova's own windows are never found"
+if os.name == "nt":  # on a Mac find() is always None: the AI handles window requests there
+    assert winctl.find("brave") == 1 and winctl.find("spotify") == 2 and winctl.find("spot") == 2
+    assert winctl.find("vs code") == 3 and winctl.find("visual studio code") == 3 and winctl.find("notepad") == 5
+    assert winctl.find("x") is None and winctl.find("python") is None, "Nova's own windows are never found"
 
 # the login supervisor: a crash starts Nova again, Quit (exit 0) does not, and a crash loop gives up
 sys.path.insert(0, str(pathlib.Path(__file__).parent / "helpers"))
@@ -5033,7 +5034,8 @@ import core.calendar_ics as calendar_mod
 import core.cloud_stt as cloud_mod
 
 # the real store on this computer: a secret goes in, comes back as typed (accents too), and goes away
-if sys.platform in ("win32", "darwin"):
+# (Windows only: a CI Mac may have no unlocked Keychain; the Keychain code has its own checks below)
+if sys.platform == "win32":
     probe = "Nova/test-" + _uuid.uuid4().hex[:8]
     try:
         assert vault_mod._get(probe) is None
