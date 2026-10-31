@@ -3676,7 +3676,12 @@ hold_events.clear()
 hold.event("right ctrl", True); hold.event("c", True); hold.event("right ctrl", False)  # noqa: E702  (Ctrl+C)
 assert hold_events == ["down", "up"], hold_events
 hold_events.clear()
-hold.event("right ctrl", True); time.sleep(hold.delay + 0.1); hold.event("right ctrl", False)  # noqa: E702
+hold.event("right ctrl", True); time.sleep(hold.delay + 0.1)  # noqa: E702
+for _ in range(80):  # the hold starts from a timer thread: a slow CI machine can be a moment late
+    if calls == ["start"]:
+        break
+    time.sleep(0.05)
+hold.event("right ctrl", False)
 assert hold_events == ["down", "up"] and calls == ["start", "stop"], (hold_events, calls)
 
 # Nova: the trail starts only for a request to the AI, the loop reaches the screenshot, one request's circle isn't the next's
