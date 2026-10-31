@@ -6,3 +6,5 @@
 # left out of the release zips (git archive): every install and update downloads the whole zip
 docs/media/** export-ignore
 docs/superpowers/** export-ignore
+docs/banner.png export-ignore
+docs/video/** export-ignore

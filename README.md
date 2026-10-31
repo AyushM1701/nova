@@ -1,31 +1,82 @@
-<div align="center">
+<p align="center"><img src="docs/banner.png" alt="Nova. Talk to your computer. It does the work." width="100%"></p>
 
-# Nova
+<p align="center">
+  Say <kbd>Hey Nova</kbd> or hold <kbd>Ctrl</kbd>, say what you need, let go.<br>
+  Nova opens your apps, fixes your code, reads your screen and gets it done.
+</p>
 
-**Talk to your computer. It does the work.**
+<p align="center">
+  <a href="https://github.com/AyushM1701/nova/releases/latest/download/nova-main.zip"><b>Download for Windows</b></a> ·
+  <a href="#quick-install"><b>Install on Mac</b></a> ·
+  <a href="#everything-it-does">What it can do</a> ·
+  <a href="#safety">Is it safe?</a>
+</p>
 
-Say "Hey Nova" and ask for anything: open apps, fix code, answer questions about your screen, or type for you in any app.<br>
-Free and open source. No account, no subscription, no Nova server. Speech recognition runs on your computer.
+<p align="center">
+  <b>🗣️ Hands-free</b> &nbsp;·&nbsp; <b>🧠 Remembers you</b> &nbsp;·&nbsp; <b>🔑 No account</b> &nbsp;·&nbsp; <b>Speech stays on your computer</b> &nbsp;·&nbsp; <b>Free and open source</b>
+</p>
 
-[![Latest release](https://img.shields.io/github/v/release/AyushM1701/nova?label=download&color=7b6dff)](https://github.com/AyushM1701/nova/releases/latest)
-[![Windows | macOS](https://img.shields.io/badge/Windows%2010%2B%20%7C%20macOS%2012%2B-supported-7b6dff)](#install)
-[![MIT license](https://img.shields.io/github/license/AyushM1701/nova?color=7b6dff)](LICENSE)
+## Quick install
 
-**[Download for Windows](https://github.com/AyushM1701/nova/releases/latest/download/nova-main.zip)** · **[Install on Mac](#install)** · [What it can do](#everything-it-does) · [Is it safe?](#safety)
+**Windows 10/11:** download **[`nova-main.zip`](https://github.com/AyushM1701/nova/releases/latest/download/nova-main.zip)**, extract it to a folder you'll keep, and double-click **`setup.cmd`**.
 
-<a href="docs/media/nova-hero.mp4"><img src="docs/media/nova-demo.gif" width="880" alt="Nova demo: the user says “Hey Nova, open Spotify and play something chill”, the bar listens, the card thinks, and Nova answers out loud while Spotify starts"></a>
+**Mac (macOS 12+):** paste this in Terminal:
 
-<sub>▶ [Watch the 1-minute demo, with sound](docs/media/nova-hero.mp4) · [Setup walkthrough](docs/media/nova-setup.mp4)</sub>
+```bash
+cd ~ && curl -fsSL https://github.com/AyushM1701/nova/releases/latest/download/nova-main.tar.gz | tar xz && cd nova-main && bash setup.sh
+```
 
-</div>
+Needs about 3 GB of free space and an internet connection for the first setup. Dictation needs no AI at all; for assistant requests, connect the Claude or ChatGPT plan you already have (Claude Code or OpenAI Codex). [Full install steps](#install)
 
-## Three things you'll use every day
+## What it does
 
-**🗣️ Ask it anything, out loud.** "Open Spotify and play something chill." "In my portfolio project, fix the navbar on mobile." "What's this error on my screen?" Nova sends the request to **Claude Code** or **OpenAI Codex** (the Claude or ChatGPT plan you already have) and answers out loud. It sees the app you're in, remembers what you tell it, and you can talk over it to change direction.
+- **Answers out loud.** Say "Hey Nova" and ask. It sends the request to Claude Code or Codex, shows its steps, and talks back. Talk over it to change direction.
+- **Dictate anywhere.** Hold Left Ctrl (Left Cmd on a Mac), talk, let go. Clean text lands in any app: the "um"s go, "no wait" corrections are applied, Hindi and Hinglish come out in English letters.
+- **Rewrites in place.** Select text, say "make this more formal", and it changes where it sits.
+- **Sees your screen.** Ask about anything on it. Ask "where's the export button?" and Nova draws a ring, arrows and numbered steps over your real screen.
+- **Works in your projects.** "In my portfolio project, fix the navbar on mobile." It edits your code through Claude Code or Codex.
+- **Meetings, no bot.** Records your microphone and the computer's audio, transcribes on your computer, writes the minutes. Nobody in the call sees a bot.
+- **Remembers you.** Say "remember I use pnpm" and every later request knows it. Teach it shortcuts: "when I say focus mode, close Slack".
+- **Everywhere.** Use it from your phone, let it drive your own browser, and say "undo that" when it types the wrong thing.
+- **Private and safe.** Speech recognition, "Hey Nova" and meeting transcripts run on your computer. Deleting, installing, pushing and sending ask first; wiping a disk is always blocked.
 
-**⌨️ Dictate into any app.** Hold Left Ctrl (Left Cmd on a Mac) and talk. Clean text appears wherever your cursor is: Gmail, Slack, VS Code, WhatsApp, a terminal. Nova removes "um" and "uh", applies "no wait" corrections, writes Hindi and Hinglish in English letters, and learns your names and jargon. Dictation works with no AI connected at all.
+<p align="center">
+  <a href="https://github.com/AyushM1701/nova/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/AyushM1701/nova?label=download&style=for-the-badge&color=1d1d1f"></a>
+  <img alt="Windows 10+ and macOS 12+" src="https://img.shields.io/badge/Windows_10%2B_%C2%B7_macOS_12%2B-1d1d1f?style=for-the-badge">
+  <img alt="Python" src="https://img.shields.io/badge/Python_3.11%E2%80%933.13-1d1d1f?style=for-the-badge&logo=python&logoColor=white">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/AyushM1701/nova?style=for-the-badge&color=1d1d1f"></a>
+</p>
 
-**📝 Record meetings without a bot.** "Record this meeting." Nova captures your mic and your computer's audio, transcribes it on your computer, labels who spoke and, with an AI connected, writes the minutes. Nobody in the call sees a bot join.
+<br>
+
+<p align="center">
+  <a href="docs/media/nova-hero.mp4"><img src="docs/media/nova-demo.gif" width="820" alt="Nova demo: asking for a fix out loud, dictating into an email, drawing where to click, and asking before a risky command"></a>
+</p>
+
+<p align="center"><sub>▶ <a href="docs/media/nova-hero.mp4">Watch the 90-second video, with sound</a> · <a href="docs/media/nova-setup.mp4">Setup walkthrough (Windows)</a></sub></p>
+
+<br>
+
+## Just ask
+
+| You say | Nova |
+|---|---|
+| *"Hey Nova, open Spotify and play something chill."* | Opens it and starts playing. Plain commands like this skip the AI and cost no quota. |
+| *"In my portfolio project, fix the navbar on mobile."* | Hands it to Claude Code or Codex in that project, shows each step, and asks first for risky commands. |
+| *"What's this error on my screen?"* | Looks at the window you're in and answers in a line, out loud. |
+| *"Where's the export button?"* | A ring and numbered arrows appear on your real screen, one step at a time. |
+| Hold **Ctrl**: *"um, meet at 6, no wait, 7 near the metro"* | Types "Meet at 7 near the metro." into whatever app has your cursor. |
+| Select text: *"make this more formal."* | Rewrites the selection in place. |
+| *"Record this meeting."* | Captures your mic and the computer's audio, labels who spoke, and writes the minutes. No bot joins. |
+| *"Remember I use pnpm."* | Keeps it in your notes. Every later request knows. |
+| *"When I say focus mode, close Slack and open my to-do list."* | Learns it. Next time, two words do it all. |
+| *"Every weekday at 9, run start my day."* | Saves a routine and runs it for you. |
+| *"Undo that."* | Takes back what Nova just typed, in the app it went into. |
+| *"Delete the dist folder."* | Shows the exact command on a card. Nothing runs until you press Allow. |
+
+## Watch it work
+
+The 90-second video above covers every feature and the install. The first time Nova opens, a [2-minute walkthrough](#first-run) shows seven short clips, each followed by a "your turn" step that waits until you've really tried it.
 
 ## Why Nova
 
@@ -352,6 +403,7 @@ browser/extension/    the Nova extension (Chromium, unpacked; never published to
 helpers/              clipboard helpers, the browser MCP server, the notes MCP server (nova_mcp.py), the command watcher and Claude Code hook
 setup.* / uninstall.* installers (setup.command: double-click setup for Finder)
 tests.py              self-checks (python tests.py)
+docs/video/build.py   makes the banner, the README video and GIF and the walkthrough clips from HTML (HyperFrames; not part of a release)
 ```
 
 ## License

@@ -17,3 +17,6 @@ AGENTS.md
 docs/agents/
 graphify-out/
 @AutomationLog.txt
+
+# scratch for docs/video/build.py (audio, projects, raw renders)
+docs/video/.build/
