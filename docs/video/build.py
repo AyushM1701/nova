@@ -97,11 +97,12 @@ kbd{display:inline-block;background:#fff;border-radius:18px;padding:20px 30px;fo
 .sel{background:#cfd8ff;border-radius:6px}
 .pop{position:absolute;background:#14151f;color:#fff;border-radius:16px;padding:16px 26px;font-size:25px;font-weight:700;box-shadow:0 20px 40px -12px rgba(20,10,60,.55)}
 .pop s{color:#7d7f98;font-weight:400}
-.menu{position:absolute;background:#fff;border-radius:12px;box-shadow:0 18px 40px -10px rgba(0,0,0,.3),0 0 0 1px rgba(0,0,0,.08);width:300px;padding:8px}
-.menu div{padding:13px 18px;font-size:25px;border-radius:8px}
+.menu{position:absolute;background:#fff;border-radius:12px;box-shadow:0 18px 40px -10px rgba(0,0,0,.3),0 0 0 1px rgba(0,0,0,.08);padding:8px;box-sizing:border-box;height:304px}
+.menu div{font-size:25px;border-radius:8px}
 .ring{position:absolute;border:5px solid #e0479a;border-radius:14px;box-shadow:0 0 0 8px rgba(224,71,154,.18)}
 .chip{position:absolute;background:#e0479a;color:#fff;border-radius:999px;font-weight:900;font-size:22px;width:38px;height:38px;display:flex;align-items:center;justify-content:center}
-.tag{position:absolute;background:#14151f;color:#fff;border-radius:10px;padding:8px 16px;font-size:21px;font-weight:700}
+.tag{position:absolute;display:flex;align-items:center;gap:10px;height:48px;background:#14151f;color:#fff;border-radius:24px;padding:0 20px 0 9px;font-size:22px;font-weight:700;white-space:nowrap}
+.tag .n{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#e0479a;font-size:18px;font-weight:900}
 .av{width:120px;height:120px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:40px;font-weight:900;color:#fff}
 .tr{padding:18px 22px;font-size:22px;line-height:1.45;color:#3a3a46}
 .tr b{color:#7b6dff}
@@ -214,8 +215,8 @@ def s_dictate(i, S, D, held="um so meet at 6, no wait, 7 near the metro", clean=
 def s_rewrite(i, S, D, title="Rewrite what|you select.", sub="Select text, say what you want. It changes in place."):
     h, hj = head(i, title, sub, S)
     body = (h + f'<div class="screen" id="{i}s"><div class="win" style="left:50px;top:80px;width:800px;height:520px"><div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp;&nbsp;Notes</div>'
-            f'<div class="mail" style="padding-top:40px"><span id="{i}old" class="sel">hey can u send the report asap</span><span id="{i}new" style="position:absolute;left:30px;top:100px;opacity:0">Could you please send the report as soon as possible?</span>'
-            f'<div class="line" style="margin-top:150px;width:70%"></div><div class="line" style="width:55%"></div></div></div>'
+            f'<div class="mail" style="padding-top:40px"><div style="position:relative;height:96px"><span id="{i}old" class="sel" style="position:absolute;left:0;top:0">hey can u send the report asap</span><span id="{i}new" style="position:absolute;left:0;top:0;opacity:0">Could you please send the report as soon as possible?</span></div>'
+            f'<div class="line" style="margin-top:130px;width:70%"></div><div class="line" style="width:55%"></div></div></div>'
             f'<div class="pop" id="{i}p" style="left:210px;top:650px"><span style="color:#8b8da6">You say</span>&nbsp;&nbsp;“make this more formal”</div></div>')
     js = hj + screen_in(i, S) + [
         f'tl.from("#{i}p",{{y:40,opacity:0,duration:.6,ease:"power3.out"}},{S + D * .3:.2f});',
@@ -226,20 +227,28 @@ def s_rewrite(i, S, D, title="Rewrite what|you select.", sub="Select text, say w
 
 def s_screen(i, S, D, title="Sees your screen.|Shows you where.", sub="It draws on your real screen, one step at a time.",
              ask="Where do I export as PDF?"):
+    """Every size below is fixed, so each ring is computed from the box it circles (screen coordinates, window at 50,70):
+    menu bar row y 116-176 with items 84 px wide from x 74; the menu hangs under File at x 74 with 56 px rows from y 190."""
     h, hj = head(i, title, sub, S)
+    items = "".join(f'<span style="display:inline-block;width:{w}px;text-align:center;{"" if n == 0 else "color:#767680;"}">{t}</span>'
+                    for n, (t, w) in enumerate((("File", 84), ("Edit", 84), ("View", 84), ("Insert", 100))))
+    rows = "".join(f'<div style="height:56px;line-height:56px;padding:0 18px;{"background:#efeaff;" if t == "Export as PDF" else ""}" id="{i}{"e" if t == "Export as PDF" else "x" + str(n)}">{t}</div>'
+                   for n, t in enumerate(("New", "Open…", "Save", "Export as PDF", "Print…")))
     body = (h + f'<div class="screen" id="{i}s"><div class="win" style="left:50px;top:70px;width:800px;height:560px"><div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp;&nbsp;Q3 report</div>'
-            f'<div style="padding:16px 24px;font-size:24px;font-weight:700;display:flex;gap:30px;border-bottom:1px solid #eee"><span id="{i}f">File</span><span style="color:#767680">Edit</span><span style="color:#767680">View</span><span style="color:#767680">Insert</span></div>'
-            f'<div class="line" style="width:80%;margin-left:30px;margin-top:230px"></div><div class="line" style="width:60%;margin-left:30px"></div></div>'
-            f'<div class="menu" id="{i}m" style="left:70px;top:190px"><div>New</div><div>Open…</div><div>Save</div><div id="{i}e" style="background:#efeaff">Export as PDF</div><div>Print…</div></div>'
-            f'<div class="ring" id="{i}r1" style="left:62px;top:116px;width:92px;height:50px"></div><div class="chip" id="{i}c1" style="left:150px;top:100px">1</div><div class="tag" id="{i}t1" style="left:70px;top:30px">File</div>'
-            f'<div class="ring" id="{i}r2" style="left:76px;top:342px;width:288px;height:56px"></div><div class="chip" id="{i}c2" style="left:380px;top:332px">2</div><div class="tag" id="{i}t2" style="left:430px;top:336px">Export as PDF</div>'
+            f'<div style="height:60px;line-height:60px;padding-left:24px;font-size:24px;font-weight:700;border-bottom:1px solid #eee;white-space:nowrap">{items}</div>'
+            f'<div class="line" style="width:64%;margin-left:30px;margin-top:330px"></div><div class="line" style="width:48%;margin-left:30px"></div></div>'
+            f'<div class="menu" id="{i}m" style="left:74px;top:182px;width:300px">{rows}</div>'
+            f'<div class="ring" id="{i}r1" style="left:72px;top:122px;width:88px;height:48px"></div>'
+            f'<div class="tag" id="{i}t1" style="left:452px;top:123px"><b class="n">1</b>Click File</div>'
+            f'<div class="ring" id="{i}r2" style="left:78px;top:355px;width:292px;height:62px"></div>'
+            f'<div class="tag" id="{i}t2" style="left:392px;top:362px"><b class="n">2</b>Export as PDF</div>'
             f'<div class="pop" id="{i}p" style="left:170px;top:690px"><span style="color:#8b8da6">You ask</span>&nbsp;&nbsp;{ask}</div></div>')
     js = hj + screen_in(i, S) + [
-        f'tl.set("#{i}m,#{i}r1,#{i}c1,#{i}t1,#{i}r2,#{i}c2,#{i}t2",{{opacity:0}},0);',
+        f'tl.set("#{i}m,#{i}r1,#{i}t1,#{i}r2,#{i}t2",{{opacity:0}},0);',
         f'tl.from("#{i}p",{{y:40,opacity:0,duration:.6,ease:"power3.out"}},{S + 1.2:.2f});',
-        f'tl.to("#{i}r1,#{i}c1,#{i}t1",{{opacity:1,duration:.5,stagger:.12}},{S + D * .35:.2f});',
+        f'tl.to("#{i}r1,#{i}t1",{{opacity:1,duration:.5,stagger:.12}},{S + D * .35:.2f});',
         f'tl.to("#{i}m",{{opacity:1,duration:.4}},{S + D * .55:.2f});',
-        f'tl.to("#{i}r2,#{i}c2,#{i}t2",{{opacity:1,duration:.5,stagger:.12}},{S + D * .68:.2f});']
+        f'tl.to("#{i}r2,#{i}t2",{{opacity:1,duration:.5,stagger:.12}},{S + D * .68:.2f});']
     return scene_wrap(i, S, D, body, js)
 
 
@@ -413,6 +422,8 @@ def clips():
     out = MEDIA / "walkthrough"
     out.mkdir(parents=True, exist_ok=True)
     for name, key, fn, kw in CLIPS:
+        if sys.argv[2:] and name not in sys.argv[2:]:  # python build.py clips 03-rewrite 04-screen: just those
+            continue
         folder = project(f"clip-{name}", [(name.split("-")[1], key, fn, kw, 5.0)])
         render(folder, WORK / f"{name}-raw.mp4")
         encode(WORK / f"{name}-raw.mp4", out / f"{name}.mp4", width=1280, crf=31, audio="40k")
