@@ -49,6 +49,8 @@ Needs about 3 GB of free space and an internet connection for the first setup. D
 
 <br>
 
+https://github.com/user-attachments/assets/de3c7456-5bf2-492a-8495-a43aae4901a8
+
 <p align="center">
   <a href="docs/media/nova-hero.mp4"><img src="docs/media/nova-demo.gif" width="820" alt="Nova demo: asking for a fix out loud, dictating into an email, drawing where to click, and asking before a risky command"></a>
 </p>
