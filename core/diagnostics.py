@@ -49,6 +49,17 @@ def lines(logs=LOGS, days=DAYS):
     return out
 
 
+def crash_tail(logs=LOGS, limit=20000, home=str(Path.home())):
+    """The end of logs/crash.txt (Python tracebacks and native crashes), with the home folder as "~"."""
+    try:
+        text = (logs / "crash.txt").read_text(encoding="utf-8", errors="replace")[-limit:]
+    except OSError:
+        return "No crashes recorded.\n"
+    for h in {home, home.replace("\\", "/")}:
+        text = text.replace(h, "~")
+    return text
+
+
 def save(folder=WORKSPACE, version=""):
     """Write the zip into `folder` and return its path."""
     folder.mkdir(parents=True, exist_ok=True)
@@ -63,4 +74,5 @@ def save(folder=WORKSPACE, version=""):
         z.writestr("about.txt", about)
         z.writestr("settings.json", json.dumps(scrub(settings), indent=2, ensure_ascii=False))
         z.writestr("log.jsonl", "\n".join(lines()) + "\n")
+        z.writestr("crash.txt", crash_tail())
     return path

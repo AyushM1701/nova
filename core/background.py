@@ -12,6 +12,12 @@ from core.config import ROOT, log
 from core.errors import friendly
 from core.sketch import strip as strip_sketch
 
+
+def free(app):
+    """Nova can start something now: no request running, not paused, no approval waiting. The one place that says
+    so: ten spots each had their own copy of this test, and one of them was wrong (a routine started over a hold)."""
+    return app.phase == "idle" and not app.pending and not app.paused
+
 # "in the background, research X" / "background job: X" / "X, as a background task". The comma or colon is required:
 # "in the background of this photo, what is that?" and "background task manager shows high CPU" are questions.
 # Not a bare "... in the background" either: "start the server in the background" is a request about the server
@@ -104,7 +110,7 @@ class BackgroundMixin:
         took = threading.Event()
         while time.monotonic() < deadline and not self.quitting:
             def speak():
-                if took.is_set() or self.phase != "idle" or self.pending or self.paused:
+                if took.is_set() or not free(self):
                     return
                 took.set()
                 self.target, self.voice = system.foreground(), True

@@ -22,11 +22,11 @@ import webview
 
 from core import browser as web
 from core import (calendar_ics, clipboard, cloud_stt, deepgram, diagnostics, fallback, meetings, models, phone,
-                  stats, system, tts, update, walkthrough)
+                  stats, system, tts, update, vault, walkthrough)
 from core.brain import MCP_JOBS, find_cli, too_broad
 from core.local_llm import LocalLLM
 from core.config import (CONFIG, DATA, LOGS, NOTES, ROOT, defaults, load_config, log, read_history, save_config,
-                         update_config, write_private)
+                         update_config)
 
 HTML = Path(__file__).with_name("app.html")
 CLAUDE_SETTINGS = Path.home() / ".claude" / "settings.json"
@@ -222,7 +222,7 @@ class Api:
         """The pairing links (home Wi-Fi, then Tailscale) with a QR code for each, while the phone page is on."""
         cfg, _ = load_config()
         out = []
-        for link in phone.links() if cfg["phone"]["enabled"] else []:
+        for link in phone.links(cfg["phone"].get("tailscale_only", False)) if cfg["phone"]["enabled"] else []:
             qr = ""
             try:
                 import qrcode
@@ -285,12 +285,11 @@ class Api:
         problem = fallback.check(key, cfg["brain"]["fallback_model"]) if key else "Paste a key first."
         if problem:
             raise RuntimeError(problem)
-        fallback.KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
-        write_private(fallback.KEY_FILE, key)
+        vault.write(fallback.KEY_FILE, key)
         return True
 
     def fallback_remove(self):
-        fallback.KEY_FILE.unlink(missing_ok=True)
+        vault.delete(fallback.KEY_FILE)
         return True
 
     def open_key_page(self):
@@ -312,13 +311,12 @@ class Api:
             provider, key, cfg["voice"]["custom_stt_url"] if provider == "custom" else "")
         if problem:
             raise RuntimeError(problem)
-        cloud_stt.key_file(provider).parent.mkdir(parents=True, exist_ok=True)
-        write_private(cloud_stt.key_file(provider), key)
+        vault.write(cloud_stt.key_file(provider), key)
         return True
 
     def stt_key_remove(self, provider):
         if provider in (*cloud_stt.PROVIDERS, "deepgram"):
-            cloud_stt.key_file(provider).unlink(missing_ok=True)
+            vault.delete(cloud_stt.key_file(provider))
         return True
 
     def open_stt_key_page(self, provider):
@@ -387,12 +385,11 @@ class Api:
         except Exception:
             raise RuntimeError("Couldn't read a calendar at that address. Copy the secret iCal (ICS) address "
                                "again.") from None
-        calendar_ics.KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
-        write_private(calendar_ics.KEY_FILE, address)
+        vault.write(calendar_ics.KEY_FILE, address)
         return True
 
     def calendar_remove(self):
-        calendar_ics.KEY_FILE.unlink(missing_ok=True)
+        vault.delete(calendar_ics.KEY_FILE)
         return True
 
     def upcoming(self):
@@ -645,8 +642,24 @@ class Api:
         if what == "nova-app":  # to drag into a Privacy & Security list when Nova isn't in it
             subprocess.Popen(["open", "-R", str(system.MAC_APP)])
             return True
+        if what == "crash":  # Python tracebacks and native crashes (nova.py writes them there)
+            path = LOGS / "crash.txt"
+            if not path.exists():
+                LOGS.mkdir(parents=True, exist_ok=True)
+                path.write_text("No crashes recorded.\n", encoding="utf-8")
+            return system.edit_file(path)
         system.open_path({"logs": LOGS, "notes": NOTES, "folder": ROOT}[what])
         return True
+
+    def safety_status(self):
+        """Settings → Privacy & safety: the permission mode in force and the guard's last 20 decisions, newest first.
+        A command is cut short and has the home folder as "~"; the file itself stays in the log."""
+        mode = load_config()[0]["safety"]["mode"]
+        verdicts = [{"t": e.get("t", 0), "tool": str(e.get("tool", "")), "decision": e.get("decision", ""),
+                     "reason": str(e.get("reason", ""))[:120],
+                     "summary": str(diagnostics.scrub(str(e.get("summary", ""))))[:90].replace("\n", " ")}
+                    for e in read_history({"guard"}, 20)]
+        return {"mode": mode, "verdicts": verdicts}
 
 
 def stale(drawn):

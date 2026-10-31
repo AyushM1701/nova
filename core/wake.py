@@ -18,7 +18,7 @@ import time
 import numpy as np
 import sounddevice as sd
 
-from core import loopback, wakeword
+from core import loopback, pa, wakeword
 from core.audio import BLOCK, MIN_SPEECH, RATE
 from core.config import log
 
@@ -310,7 +310,7 @@ def listen(transcribe, on_wake, enabled, running=lambda: True, sensitivity=lambd
         try:
             _listen(transcribe, on_wake, enabled, running, sensitivity, played)
             failed = False
-        except sd.PortAudioError as e:  # no microphone this moment (unplugged, a headset reconnecting): try again
+        except Exception as e:  # no microphone this moment (unplugged, a headset reconnecting), or anything else: try again
             # shortcut: PortAudio keeps the device list from Nova's start; Windows' default input follows the system,
             # a Mac may need Nova restarted for a microphone first plugged in after it started
             if not failed:
@@ -341,8 +341,8 @@ def _listen(transcribe, on_wake, enabled, running, sensitivity, played=None):
     """One microphone stream. Returns when it stops sending sound (a device that went away or changed, the Mac
     waking from sleep), so listen() opens a fresh one instead of waiting on it forever."""
     blocks, detector, level, heard_at = queue.Queue(), None, None, time.monotonic()
-    with sd.InputStream(samplerate=RATE, channels=1, dtype="float32", blocksize=BLOCK,
-                        callback=lambda data, *_: blocks.put(data[:, 0].copy())):
+    with pa.stream("input", sd, samplerate=RATE, channels=1, dtype="float32", blocksize=BLOCK,
+                   callback=lambda data, *_: blocks.put(data[:, 0].copy())):
         while running():
             try:
                 block = blocks.get(timeout=0.5)

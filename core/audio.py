@@ -7,6 +7,8 @@ import time
 import numpy as np
 import sounddevice as sd
 
+from core import pa
+
 RATE = 16000
 BLOCK = 480  # 30 ms
 # Speech is anything this many times louder than the room, and at least MIN_SPEECH. The floor is low on
@@ -75,9 +77,10 @@ class WarmMic:
                 self.closer.cancel()
             if self.stream is None or not self.stream.active:  # first use, or the device went away
                 self._close()
-                self.stream = sd.InputStream(samplerate=RATE, channels=1, dtype="float32", blocksize=BLOCK,
-                                             callback=self._push)
-                self.stream.start()
+                with pa.LOCK:
+                    self.stream = sd.InputStream(samplerate=RATE, channels=1, dtype="float32", blocksize=BLOCK,
+                                                 callback=self._push)
+                    self.stream.start()
             self.blocks = queue.Queue()
             self.recording = True
             return self.blocks
@@ -99,7 +102,8 @@ class WarmMic:
     def _close(self):
         if self.stream is not None:
             try:
-                self.stream.close()
+                with pa.LOCK:
+                    self.stream.close()
             except Exception:  # an unplugged device can fail to close; it's gone either way
                 pass
             self.stream = None
@@ -117,7 +121,8 @@ def record(silence_ms, max_s, stop, on_level=None, prefix=None, floor_rms=None, 
     chunks = []
     if prefix is not None:  # mid-sentence already: the room's level comes from before the user spoke
         chunks, speaking, floor = [prefix], True, [floor_rms or MIN_SPEECH] * 10
-    start = time.monotonic()
+    start = last = time.monotonic()
+    stalled = False
     blocks = MIC.acquire()
     try:
         while not stop.is_set() and time.monotonic() - start < max_s:
@@ -126,8 +131,11 @@ def record(silence_ms, max_s, stop, on_level=None, prefix=None, floor_rms=None, 
             except queue.Empty:
                 if not got and time.monotonic() - start > 2:
                     raise RuntimeError("The microphone isn't sending any sound. Check it's plugged in.")
+                if got and time.monotonic() - last > 1.5:  # a live microphone sends a block every 30 ms
+                    stalled = True  # unplugged mid-sentence: end now with what was said, not at the time limit
+                    break
                 continue
-            got = True
+            got, last = True, time.monotonic()
             chunks.append(block)
             if on_block:
                 on_block(block)
@@ -148,7 +156,7 @@ def record(silence_ms, max_s, stop, on_level=None, prefix=None, floor_rms=None, 
             elif time.monotonic() - start > 6:
                 break  # never started speaking
     finally:
-        MIC.release(broken=not got and not stop.is_set())
+        MIC.release(broken=stalled or not got and not stop.is_set())
     if chunks and (speaking or stop.is_set()):
         return np.concatenate(chunks)
     return None
@@ -159,8 +167,8 @@ def watch(done, min_ms=360):
     level) so no word is lost, or None once `done` is set. The caller checks it isn't Nova's own voice."""
     blocks, recent = queue.Queue(), collections.deque(maxlen=34)
     floor, run_ms = None, 0
-    with sd.InputStream(samplerate=RATE, channels=1, dtype="float32", blocksize=BLOCK,
-                        callback=lambda data, *_: blocks.put(data[:, 0].copy())):
+    with pa.stream("input", sd, samplerate=RATE, channels=1, dtype="float32", blocksize=BLOCK,
+                   callback=lambda data, *_: blocks.put(data[:, 0].copy())):
         while not done.is_set():
             try:
                 block = blocks.get(timeout=0.1)

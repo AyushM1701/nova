@@ -419,12 +419,31 @@ def foreground():
 
 
 def focus(target):
+    """True when `target` is in front now (or there is none to bring: the keys go where they go); False when it is
+    gone or won't come forward, so the caller doesn't type into whatever else is in front."""
     if not target:
-        return
+        return True
     if IS_MAC:
         target.activateWithOptions_(2)  # NSApplicationActivateIgnoringOtherApps
-    elif user32.GetForegroundWindow() != target:  # focus moved while Nova listened or thought
+        try:
+            from AppKit import NSWorkspace
+            for _ in range(15):
+                front = NSWorkspace.sharedWorkspace().frontmostApplication()
+                if front and front.processIdentifier() == target.processIdentifier():
+                    return True
+                time.sleep(0.03)
+            return False
+        except Exception:  # can't look: go on as before
+            return True
+    if not user32.IsWindow(target):
+        return False
+    if user32.GetForegroundWindow() != target:  # focus moved while Nova listened or thought
         bring_front(target)
+    for _ in range(10):  # Windows takes a moment to hand the front over
+        if user32.GetForegroundWindow() == target:
+            return True
+        time.sleep(0.03)
+    return False
 
 
 def paste():
@@ -433,6 +452,14 @@ def paste():
             _keys.tap("v")
     else:
         keyboard.send("ctrl+v")
+
+
+def undo():
+    if IS_MAC:
+        with _keys.pressed(pk.Key.cmd):
+            _keys.tap("z")
+    else:
+        keyboard.send("ctrl+z")
 
 
 def copy():
@@ -661,9 +688,19 @@ def mac_permissions():
     if screen and not SCREEN_ALLOWED.exists():
         SCREEN_ALLOWED.parent.mkdir(parents=True, exist_ok=True)
         SCREEN_ALLOWED.touch()
+    # the remembered "yes" holds only while other apps' windows still show their titles (they don't once it's revoked)
+    allowed = screen or (SCREEN_ALLOWED.exists() and _sees_other_windows())
+    if not allowed:
+        SCREEN_ALLOWED.unlink(missing_ok=True)
     return {"microphone": AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeAudio) == 3,  # authorized
             "input": bool(CGPreflightListenEventAccess()), "accessibility": bool(AXIsProcessTrusted()),
-            "screen": screen or SCREEN_ALLOWED.exists()}
+            "screen": allowed}
+
+
+def _sees_other_windows():
+    from Quartz import CGWindowListCopyWindowInfo, kCGNullWindowID, kCGWindowListOptionOnScreenOnly
+    return any(w.get("kCGWindowOwnerPID") != os.getpid() and w.get("kCGWindowName")
+               for w in CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID) or [])
 
 
 def ask_permission(name):
@@ -700,16 +737,22 @@ def memory_gb():
 
 
 def screen_width():
-    return int(NSScreen.mainScreen().frame().size.width) if IS_MAC else user32.GetSystemMetrics(0)
+    return int(NSScreen.screens()[0].frame().size.width) if IS_MAC else user32.GetSystemMetrics(0)
+
+
+_login_path = [-1e9, []]  # when the login shell was asked, what it said
 
 
 def refresh_path(env=None):
     """Re-read PATH, so a CLI or Node.js installed while Nova runs is found without a restart."""
     if IS_MAC:
         # an app opened from Finder gets a bare PATH; the login shell's has nvm, npm and Homebrew in it
-        try:
-            shell = subprocess.run([os.environ.get("SHELL", "/bin/zsh"), "-ilc", "echo $PATH"], capture_output=True,
-                                   text=True, timeout=5, stdin=subprocess.DEVNULL).stdout.strip().splitlines()
+        try:  # a login shell takes a second or two, and the window's status poll asks every few seconds: every 5 minutes
+            if time.monotonic() - _login_path[0] > 300:
+                _login_path[:] = [time.monotonic(), subprocess.run(
+                    [os.environ.get("SHELL", "/bin/zsh"), "-ilc", "echo $PATH"], capture_output=True, text=True,
+                    timeout=5, stdin=subprocess.DEVNULL).stdout.strip().splitlines()]
+            shell = _login_path[1]
         except (OSError, subprocess.TimeoutExpired):
             shell = []
         home = Path.home()
@@ -759,21 +802,35 @@ ALIASES = {"vs code": "visual studio code", "vscode": "visual studio code", "cod
            "chrome": "google chrome", "edge": "microsoft edge", "word": "word", "excel": "excel", "opera": "opera gx"}
 
 
+_start_menu = [-1e9, []]  # when it was listed, the shortcuts: walking both Start Menu trees takes a moment
+
+
+def start_menu_links(rescan=False):
+    if rescan or time.monotonic() - _start_menu[0] > 300:
+        roots = [Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs",
+                 Path(os.environ.get("PROGRAMDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs"]
+        _start_menu[:] = [time.monotonic(), [p for root in roots if root.exists() for p in root.rglob("*")
+                                             if p.suffix.lower() in (".lnk", ".url")]]
+    return _start_menu[1]
+
+
 def open_app(name):
     """Open an installed app by its spoken name. False if Nova can't find it (then the AI takes over)."""
     name = ALIASES.get(name.lower(), name.lower())
     if IS_MAC:
         return subprocess.run(["open", "-a", name], capture_output=True).returncode == 0
-    roots = [Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs",
-             Path(os.environ.get("PROGRAMDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs"]
-    links = [p for root in roots if root.exists() for p in root.rglob("*") if p.suffix.lower() in (".lnk", ".url")]
     words = lambda s: s.lower().replace("-", " ").split()
-    for rank in (lambda s: s.lower() == name, lambda s: s.lower().startswith(name),
-                 lambda s: all(w in words(s) for w in name.split())):
-        hits = sorted((p for p in links if rank(p.stem) and "uninstall" not in p.stem.lower()), key=lambda p: len(p.stem))
-        if hits:
-            os.startfile(hits[0])
-            return True
+    for rescan in (False, True):  # the remembered list first; an app installed since is found on the second look
+        links = start_menu_links(rescan)
+        for rank in (lambda s: s.lower() == name, lambda s: s.lower().startswith(name),
+                     lambda s: all(w in words(s) for w in name.split())):
+            hits = sorted((p for p in links if rank(p.stem) and "uninstall" not in p.stem.lower()),
+                          key=lambda p: len(p.stem))
+            if hits:
+                os.startfile(hits[0])
+                return True
+        if time.monotonic() - _start_menu[0] < 1:  # that list was just made: nothing more to find
+            break
     if name in WIN_APPS:
         os.startfile(WIN_APPS[name]) if ":" in WIN_APPS[name] else subprocess.Popen(WIN_APPS[name], shell=True)
         return True
@@ -785,11 +842,16 @@ def open_url(url):
 
 
 def lock_screen():
+    """True if the lock was asked for. A Mac without the Accessibility permission drops the keys, so it can't."""
     if IS_MAC:  # Ctrl+Cmd+Q, macOS's own Lock Screen shortcut (sleeping the display only locks with a setting)
+        from ApplicationServices import AXIsProcessTrusted
+        if not AXIsProcessTrusted():
+            return False
         with _keys.pressed(pk.Key.ctrl, pk.Key.cmd):
             _keys.tap("q")
     else:
         user32.LockWorkStation()
+    return True
 
 
 def open_path(path):
@@ -805,6 +867,7 @@ def edit_file(path):
 
 MAC_AGENT = Path.home() / "Library" / "LaunchAgents" / "com.nova.assistant.plist"
 MAC_APP = Path.home() / "Applications" / "Nova.app"
+QUIT_FLAG = DATA / "quit.flag"  # written by Quit, so the login agent doesn't start Nova again
 
 
 def _startup_link():
@@ -815,13 +878,24 @@ def autostart_enabled():
     return MAC_AGENT.exists() if IS_MAC else _startup_link().exists()
 
 
+def refresh_autostart():
+    """A login agent written by an older Nova (a bare `open -a`) is rewritten with the one that restarts Nova after a crash."""
+    if IS_MAC and MAC_AGENT.exists() and b"KeepAlive" not in MAC_AGENT.read_bytes():
+        set_autostart(True, None, None, None)
+
+
 def set_autostart(on, pythonw, script, icon):
     """Start Nova at login: a Startup-folder shortcut on Windows, a LaunchAgent on macOS."""
     if IS_MAC:
         if on:
             MAC_AGENT.parent.mkdir(parents=True, exist_ok=True)
-            MAC_AGENT.write_bytes(plistlib.dumps({"Label": "com.nova.assistant", "RunAtLoad": True,
-                                                  "ProgramArguments": ["/usr/bin/open", "-a", str(MAC_APP)]}))
+            # `open -a` keeps macOS attributing the permissions to Nova.app. -W waits for the app to end, so launchd can
+            # tell when it did: a quit leaves QUIT_FLAG and ends the job for good, anything else (a crash) is started again
+            run = f"rm -f {shlex.quote(str(QUIT_FLAG))}; /usr/bin/open -W -a {shlex.quote(str(MAC_APP))}; [ -f {shlex.quote(str(QUIT_FLAG))} ]"
+            MAC_AGENT.write_bytes(plistlib.dumps({"Label": "com.nova.assistant", "RunAtLoad": True, "ThrottleInterval": 30,
+                                                  "KeepAlive": {"SuccessfulExit": False},
+                                                  "AssociatedBundleIdentifiers": ["com.nova.assistant"],  # listed as Nova, not bash
+                                                  "ProgramArguments": ["/bin/bash", "-c", run]}))
         else:
             MAC_AGENT.unlink(missing_ok=True)
         return
@@ -831,10 +905,12 @@ def set_autostart(on, pythonw, script, icon):
         return
     # the paths travel in the environment, never inside the script text
     ps = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:NOVA_LNK); $s.TargetPath = $env:NOVA_PY; "
-          "$s.Arguments = [char]34 + $env:NOVA_SCRIPT + [char]34; $s.WorkingDirectory = $env:NOVA_DIR; "
+          "$s.Arguments = [char]34 + $env:NOVA_SUPERVISOR + [char]34 + ' ' + [char]34 + $env:NOVA_SCRIPT + [char]34; "
+          "$s.WorkingDirectory = $env:NOVA_DIR; "
           "$s.IconLocation = $env:NOVA_ICON; $s.Description = 'Nova voice assistant'; $s.Save()")
     env = dict(os.environ, NOVA_LNK=str(link), NOVA_PY=str(pythonw), NOVA_SCRIPT=str(script),
-               NOVA_DIR=str(Path(script).parent), NOVA_ICON=str(icon))
+               NOVA_DIR=str(Path(script).parent), NOVA_ICON=str(icon),
+               NOVA_SUPERVISOR=str(Path(script).parent / "helpers" / "supervisor.py"))  # restarts Nova after a crash, not after Quit
     subprocess.run(["powershell", "-NoProfile", "-Command", ps], env=env, capture_output=True,
                    creationflags=NO_WINDOW, check=True)
 
@@ -861,7 +937,7 @@ def keep_awake(on):
     global _caffeinate
     if IS_MAC:
         if on and not _caffeinate:
-            _caffeinate = subprocess.Popen(["caffeinate", "-s"])  # -s: stays awake only while on AC power
+            _caffeinate = subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])  # on AC power; ends with Nova, crash too
         elif not on and _caffeinate:
             _caffeinate.terminate()
             _caffeinate = None
@@ -872,7 +948,7 @@ def keep_awake(on):
 def work_area():
     """(left, top, right, bottom) of the screen minus taskbar/Dock, in Tk coordinates."""
     if IS_MAC:
-        screen = NSScreen.mainScreen()
+        screen = NSScreen.screens()[0]
         full, vis = screen.frame(), screen.visibleFrame()
         top = full.size.height - (vis.origin.y + vis.size.height)
         return (vis.origin.x, top, vis.origin.x + vis.size.width, full.size.height - vis.origin.y)
@@ -886,7 +962,7 @@ def notch():
     if not IS_MAC:
         return 0, 0
     try:
-        screen = NSScreen.mainScreen()
+        screen = NSScreen.screens()[0]
         top = screen.safeAreaInsets().top  # macOS 12+: the strip the notch takes
         if top <= 0:
             return 0, 0
@@ -899,7 +975,7 @@ def notch():
 def screen_span():
     """(left, right) of the whole main screen, in the same coordinates as work_area()."""
     if IS_MAC:
-        frame = NSScreen.mainScreen().frame()
+        frame = NSScreen.screens()[0].frame()
         return frame.origin.x, frame.origin.x + frame.size.width
     return 0, user32.GetSystemMetrics(0)
 

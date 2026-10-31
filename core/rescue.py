@@ -14,11 +14,13 @@ def keep(clip, path=RESCUE):
     """True if saved. A copy that can't be written (antivirus lock, full disk) is skipped: the dictation goes on."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "wb") as f, wave.open(f, "wb") as w:
+        tmp = path.with_name(path.name + ".tmp")  # whole or not at all: a power cut mid-write leaves the last one
+        with open(tmp, "wb") as f, wave.open(f, "wb") as w:
             w.setnchannels(1)
             w.setsampwidth(2)
             w.setframerate(RATE)
             w.writeframes((np.clip(clip, -1, 1) * 32767).astype("<i2").tobytes())
+        tmp.replace(path)
         return True
     except OSError as e:
         log("error", error=f"couldn't keep a rescue copy of the dictation: {e!r}")
@@ -31,8 +33,9 @@ def pending(path=RESCUE):
         return None
     try:
         with wave.open(str(path), "rb") as w:
-            return np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").astype(np.float32) / 32767
-    except (OSError, EOFError, wave.Error):
+            raw = w.readframes(w.getnframes())
+            return np.frombuffer(raw[:len(raw) // 2 * 2], dtype="<i2").astype(np.float32) / 32767  # cut mid-sample
+    except (OSError, EOFError, wave.Error, ValueError):
         clear(path)
         return None
 

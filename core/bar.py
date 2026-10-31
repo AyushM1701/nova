@@ -16,7 +16,6 @@ import math
 import time
 import tkinter as tk
 
-import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from core import system
@@ -144,7 +143,7 @@ class Layered:
         return win
 
     def _init_mac(self, level):
-        self.px = int(NSScreen.mainScreen().backingScaleFactor() or 2)
+        self.px = int(NSScreen.screens()[0].backingScaleFactor() or 2)
         ns = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(NSMakeRect(0, 0, 10, 10), 0, 2, False)
         ns.setOpaque_(False)
         ns.setBackgroundColor_(NSColor.clearColor())
@@ -204,14 +203,14 @@ class Layered:
             header = BITMAPINFOHEADER(40, img.width, -img.height, 1, 32, 0, 0, 0, 0, 0, 0)  # top-down 32-bit
             self.bits = ctypes.c_void_p()
             dib = gdi32.CreateDIBSection(self.screen_dc, ctypes.byref(header), 0, ctypes.byref(self.bits), None, 0)
+            if not dib:  # too big for Windows: writing to the missing bitmap would end Nova
+                raise MemoryError(f"Windows can't make a {img.width} x {img.height} picture")
             old = gdi32.SelectObject(self.mem_dc, dib)
             if self._size:
                 gdi32.DeleteObject(old)
             self._size = img.size
-        px = np.asarray(img, dtype=np.uint16)
-        rgb = px[..., :3] * px[..., 3:4] // 255  # Windows wants premultiplied BGRA
-        bgra = np.dstack((rgb[..., 2], rgb[..., 1], rgb[..., 0], px[..., 3])).astype(np.uint8)
-        ctypes.memmove(self.bits, bgra.tobytes(), bgra.nbytes)
+        bgra = img.tobytes("raw", "BGRa")  # Windows wants premultiplied BGRA; 8 times faster than numpy
+        ctypes.memmove(self.bits, bgra, len(bgra))
         user32.UpdateLayeredWindow(self.hwnd, self.screen_dc, ctypes.byref(w.POINT(x, y)),
                                    ctypes.byref(w.SIZE(*img.size)), self.mem_dc, ctypes.byref(w.POINT(0, 0)),
                                    0, ctypes.byref(BLENDFUNCTION(0, 0, alpha, 1)), 2)  # AC_SRC_ALPHA, ULW_ALPHA
@@ -266,6 +265,7 @@ class Bar(Layered):
         self.w, self.h = self._target()
         self.dirty = True
         self._show()
+        self._job = None
         self._tick()
         self._watch_screen()
 
@@ -300,6 +300,7 @@ class Bar(Layered):
 
     def _hover(self, on):
         self.hovering, self.dirty = on, True
+        self._wake()
 
     def _target(self):
         if self.state == "idle" and self.hovering and self.hint:
@@ -316,6 +317,15 @@ class Bar(Layered):
         if state == "listening" and self.state != "listening":
             self.levels.extend([0.0] * self.levels.maxlen)
         self.state, self.dirty = state, True
+        self._wake()
+
+    def _wake(self):
+        """Something changed while the bar sat idle (checking only now and then): draw it at once."""
+        try:
+            self.win.after_cancel(self._job)
+            self._job = self.win.after(0, self._tick)
+        except Exception:  # not on the UI thread, or no window yet: the next slow check picks it up
+            pass
 
     def level(self, value):
         self.levels.append(value)
@@ -325,10 +335,12 @@ class Bar(Layered):
         self.w += (tw - self.w) * 0.3
         self.h += (th - self.h) * 0.3
         moving = abs(tw - self.w) > 0.2 or abs(th - self.h) > 0.2
-        if self.dirty or moving or self.state not in ("idle", "paused"):
+        active = self.dirty or moving or self.state not in ("idle", "paused")
+        if active:
             self._draw()
             self.dirty = False
-        self.win.after(33, self._tick)
+        # a bar at rest looks again 4 times a second, not 30: it is on screen all day
+        self._job = self.win.after(33 if active else 250, self._tick)
 
     def _draw(self):
         s = self.scale * SS

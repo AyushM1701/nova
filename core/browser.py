@@ -23,9 +23,10 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 from pathlib import Path
 
-from core.config import NO_WINDOW
+from core.config import NO_WINDOW, write_private
 from guard.guard import PLAN, with_mode
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -80,6 +81,11 @@ SECRET_FIELD = re.compile(r"pass(?:word|code|phrase)?|\bpwd\b|card ?(?:number|no
 SECRET_AUTOCOMPLETE = re.compile(r"cc-|one-time-code|current-password|new-password", re.I)
 CARD_DIGITS = re.compile(r"^\D*(?:\d[ -]?){13,19}\D*$")
 SEARCH = re.compile(r"search|query|\bq\b|find", re.I)
+# a page's own words can't be trusted to say "this buys something": the address of a payment or checkout page can
+PAY_HOST = re.compile(r"(?:^|[.-])(?:checkout|pay|payment|payments|billing|buy|cart|secure)(?:[.-]|$)|paypal|stripe|"
+                      r"razorpay|paytm|braintree", re.I)
+SCRIPT_URL = re.compile(r"^\s*(?:javascript|data|file|blob|vbscript):", re.I)  # run code, or read this computer's files
+MAX_SCRIPT = 600  # a longer script can't be read through on a card
 
 
 def classify(tool, args, element=None, mode="accept_edits", trusted=True):
@@ -108,7 +114,18 @@ def _search_box(el):
 def _classify(tool, args, element=None):
     el = element or {}
     what = f'"{el.get("name") or el.get("field") or "an element"}" on {el.get("host") or "the page"}'
-    if tool in ("tabs", "navigate", "read", "inspect", "scroll", "screenshot"):
+    if tool in ("tabs", "navigate"):
+        url = str(args.get("url") or "")
+        if SCRIPT_URL.match(url):
+            return "block", "opens a script or a file on this computer instead of a web page"
+        parts = urllib.parse.urlsplit(url)
+        # shortcut: a short query (a search) still passes; text in the address is how a page could be handed data
+        if url and (parts.scheme not in ("http", "https") and url != "about:blank"):
+            return "confirm", f"opens {url[:80]}, which isn't a web address"
+        if len(parts.query) + len(parts.fragment) > 40 or len(url) > 300:
+            return "confirm", "opens a web address that carries a lot of text, which is how data is handed to a site"
+        return "allow", "reads or moves around"
+    if tool in ("read", "inspect", "scroll", "screenshot"):
         return "allow", "reads or moves around"
     if tool == "type":
         field = f'{el.get("type", "")} {el.get("field", "")} {el.get("name", "")}'
@@ -121,7 +138,8 @@ def _classify(tool, args, element=None):
             return "confirm", f"types into {what} and submits the form"
         return "allow", "types into a field"
     if tool == "click":
-        if el.get("isSubmit") or RISKY.search(el.get("name", "")):
+        if el.get("isSubmit") or el.get("formSecret") or PAY_HOST.search(el.get("host", "")) or \
+                RISKY.search(el.get("name", "")):
             return "confirm", f"clicks {what}, which may submit, buy, post or send something"
         return "allow", "clicks"
     if tool == "select":
@@ -133,8 +151,12 @@ def _classify(tool, args, element=None):
             return "confirm", f"presses {args['key']!r}, which may submit a form or click a button"
         return "allow", "presses a key"
     if tool == "download":
+        if args.get("filename") and not re.fullmatch(r"[\w. -]{1,100}", str(args["filename"])):
+            return "block", "gives the download a file name with folders or odd characters in it"
         return "confirm", f"downloads {str(args.get('url', ''))[:120]}"
     if tool == "script":
+        if len(str(args.get("code", ""))) > MAX_SCRIPT:
+            return "block", f"runs a script of more than {MAX_SCRIPT} characters, too long to read through on a card"
         return "confirm", "runs a script inside the page"
     return "confirm", f"unknown browser tool {tool}"
 
@@ -214,7 +236,7 @@ def install_files(bid, token):
     except (OSError, ValueError):
         old = None
     shutil.copytree(SOURCE, dest, dirs_exist_ok=True)
-    (dest / "nova.json").write_text(json.dumps({"token": token, "port": PORT, "browser": bid}), encoding="utf-8")
+    write_private((dest / "nova.json"), json.dumps({"token": token, "port": PORT, "browser": bid}))
     return old != new
 
 
@@ -638,7 +660,7 @@ class Bridge:
                                   "press with a [ref], and read or screenshot to check the result. Those don't need "
                                   "the user's OK; a script does. Use script only if those can't do it.")
         if verdict == "confirm":
-            summary = json.dumps({k: v for k, v in args.items() if k != "tab_id"})[:300]
+            summary = json.dumps({k: v for k, v in args.items() if k != "tab_id"})[:900 if tool == "script" else 300]
             where = (element or {}).get("url") or ""
             if not ask({"tool": f"browser.{tool}", "reason": why, "summary": f"{BROWSERS[bid][0]}: {summary}\n{where}"}):
                 raise PermissionError(f"The user didn't allow this ({why}). Don't try another way; ask them.")

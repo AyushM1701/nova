@@ -179,6 +179,10 @@ try {
     $detail.Text = "Using $Base"
 
     Step "Creating Nova's own Python environment"
+    if ((Test-Path $Py) -and ((Run $Py @("-c", "import sys")) -ne 0)) {  # its base Python was removed or upgraded
+        $detail.Text = "Nova's Python environment is broken; making a new one."
+        Remove-Item -Recurse -Force $Venv
+    }
     if (-not (Test-Path $Py)) {
         if ((Run $Base @("-m", "venv", $Venv)) -ne 0) { throw "Couldn't create Nova's Python environment (see details)." }
     }
@@ -252,10 +256,12 @@ public static class NovaAppId {
     }
 }
 '@
-    function Make-Shortcut($path) {
+    function Make-Shortcut($path, $supervised = $false) {
         $s = $shell.CreateShortcut($path)
         $s.TargetPath = $PyW
         $s.Arguments = "`"$(Join-Path $Root 'nova.py')`""
+        # at login Nova runs under helpers\supervisor.py, which starts it again after a crash (never after Quit)
+        if ($supervised) { $s.Arguments = "`"$(Join-Path $Root 'helpers\supervisor.py')`" " + $s.Arguments }
         $s.WorkingDirectory = $Root
         $s.IconLocation = $icoPath
         $s.Description = "Nova voice assistant"
@@ -264,9 +270,10 @@ public static class NovaAppId {
     }
     Make-Shortcut (Join-Path ([Environment]::GetFolderPath("Programs")) "Nova.lnk")
     $startup = Join-Path ([Environment]::GetFolderPath("Startup")) "Nova.lnk"
-    if (Test-Path $startup) { Make-Shortcut $startup }  # keep start-at-login pointing at this copy; the Nova window turns it on or off
+    if (Test-Path $startup) { Make-Shortcut $startup $true }  # keep start-at-login pointing at this copy; the Nova window turns it on or off
     if ($Engine) {
-        & $Py -c "import json, pathlib, sys; p = pathlib.Path(sys.argv[1]); c = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}; c.setdefault('brain', {})['engine'] = sys.argv[2]; p.write_text(json.dumps(c, indent=2), encoding='utf-8')" (Join-Path $Root "config.json") $Engine
+        & $Py -c "import json, pathlib, sys; p = pathlib.Path(sys.argv[1]); c = json.loads(p.read_text(encoding='utf-8-sig')) if p.exists() else {}; c.setdefault('brain', {})['engine'] = sys.argv[2]; t = p.with_name(p.name + '.tmp'); t.write_text(json.dumps(c, indent=2), encoding='utf-8'); t.replace(p)" (Join-Path $Root "config.json") $Engine
+        if ($LASTEXITCODE -ne 0) { Note "The AI engine wasn't set (config.json has a mistake). Choose it in Nova's settings." }
     }
 
     Step "Running Nova's self-checks"

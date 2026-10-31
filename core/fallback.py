@@ -8,6 +8,7 @@ improve its products; Settings says so where you add the key.
 """
 import base64
 import json
+import os
 import re
 import subprocess
 import time
@@ -15,6 +16,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from core import procs, vault
 from core.system import IS_MAC, NO_WINDOW
 from guard.guard import PLAN, classify_command
 
@@ -39,13 +41,10 @@ need the user's answer to continue, add one line starting "ASK:" with a short qu
 
 
 def key():
-    try:
-        return KEY_FILE.read_text(encoding="utf-8").strip()
-    except OSError:
-        return ""
+    return vault.read(KEY_FILE)  # the OS's credential store; a key file from before is moved there
 
 
-def _post(path, body, api_key, timeout=60):
+def _post(path, body, api_key, timeout=25):  # unreachable Google used to hold a request for the full minute
     req = urllib.request.Request(f"{API}/{path}", data=json.dumps(body).encode("utf-8"), method="POST",
                                  headers={"Content-Type": "application/json", "x-goog-api-key": api_key})
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -65,7 +64,10 @@ def check(api_key, model):
     return "" if model in names else f"Your key works, but the model {model} isn't available to it."
 
 
-def run_command(command, ask, home=str(ROOT), mode="accept_edits"):
+GIT_BASH = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "bash.exe"  # Claude's Bash tool on Windows
+
+
+def run_command(command, ask, home=str(ROOT), mode="accept_edits", tool="PowerShell"):
     """Run one command for the backup brain, after the same safety rules (and permission mode) Claude's get."""
     workspace = ROOT / "workspace"  # where Claude and Codex run too, so the guard's "..\data" rule applies alike
     workspace.mkdir(exist_ok=True)
@@ -76,12 +78,15 @@ def run_command(command, ask, home=str(ROOT), mode="accept_edits"):
         return f"Blocked by Nova's safety rules: this {why}. Don't try another way; tell the user."
     if tier == "confirm" and not ask({"tool": "Bash", "summary": command[:400], "reason": why}):
         return "The user declined this command. Don't try another way; ask them what they'd like."
-    args = ["bash", "-lc", command] if IS_MAC else ["powershell", "-NoProfile", "-Command", command]
+    if tool == "Bash" and not IS_MAC and not GIT_BASH.exists():
+        return "exit code 1\nGit Bash isn't installed."
+    args = ["bash", "-lc", command] if IS_MAC else [str(GIT_BASH), "-lc", command] if tool == "Bash" else \
+        ["powershell", "-NoProfile", "-Command", command]
     try:
-        r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
-                           cwd=workspace, creationflags=NO_WINDOW)
+        r = procs.run_bounded(args, 60, text=True, encoding="utf-8", errors="replace", cwd=workspace,
+                              creationflags=NO_WINDOW, start_new_session=IS_MAC)
     except subprocess.TimeoutExpired:
-        return "The command was still running after 60 seconds, so Nova stopped waiting."
+        return "The command was still running after 60 seconds, so Nova stopped it."
     return f"exit code {r.returncode}\n{(r.stdout + r.stderr).strip()[-4000:]}"
 
 

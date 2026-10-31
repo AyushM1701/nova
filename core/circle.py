@@ -4,6 +4,7 @@ gets, so it sees exactly what you marked. A live red trail on screen shows what 
 
 Detection is deliberately strict (a loop that closes, big enough, and long enough to be a loop and not a drift of the
 hand), because an ordinary mouse movement while holding Ctrl must not turn into a marked screenshot."""
+import collections
 import math
 import threading
 import time
@@ -14,6 +15,7 @@ from core import system
 from core.bar import Layered
 
 SAMPLE_S = 1 / 60
+MAX_POINTS = 60 * 60 * 2  # two minutes of path: a key-up that never came must not let it grow for hours
 MIN_DIAG = 48  # px: smaller than this is a hand wobble, not a circle
 CLOSE = 0.35  # the ends of the loop meet within this fraction of its size
 MIN_TURNS = 2.2  # path length as a multiple of the loop's size: a circle is about 3.1, a straight line 1
@@ -93,11 +95,11 @@ class Trail:
     """The mouse positions from `start()` to `stop()`, sampled 60 times a second on a thread of its own."""
 
     def __init__(self, pos=system.mouse_pos):
-        self.pos, self.points, self._run = pos, [], None
+        self.pos, self.points, self._run = pos, collections.deque(maxlen=MAX_POINTS), None
 
     def start(self):
         self.stop()
-        self.points, run = [], threading.Event()
+        self.points, run = collections.deque(maxlen=MAX_POINTS), threading.Event()
         self._run = run
         run.set()
 

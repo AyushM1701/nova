@@ -46,17 +46,24 @@ def _open():
 
 def _set(fmt, data):
     h = kernel32.GlobalAlloc(0x0002, len(data))  # GMEM_MOVEABLE
-    p = kernel32.GlobalLock(h)
+    p = kernel32.GlobalLock(h) if h else None
+    if not p:  # out of memory: writing to address 0 would end Nova
+        if h:
+            kernel32.GlobalFree(h)
+        return False
     ctypes.memmove(p, data, len(data))
     kernel32.GlobalUnlock(h)
     if not user32.SetClipboardData(fmt, h):
         kernel32.GlobalFree(h)  # on success the clipboard owns h
+        return False
+    return True
 
 
 def snapshot():
-    """Every format currently on the clipboard as (format, bytes)."""
+    """Every format currently on the clipboard as (format, bytes), or None if another program holds it (an empty
+    clipboard is [], and putting that back would wipe what the user has copied since)."""
     if not _open():
-        return []
+        return None
     items, fmt = [], 0
     try:
         while fmt := user32.EnumClipboardFormats(fmt):
@@ -76,14 +83,17 @@ def snapshot():
 
 
 def restore(items):
+    """True if the clipboard now holds `items`; False if another program holds it or a format wasn't taken."""
     if not _open():
-        return
+        return False
+    ok = True
     try:
         user32.EmptyClipboard()
         for fmt, data in items:
-            _set(fmt, data)
+            ok = _set(fmt, data) and ok
     finally:
         user32.CloseClipboard()
+    return ok
 
 
 def change_count():
@@ -109,4 +119,4 @@ def get_text():
 
 
 def set_text(text):
-    restore([(CF_UNICODETEXT, (text + "\0").encode("utf-16-le"))])
+    return restore([(CF_UNICODETEXT, (text + "\0").encode("utf-16-le"))])

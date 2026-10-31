@@ -10,6 +10,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from core import vault
 from core.config import DATA
 from core.whisper_cpp import multipart, wav
 
@@ -34,10 +35,7 @@ def key_file(provider):
 
 
 def key(provider):
-    try:
-        return key_file(provider).read_text(encoding="utf-8").strip()
-    except OSError:
-        return ""
+    return vault.read(key_file(provider))  # the OS's credential store; a key file from before is moved there
 
 
 def check(provider, api_key, url=""):

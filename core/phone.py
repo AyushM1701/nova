@@ -26,7 +26,8 @@ from pathlib import Path
 from websockets.datastructures import Headers
 from websockets.http11 import Response
 
-from core.config import DATA, NO_WINDOW, WORKSPACE, write_private
+from core import vault
+from core.config import DATA, NO_WINDOW, WORKSPACE
 
 PORT = 47823
 SIRI_WAIT_S = 50
@@ -43,6 +44,8 @@ PAUSED = ("Phone is paused on this Wi-Fi: it isn't the network you turned Phone 
           "read the pairing key. Tailscale still works. To use Phone here, turn it off and on again.")
 UNKNOWN = ("Phone is paused on Wi-Fi: Nova can't tell which network this computer is on, so it can't tell your home "
            "network from a café's. Tailscale still works.")
+NO_TAILSCALE = ("Phone is waiting for Tailscale: it only listens there (Settings → Phone), and Tailscale isn't "
+                "running on this computer.")
 # the page only talks to the Nova that served it; nothing loads from the internet
 CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
        "connect-src 'self' ws: wss:; frame-ancestors 'none'")
@@ -51,10 +54,12 @@ CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 
 def token(new=False, path=None):
     """The pairing key (or Siri's, path=SIRI); new=True replaces it, so every paired phone has to scan again."""
     path = path or TOKEN
-    if new or not path.exists():
-        DATA.mkdir(parents=True, exist_ok=True)
-        write_private(path, secrets.token_urlsafe(24))
-    return path.read_text(encoding="utf-8").strip()
+    # strict: a store that is only locked right now must not make a new key, which would unpair every phone
+    current = "" if new else vault.read(path, strict=True)
+    if not current:
+        current = secrets.token_urlsafe(24)
+        vault.write(path, current)
+    return current
 
 
 def addresses():
@@ -92,9 +97,12 @@ def router():
         return ""
 
 
-def hosts():
+def hosts(tailscale_only=False):
     """Where Phone listens, and why it's paused ('' if it isn't): everywhere on the network it was turned on in,
-    else only on Tailscale."""
+    else only on Tailscale. `tailscale_only`: always only there, since Wi-Fi isn't encrypted and Tailscale is."""
+    if tailscale_only:
+        found = [ip for ip in _tailscale_ips() if _tailscale(ip)]
+        return found or ["127.0.0.1"], "" if found else NO_TAILSCALE
     now = router()
     try:
         home = NETWORK.read_text(encoding="utf-8").strip()
@@ -135,6 +143,8 @@ def save_upload(data_url, name="", folder=DROP, keep=30):
     m = re.match(r"data:([\w.+-]+/[\w.+-]+)?(?:;[^,;]*)*;base64,(.*)$", str(data_url), re.S)
     if not m:
         raise ValueError("That didn't arrive as a file. Try again.")
+    if len(m.group(2)) * 3 // 4 > MAX_UPLOAD + 3:  # before decoding it: not 33 MB of memory for a refusal
+        raise ValueError(f"That's about {len(m.group(2)) * 3 // 4 >> 20} MB; Nova takes up to {MAX_UPLOAD >> 20} MB.")
     raw = base64.b64decode(m.group(2))
     if len(raw) > MAX_UPLOAD:
         raise ValueError(f"That's {len(raw) >> 20} MB; Nova takes up to {MAX_UPLOAD >> 20} MB.")
@@ -156,8 +166,8 @@ def page(path):
     return path.read_text(encoding="utf-8").replace("<!-- md.js -->", f"<script>{md}</script>", 1)
 
 
-def links():
-    return [f"http://{ip}:{PORT}/#{token()}" for ip in addresses()]
+def links(tailscale_only=False):
+    return [f"http://{ip}:{PORT}/#{token()}" for ip in addresses() if not tailscale_only or _tailscale(ip)]
 
 
 def _icon():
@@ -172,15 +182,17 @@ class Phone:
 
     def __init__(self, on_msg):
         self.on_msg, self.clients, self.server, self.error = on_msg, set(), None, ""
-        self.on, self.hosts, self.watching = False, None, False
+        self.on, self.hosts, self.watching, self.tailscale_only = False, None, False, False
         self.lock = asyncio.Lock()
         self.waiters = []  # Siri requests waiting for Nova's answer
         self.loop = asyncio.new_event_loop()
         threading.Thread(target=self.loop.run_forever, daemon=True).start()
 
-    def enable(self, on, here=False):
+    def enable(self, on, here=False, tailscale_only=None):
         """Listen on the network (Settings → Phone on), or stop and drop every phone. `here`: the user just turned
         Phone on, so this network is the one to trust."""
+        if tailscale_only is not None:
+            self.tailscale_only = bool(tailscale_only)
         if on and here:
             DATA.mkdir(parents=True, exist_ok=True)
             NETWORK.write_text(router(), encoding="utf-8")
@@ -203,7 +215,7 @@ class Phone:
 
     async def _relisten(self):
         from websockets.asyncio.server import serve
-        where, why = await self.loop.run_in_executor(None, hosts) if self.on else (None, "")
+        where, why = await self.loop.run_in_executor(None, lambda: hosts(self.tailscale_only)) if self.on else (None, "")
         if where == self.hosts and (self.server or not self.on):
             return
         if self.server:

@@ -18,6 +18,7 @@ import threading
 import time
 from pathlib import Path
 
+from core import pa
 from core.system import IS_MAC, NO_WINDOW
 
 ENGINES = ("piper", "kitten", "kokoro")  # the neural voices, as named in core/models.py and voice.tts_engine
@@ -129,9 +130,8 @@ def load(engine):
 
 def _speak_neural(text, engine, sid, speed, stop):
     import numpy as np
-    import sounddevice as sd
     model = load(engine)
-    chunks = queue.Queue()
+    chunks, failed = queue.Queue(), []
 
     def on_audio(samples, _progress):
         chunks.put(np.array(samples, dtype=np.float32))
@@ -140,24 +140,38 @@ def _speak_neural(text, engine, sid, speed, stop):
     def generate():
         try:
             model.generate(text, sid=sid, speed=speed, callback=on_audio)
+        except Exception as e:  # reported below: a silent voice would just be a reply nobody hears
+            failed.append(e)
         finally:
             chunks.put(None)
 
+    played = False
     with _speak_lock:  # one voice at a time; a model isn't meant to run twice at once
-        threading.Thread(target=generate, daemon=True).start()
+        worker = threading.Thread(target=generate, daemon=True)
+        worker.start()
         block = model.sample_rate // 10  # write 100 ms at a time so `stop` cuts in quickly
-        with sd.OutputStream(samplerate=model.sample_rate, channels=1, dtype="float32") as out:
-            while not stop.is_set():
-                try:
-                    chunk = chunks.get(timeout=0.1)
-                except queue.Empty:
-                    continue
-                if chunk is None:
-                    break
-                for i in range(0, len(chunk), block):
-                    if stop.is_set():
+        try:
+            with pa.stream("output", samplerate=model.sample_rate, channels=1, dtype="float32") as out:
+                while not stop.is_set():
+                    try:
+                        chunk = chunks.get(timeout=0.1)
+                    except queue.Empty:
+                        continue
+                    if chunk is None:
                         break
-                    out.write(chunk[i:i + block])
+                    for i in range(0, len(chunk), block):
+                        if stop.is_set():
+                            break
+                        out.write(chunk[i:i + block])
+                        played = True
+        except Exception:
+            if not played:
+                raise  # nothing was heard: the system voice can say it
+            # the speakers went away part way: what was said was heard; saying it all again from the start would be worse
+        finally:
+            worker.join(10)  # the next reply must not start a second generate() on this model while this one ends
+    if failed and not played:
+        raise failed[0]
 
 
 def _speak_system(text, voice, stop):

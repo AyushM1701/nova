@@ -27,7 +27,22 @@ jobs:
           (cd docs/media/walkthrough && zip -q -X ../../../nova-walkthrough.zip ./*.mp4)
           sha256sum nova-main.zip nova-main.tar.gz nova-walkthrough.zip > SHA256SUMS
 
+      # With the secret NOVA_RELEASE_KEY set (helpers/release_key.py makes it), SHA256SUMS is signed; once the matching
+      # public key is RELEASE_KEY in core/update.py, an install accepts nothing that isn't signed.
+      - name: Sign the checksums
+        env:
+          RELEASE_KEY: ${{ secrets.NOVA_RELEASE_KEY }}
+        run: |
+          if [ -n "$RELEASE_KEY" ]; then
+            printf '%s\n' "$RELEASE_KEY" > release-key.pem
+            openssl pkeyutl -sign -inkey release-key.pem -rawin -in SHA256SUMS -out SHA256SUMS.sig
+            rm -f release-key.pem
+          fi
+
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" nova-main.zip nova-main.tar.gz nova-walkthrough.zip SHA256SUMS --title "Nova ${GITHUB_REF_NAME#v}" --generate-notes
+        run: |
+          files=(nova-main.zip nova-main.tar.gz nova-walkthrough.zip SHA256SUMS)
+          if [ -f SHA256SUMS.sig ]; then files+=(SHA256SUMS.sig); fi
+          gh release create "$GITHUB_REF_NAME" "${files[@]}" --title "Nova ${GITHUB_REF_NAME#v}" --generate-notes

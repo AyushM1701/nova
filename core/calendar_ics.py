@@ -10,6 +10,7 @@ import threading
 import time
 import urllib.request
 
+from core import vault
 from core.config import DATA
 
 KEY_FILE = DATA / "calendar.key"
@@ -18,10 +19,7 @@ _cache, _lock = {"url": None, "at": 0.0, "cal": None}, threading.Lock()
 
 
 def url():
-    try:
-        return KEY_FILE.read_text(encoding="utf-8").strip()
-    except OSError:
-        return ""
+    return vault.read(KEY_FILE)  # the OS's credential store; a file from before is moved there
 
 
 def fetch(address):

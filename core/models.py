@@ -4,6 +4,7 @@
 Run `python -m core.models download <name>` to fetch one with progress lines (the Nova window does this).
 """
 import os
+import shutil
 import sys
 import tarfile
 import threading
@@ -59,27 +60,37 @@ def download(name, say=print):
     if installed(name):
         return say(f"{label} is already downloaded.")
     where.parent.mkdir(parents=True, exist_ok=True)
-    part = where.parent / f"{name}.part"
-    with urllib.request.urlopen(url, timeout=60) as r, open(part, "wb") as f:
-        total, done, shown = int(r.headers.get("Content-Length") or 0), 0, -1
-        while block := r.read(1 << 20):
-            f.write(block)
-            done += len(block)
-            if done >> 23 != shown:  # every 8 MB
-                shown = done >> 23
-                say(f"{label}: {done >> 20} of {total >> 20} MB")
-    if url.endswith(".onnx"):
-        part.replace(path(name))
-    else:
-        say("Unpacking…")
-        with tarfile.open(part, "r:bz2") as tar:
-            try:
-                tar.extractall(where.parent, filter="data")  # refuses absolute paths, "..", and links out of it
-            except TypeError:  # Python 3.11 before 3.11.4 has no filter argument: check the names ourselves
-                if any(n.startswith(("/", "\\")) or ".." in Path(n).parts for n in tar.getnames()):
-                    raise ValueError("unexpected paths in the model download")
-                tar.extractall(where.parent)
-        part.unlink()
+    part = where.parent / f"{name}.{os.getpid()}.part"  # the wake thread and the window can both download one
+    staging = where.parent / f".{name}.{os.getpid()}.unpacking"
+    try:
+        with urllib.request.urlopen(url, timeout=60) as r, open(part, "wb") as f:
+            total, done, shown = int(r.headers.get("Content-Length") or 0), 0, -1
+            while block := r.read(1 << 20):
+                f.write(block)
+                done += len(block)
+                if done >> 23 != shown:  # every 8 MB
+                    shown = done >> 23
+                    say(f"{label}: {done >> 20} of {total >> 20} MB")
+        if total and done != total:  # the connection ended early: a cut-off model must not count as installed
+            raise OSError(f"{label}: the download stopped at {done >> 20} of {total >> 20} MB. Try again.")
+        if url.endswith(".onnx"):
+            part.replace(path(name))
+        else:
+            say("Unpacking…")
+            shutil.rmtree(staging, ignore_errors=True)
+            with tarfile.open(part, "r:bz2") as tar:
+                try:
+                    tar.extractall(staging, filter="data")  # refuses absolute paths, "..", and links out of it
+                except TypeError:  # Python 3.11 before 3.11.4 has no filter argument: check the names ourselves
+                    if any(n.startswith(("/", "\\")) or ".." in Path(n).parts for n in tar.getnames()):
+                        raise ValueError("unexpected paths in the model download")
+                    tar.extractall(staging)
+            top = list(staging.iterdir())
+            shutil.rmtree(where, ignore_errors=True)  # what an earlier, cut-off unpack left
+            os.replace(top[0] if len(top) == 1 and top[0].is_dir() else staging, where)  # whole or not at all
+    finally:
+        part.unlink(missing_ok=True)
+        shutil.rmtree(staging, ignore_errors=True)
     say(f"{label} ready.")
 
 

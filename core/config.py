@@ -16,6 +16,7 @@ LOGS, DATA, WORKSPACE = ROOT / "logs", ROOT / "data", ROOT / "workspace"
 NOTES = WORKSPACE / "notes"
 LOG_HOOKS = []  # Nova forwards every log entry to its open app window
 KEEP_LOG_DAYS = 30
+CAP_BYTES = 4 << 20  # crash.txt and setup.log grow without a day boundary: past this only the newest quarter stays
 NO_WINDOW = 0 if os.name != "nt" else 0x08000000  # creationflags for child processes: no console window flashes
 
 
@@ -27,11 +28,18 @@ def memory_text():
         return "(nothing yet)"
 
 
+def write_atomic(path, text, private=False):
+    """Write a file whole or not at all: a power cut or a crash leaves the old one, never half of the new one.
+    `private`: only this user can read it (macOS; shortcut: Windows relies on the folder's ACL)."""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    if private and os.name != "nt":
+        tmp.chmod(0o600)
+    _busy(lambda: os.replace(tmp, path))
+
+
 def write_private(path, text):
-    """Write a key or token file only this user can read (macOS; shortcut: Windows relies on the folder's ACL)."""
-    path.write_text(text, encoding="utf-8")
-    if os.name != "nt":
-        path.chmod(0o600)
+    write_atomic(path, text, private=True)
 
 
 def log(event, **fields):
@@ -64,11 +72,19 @@ def prune_logs():
     for f in LOGS.glob("nova-*.jsonl"):
         if f.stat().st_mtime < cutoff:
             f.unlink(missing_ok=True)
+    for f in (LOGS / "crash.txt", DATA / "setup.log"):  # never rotated: keep the newest tail of a big one
+        try:
+            if f.stat().st_size > CAP_BYTES:
+                f.write_bytes(f.read_bytes()[-CAP_BYTES // 4:])
+        except OSError:
+            pass
 
 
 def merged(base, override):
     out = dict(base)
     for k, v in override.items():
+        if isinstance(base.get(k), dict) and not isinstance(v, dict):
+            continue  # "voice": null or "fast" from a hand edit would turn a whole section into a string
         out[k] = merged(base[k], v) if isinstance(v, dict) and isinstance(base.get(k), dict) else v
     return out
 
@@ -95,7 +111,10 @@ def defaults():
 
 def user_config():
     """The user's own overrides; raises ValueError if config.json isn't valid JSON."""
-    return json.loads(_busy(lambda: CONFIG.read_text(encoding="utf-8-sig"))) if CONFIG.exists() else {}
+    data = json.loads(_busy(lambda: CONFIG.read_text(encoding="utf-8-sig"))) if CONFIG.exists() else {}
+    if not isinstance(data, dict):
+        raise ValueError("it must be one JSON object, { ... }")
+    return data
 
 
 def _busy(action, tries=50):

@@ -66,7 +66,7 @@ def load(job_id):
 def all_records():
     """Newest first. A record that can't be read is skipped."""
     recs = [load(p.stem) for p in sorted(DIR.glob("*.json"), reverse=True)] if DIR.is_dir() else []
-    return [r for r in recs if r and "id" in r]
+    return [r for r in recs if isinstance(r, dict) and {"id", "status", "started"} <= r.keys()]
 
 
 def prune():

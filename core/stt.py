@@ -10,6 +10,7 @@ downloads in the background the first time Nova runs (load_accurate), and the GP
 import glob
 import os
 import sys
+import threading
 
 import numpy as np
 
@@ -22,7 +23,9 @@ if os.name == "nt":
 from faster_whisper import WhisperModel  # noqa: E402
 from faster_whisper.utils import download_model  # noqa: E402
 
-from core.cleanup import drop_outro, is_prompt_echo  # noqa: E402
+from core.cleanup import drop_outro, fix_vocabulary, is_prompt_echo  # noqa: E402
+
+_doubt = threading.local()
 
 
 # softer speech passes (default threshold 0.5), and 300 ms of padding keeps the first and last words whole
@@ -37,7 +40,25 @@ def downloaded(name):
         return False
 
 
+def unsure(segment):
+    """Whisper's own signs that a segment isn't speech it understood: it hears silence (and guesses anyway), or it loops on
+    one phrase (a compression ratio over 2.4) the way it does on a stuck microphone or a video playing nearby."""
+    silent = getattr(segment, "no_speech_prob", 0) > 0.6 and getattr(segment, "avg_logprob", 0) < -1.0
+    return silent or getattr(segment, "compression_ratio", 0) > 2.4  # the test doubles in tests.py have neither field
+
+
 class STT:
+    likely = ("en", "hi")  # the languages the user speaks (voice.languages); a detection outside them is a guess
+    @property
+    def shaky(self):
+        """The last transcribe() on this thread contained a segment Whisper itself wasn't sure was speech. Per thread:
+        the computer-audio and meeting transcriptions run alongside, and must not flag a command they didn't hear."""
+        return getattr(_doubt, "shaky", False)
+
+    @shaky.setter
+    def shaky(self, value):
+        _doubt.shaky = value
+
     def __init__(self, fast_name, accurate_name):
         self.fast_name, self.accurate_name, self.accurate, self.small = fast_name, accurate_name, None, None
         try:
@@ -112,23 +133,35 @@ class STT:
         given. task="translate" writes English whatever language was spoken (Whisper's own translation)."""
         prompt = ("Vocabulary: " + ", ".join(vocabulary) + ".") if vocabulary else None
         lang = None if language == "auto" else language
+        peak = float(np.percentile(np.abs(audio), 99.5)) if audio is not None and len(audio) else 0.0  # not the max: one click
+        if 0.01 < peak < 0.3:  # a quiet microphone (peaks near 0.05 are in the logs): Whisper hears far worse the softer it is
+            audio = audio * min(0.7 / peak, 10.0)
+        self.shaky = False  # a server (whisper.cpp, a cloud service) decodes without it
 
-        def run(model, vad=True):
+        def run(model, vad=True, language=lang):
             # greedy decoding keeps English words in Latin letters inside Hinglish speech
-            segments, info = model.transcribe(audio, language=lang, task=task, initial_prompt=prompt, vad_filter=vad,
+            segments, info = model.transcribe(audio, language=language, task=task, initial_prompt=prompt, vad_filter=vad,
                                               vad_parameters=VAD if vad else None,
                                               beam_size=1, condition_on_previous_text=False)
+            segments = list(segments)
+            self.shaky = any(unsure(s) for s in segments)
             return " ".join(s.text.strip() for s in segments).strip(), info.language
 
         if server:
             return drop_outro(server.transcribe(audio, lang, prompt))
         first = self.translator() if task == "translate" else self.fast
         text, detected = run(first)
+        used = lang  # the language decoded with, so a retry below doesn't go back to guessing
+        if lang is None and task == "transcribe" and self.likely and detected not in self.likely:
+            # Whisper's detector is unreliable on a second or two of speech (a short "okay" came out as Telugu): a language
+            # the user doesn't speak means it guessed, so decode again as the first language they do
+            used = self.likely[0]
+            text, detected = run(first, language=used)
         # the small model is weak at other languages: the accurate one takes them (CPU only, once it's loaded),
         # except to translate, which it can't do
         model = self.accurate if task == "transcribe" and detected != "en" and self.accurate else first
         if model is not first:
             text, _ = run(model)
         if is_prompt_echo(text, prompt):  # the voice filter cut the speech: decode everything once more
-            text = run(model, vad=False)[0] or text
-        return drop_outro(text)
+            text = run(model, vad=False, language=used)[0] or text
+        return fix_vocabulary(drop_outro(text), vocabulary)

@@ -3,6 +3,7 @@ on a sketch note is tapped. A mixin of the Nova class (nova.py); it uses the Nov
 import time
 
 from core import clipboard, proactive, system
+from core.background import free
 from core.config import log
 from core.local_llm import LocalLLM
 from core.questions import chip_question
@@ -27,7 +28,7 @@ class SuggestMixin:
             self.stop_tts.set()
 
     def start_chip(self, text):
-        if self.phase != "idle" or self.paused or self.pending:
+        if not free(self):
             return
         self.target, self.voice = system.foreground(), True
         self.spawn(lambda: self.command(text, typed=True) or self.assist(text), "busy")

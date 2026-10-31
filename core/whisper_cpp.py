@@ -10,6 +10,8 @@ import threading
 import time
 import urllib.request
 import uuid
+
+from core import procs
 import wave
 from pathlib import Path
 
@@ -67,6 +69,7 @@ class Server:
             self.proc = subprocess.Popen([self.binary, "--model", self.model, "--host", "127.0.0.1", "--port",
                                           str(self.port)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                          creationflags=NO_WINDOW)
+            procs.kill_on_close(self.proc)  # not left running (and holding gigabytes) when Nova is killed
             deadline = time.monotonic() + START_TIMEOUT_S
             while time.monotonic() < deadline:
                 if self.proc.poll() is not None:
@@ -89,7 +92,7 @@ class Server:
         body, kind = multipart(fields, "speech.wav", wav(audio))
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}/inference", data=body, method="POST",
                                      headers={"Content-Type": kind})
-        with urllib.request.urlopen(req, timeout=120) as r:
+        with urllib.request.urlopen(req, timeout=max(30, len(audio) / 16000 * 2)) as r:  # twice real time, at least
             return " ".join(json.loads(r.read().decode("utf-8")).get("text", "").split())  # one line per segment
 
     def stop(self):

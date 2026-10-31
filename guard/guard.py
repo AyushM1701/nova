@@ -7,6 +7,7 @@ Stdlib only, so it runs under any Python.
 import json
 import os
 import re
+import socket
 import sys
 import time
 from multiprocessing.connection import Client
@@ -105,8 +106,19 @@ CONFIRM = [
      r"-urlcache\b|\bbitsadmin\b|\bstart-bitstransfer\b", "downloads a file"),
     (r"\b(set-executionpolicy|schtasks|register-scheduledtask|new-service)\b|\bsc(\.exe)?\s+(create|config|delete)\b",
      "changes system configuration"),
-    (r"\s-enc(odedcommand)?\b|frombase64string", "runs an encoded command"),
-    (r"&\s*[\$\"']|(^|[;|&\s])\.\s+\$|\binvoke-expression\b|\biex\b|\binvoke-command\b|\bicm\b|\beval\b",
+    # PowerShell takes any prefix of -EncodedCommand (-e, -ec, -en...); only for PowerShell, so "osascript -e" stays quiet
+    (r"\s-enc(odedcommand)?\b|frombase64string|\b(powershell|pwsh)(\.exe)?\b" + UNTIL_END + r"\s-e[a-z]*\s",
+     "runs an encoded command"),
+    (r"\bgit\s+-c\b", "runs git with a setting that can start a program"),
+    (r"\bmklink\b|-itemtype\s+(?:junction|symboliclink|hardlink)\b|\bln\s+-\w*s",
+     "makes a link that can lead to a protected place"),
+    # bash's backslash inside a command name ("r\m -rf ~") hides it from every rule above; a Windows path or an
+    # argument ("$env:LOCALAPPDATA\Programs") never starts a segment like this
+    (r"(^|[;&|\n(]\s*)[a-z]+\\[a-z]+\s", "hides a command name behind an escape"),
+    # curl sends a file with @name, whatever flag carries it
+    (r"\bcurl\b" + UNTIL_END + r"(\s-h\s*@|\s--(json|url-query)\b|\s@\S)", "sends a file over the network"),
+    (r"&\s*[\$\"']|(^|[;|&\s])\.\s+\$|\binvoke-expression\b|\biex\b|\binvoke-command\b|\bicm\b|\beval\b"
+     r"|\$executioncontext\b|\binvoke\w*\s*\(|\[scriptblock\]|newscriptblock|\.addscript\s*\(",
      "runs a dynamically built command"),
     # [Type]::Delete( too, and names with any ending (.DeleteFolder, .CopyFile); start, stop and run stay exact
     (r"(\.|::)(delete\w*|kill|move\w*|copy\w*|terminate\w*|invoke|run|exec\w*|create\w*|stop|start|close|clear\w*"
@@ -115,7 +127,8 @@ CONFIRM = [
     (r"\b(start-process|start|saps)\s+[\"']?(powershell|pwsh|cmd|wscript|cscript|mshta|regsvr32|python|py|node|bash"
      r"|wsl)\b|-verb\s+runas", "starts a shell or an elevated process"),
     (r"\b(start-process|start|saps|invoke-item|ii|explorer(\.exe)?)\s" + UNTIL_END +
-     r"(\.(ps1|bat|cmd|vbs|vbe|js|jse|wsf|msi|scr|hta|py|pyw|jar|reg|cpl)\b|\\(downloads|temp)\\)",
+     r"(\.(ps1|bat|cmd|vbs|vbe|js|jse|wsf|msi|scr|hta|py|pyw|jar|reg|cpl|url|lnk|msc|appref-ms|settingcontent-ms"
+     r"|application)\b|[\\/](downloads|temp)[\\/])",
      "runs a script or a downloaded file"),
     # -ArgumentList (any prefix, e.g. -Args, -a) hides "git push" or "winget install" from the rules above
     # (except plain editors that only open a file: "Start-Process notepad -ArgumentList notes.txt")
@@ -246,8 +259,12 @@ def _command(cmd, home=None, cwd=None):
     # shortcut: "..\data" is Nova's data folder only from Nova's workspace (where the AI runs), so ask, don't block
     if re.search(r"(^|[\s\"'=(])\.\.[\\/]data\b", c):
         return "confirm", "may read Nova's own keys, which are in ..\\data from Nova's workspace"
+    # a command name hidden behind bash's backslash ("r\m") or PowerShell's backtick ("Re`move-Item") is the command it
+    # spells: judged by the block rules as spelled out too
+    spelled = re.sub(r"(^|[;&|\n(]\s*)([a-z]+)\\([a-z]+)(?=\s)", r"\1\2\3", c)
+    spelled = re.sub(r"(?<=[a-z])[`^](?=[a-z])", "", spelled)
     for pattern, why in BLOCK:
-        if re.search(pattern, c):
+        if re.search(pattern, c) or re.search(pattern, spelled):
             return "block", why
     # ...and deleting the home folder, the Users folder or a drive however it's spelled: "$HOME"/*, ${HOME}, ~\*
     bare = re.sub(r"[\"']", "", re.sub(r"\$\{(\w+)\}", r"$\1", c))
@@ -278,6 +295,8 @@ def _command(cmd, home=None, cwd=None):
             return "confirm", why
     if ">" in re.sub(r"\d?>\s*&\s*\d|\d?>\s*(\$null|/dev/null|nul)\b", "", c):
         return "confirm", "writes a file through a redirect"
+    if cwd and _local_program(cmd, cwd):  # "start build" runs build.bat from this folder
+        return "confirm", "starts a program that lives in this folder"
     # an escaped \| is regex alternation inside a grep pattern ("ask\|follow"), not a pipe to another command
     # a quoted web address is one value: its "&" and "?" aren't command separators ("...?view=cm&to=x")
     urls = re.sub(r"(['\"])https?://[^'\"\s`$]*\1", " url ", c.replace("\\|", " "))
@@ -289,6 +308,21 @@ def _command(cmd, home=None, cwd=None):
         if not any(re.match(p, seg) for p in ALLOW) and not (helper and re.match(helper, seg.replace("\\", "/"))):
             return "confirm", f"isn't on the known-safe list ({seg[:60]})"
     return "allow", "known safe command"
+
+
+START_NAME = r"(?:start-process|start|saps|invoke-item|ii)\s+(?:-filepath\s+)?[\"']?([^\s\"';|&]+)"
+PROGRAM_EXTENSIONS = ("", ".bat", ".cmd", ".com", ".exe", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".hta", ".ps1", ".lnk",
+                      ".url", ".msi", ".scr", ".py", ".sh")
+
+
+def _local_program(cmd, cwd):
+    """True if `start X` / `Start-Process X` would run a file that sits in `cwd` (cmd adds .bat or .exe by itself)."""
+    for name in re.findall(START_NAME, cmd, re.I):
+        if ":" in name:  # a web address, ms-settings:, or a full path (the rules above judge those by name)
+            continue
+        if any(os.path.isfile(os.path.join(cwd, name + ext)) for ext in PROGRAM_EXTENSIONS):
+            return True
+    return False
 
 
 def _fresh_script(cmd, cwd):
@@ -332,6 +366,21 @@ def _wide(folder):
     return bool(re.match(WIDE, full.lower())) or _under(os.path.expanduser("~"), full)
 
 
+def _plain_path(path):
+    """A Windows path without its long-path prefix, and the admin-share spelling of a local drive as the drive itself
+    (the same file, written so that no folder rule recognises it)."""
+    path = re.sub(r"^[\\/]{2}[?.][\\/]UNC[\\/]", r"\\\\", path, flags=re.I)
+    path = re.sub(r"^[\\/]{2}[?.][\\/]", "", path)
+    m = re.match(r"[\\/]{2}(?:localhost|127\.0\.0\.1|" + re.escape(socket.gethostname()) + r")[\\/]([a-z])\$(?:[\\/](.*))?$",
+                 path, re.I)
+    return f"{m.group(1)}:\\{m.group(2) or ''}" if m else path
+
+
+def _real(cwd, path):
+    """The real location of a path a tool names: variables, ~, long-path and admin-share spellings, links resolved."""
+    return os.path.realpath(os.path.join(cwd, _plain_path(os.path.expandvars(os.path.expanduser(path)))))
+
+
 def _under(path, root):
     path, root = os.path.normcase(path), os.path.normcase(os.path.realpath(root))
     try:
@@ -341,8 +390,14 @@ def _under(path, root):
 
 
 READ_ONLY_TOOLS = {"Read", "Grep", "Glob", "view_image", "update_plan", "web_search", "read_file", "list_dir",
-                   "grep_files"}
+                   "grep_files", "WebSearch", "TodoWrite"}
 SEVERITY = {"allow": 0, "confirm": 1, "block": 2}
+
+
+def _deleting(path, cwd, roots, home, notes, mode):
+    """Deleting a file asks; deleting one a write would be refused (Nova's guard, its keys) is refused too."""
+    verdict = classify("Write", {"file_path": path, "content": ""}, cwd, roots, home, notes, mode)
+    return verdict if verdict[0] == "block" else with_mode("confirm", "deletes a file", mode, unfamiliar=False)
 
 
 def classify_patch(patch, cwd, roots, home, notes, mode="accept_edits"):
@@ -350,7 +405,7 @@ def classify_patch(patch, cwd, roots, home, notes, mode="accept_edits"):
     files = re.findall(r"^\*\*\* (Add|Update|Delete) File: (.+?)\s*$|^\*\*\* Move to: (.+?)\s*$", patch, re.M)
     if not files:
         return with_mode("confirm", "edits files in a way Nova can't read", mode, unfamiliar=False)
-    verdicts = [with_mode("confirm", "deletes a file", mode, unfamiliar=False) if kind == "Delete"
+    verdicts = [_deleting(path, cwd, roots, home, notes, mode) if kind == "Delete"
                 else classify("Write", {"file_path": path or moved, "content": patch}, cwd, roots, home, notes, mode)
                 for kind, path, moved in files]
     return max(verdicts, key=lambda v: SEVERITY[v[0]])
@@ -400,10 +455,10 @@ def classify(tool, inp, cwd, roots, home, notes, mode="accept_edits"):
     where = f"{path} {inp.get('pattern', '') if tool == 'Glob' else ''} {inp.get('glob', '')}"  # Grep's pattern is text
     if re.search(SECRETS, where.lower()):
         return "block", "reads browser or SSH secrets"
-    if home and path and _under(os.path.realpath(os.path.join(cwd, os.path.expandvars(path))), os.path.join(home, "data")):
+    if home and path and _under(_real(cwd, path), os.path.join(home, "data")):
         return "block", NOVA_DATA
     if tool in ("Grep", "grep_files") and path:  # a search tool always goes through every folder below its path
-        full = os.path.realpath(os.path.join(cwd, os.path.expandvars(os.path.expanduser(path))))
+        full = _real(cwd, path)
         if _wide(full):
             return with_mode("confirm", WIDE_WHY, mode, unfamiliar=False)
         if home and _under(os.path.join(home, "data"), full):  # it obeys .gitignore only in a git repo, not a ZIP install
@@ -422,7 +477,7 @@ def classify(tool, inp, cwd, roots, home, notes, mode="accept_edits"):
     if tool.startswith("mcp__"):
         return classify_mcp(tool, mode)
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
-        full = os.path.realpath(os.path.join(cwd, os.path.expandvars(path)))
+        full = _real(cwd, path)
         if home and (_under(full, os.path.join(home, "guard"))
                      or _under(full, os.path.join(home, "config.json")) and "safety" in new_text(inp).lower()):
             return "block", NOVA_SAFETY

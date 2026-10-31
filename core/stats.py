@@ -3,7 +3,7 @@ data/stats.json on this computer; only dictations spoken into Nova's microphone 
 import datetime
 import json
 
-from core.config import DATA
+from core.config import DATA, write_atomic
 
 STATS = DATA / "stats.json"
 TYPING_WPM = 40  # an average typist
@@ -29,7 +29,7 @@ def record(words, seconds, path=STATS, today=None):
     data.update(words=data.get("words", 0) + words, seconds=data.get("seconds", 0) + seconds,
                 dictations=data.get("dictations", 0) + 1, days=days)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data), encoding="utf-8")
+    write_atomic(path, json.dumps(data))
 
 
 def summary(path=STATS, today=None):

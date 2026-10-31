@@ -27,7 +27,7 @@ def folder(fetch=update.fetch):
         return LOCAL
     if not _have(DIR):
         base = f"https://github.com/{update.REPO}/releases/download/v{update.current()}/"
-        archive = update.verified(fetch(base + ASSET), fetch(base + update.SUMS, 10).decode("utf-8", "replace"), ASSET)
+        archive = update.verified(fetch(base + ASSET), update.signed_sums(base + update.SUMS, base + update.SIG, fetch), ASSET)
         DIR.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(io.BytesIO(archive)) as z:
             for name in CLIPS:  # only the known clips, by name: nothing else in the zip is written anywhere

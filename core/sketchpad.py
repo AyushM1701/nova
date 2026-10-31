@@ -430,6 +430,12 @@ def build(sketch, scale, total_frames=TOTAL_FRAMES):
     return {"base": base, "elements": elements, "chips": chips, "sketch": sketch}
 
 
+def note_top(top, bottom, note_height):
+    """Where a note's top edge goes: 12% down the work area, higher when the note is tall so it stays on screen. A
+    whole number: Windows' point structure takes nothing else (a fractional one never showed the note)."""
+    return int(max(top + 8, min(top + 0.12 * (bottom - top), bottom - note_height - 8)))
+
+
 class SketchPad(Layered):
     """The window: shows a built sketch, drawing each line in; a click on a chip asks its question, any other click
     clears it."""
@@ -465,7 +471,7 @@ class SketchPad(Layered):
         base = built["base"]
         left, top, right, bottom = system.work_area()
         x = int(left + 0.06 * (right - left))
-        y = max(top + 8, min(int(top + 0.12 * (bottom - top)), bottom - base.height / self.px - 8))  # tall notes stay on screen
+        y = note_top(top, bottom, base.height / self.px)
         page = base.copy()
         self._show()
         self._present(page, x, y)

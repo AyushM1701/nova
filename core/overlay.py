@@ -4,6 +4,7 @@ It shows what Nova heard and the step it's on while it thinks (with a light swee
 the answer while it talks (with a live waveform), and Allow / Deny when it needs your OK. It never takes
 focus. Click it to open the Nova window, where the full reply and the history are.
 """
+import functools
 import math
 import re
 import time
@@ -57,6 +58,14 @@ def wrap(text, font, width, max_lines):
             last = last[:-1]
         lines[-1] = last.rstrip() + "…"
     return lines, cut
+
+
+@functools.lru_cache(maxsize=8)
+def _shadow(W, H, m, s):
+    """The blurred drop shadow of a card of this size: the blur is the slow part, and cards of one size repeat."""
+    shadow = Image.new("RGBA", (W, H))
+    ImageDraw.Draw(shadow).rounded_rectangle((m, m + 6 * s, W - m, H - m + 6 * s), RADIUS * s, fill=(0, 0, 0, 120))
+    return shadow.filter(ImageFilter.GaussianBlur(12 * s))
 
 
 class Card(Layered):
@@ -126,9 +135,7 @@ class Card(Layered):
         m = SHADOW * s
         W, H = int(WIDTH * s + 2 * m), int(height + 2 * m)
 
-        shadow = Image.new("RGBA", (W, H))
-        ImageDraw.Draw(shadow).rounded_rectangle((m, m + 6 * s, W - m, H - m + 6 * s), RADIUS * s, fill=(0, 0, 0, 120))
-        img = shadow.filter(ImageFilter.GaussianBlur(12 * s))
+        img = _shadow(W, H, m, s).copy()
         d = ImageDraw.Draw(img)
         d.rounded_rectangle((m, m, W - m, H - m), RADIUS * s, fill=BG, outline=EDGE, width=max(1, round(s)))
         x0 = m + PAD * s

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
-from core import diarize, loopback, models
+from core import diarize, loopback, models, pa
 from core.config import DATA, NOTES
 
 STORE = DATA / "meetings"
@@ -225,10 +225,17 @@ def export_note(m):
 
 
 # ---------- what the AI gets ----------
+def inert(text):
+    """What was said in a meeting (or typed into a note) can't close the tags it is put in and then talk as the
+    instructions: its < and > become look-alikes."""
+    return str(text).replace("<", "\u2039").replace(">", "\u203a")
+
+
 def meeting_context(m):
     when = time.strftime("%Y-%m-%d %H:%M", time.localtime(m["started"]))
-    return (f"<meeting>\ntitle: {m['title']}\ndate: {when}\nfolder: {m['folder']}\n<notes>{m['notes']}</notes>\n"
-            f"<minutes>{m['minutes']}</minutes>\n<transcript>\n{transcript_text(m)}\n</transcript>\n</meeting>")
+    return (f"<meeting>\ntitle: {inert(m['title'])}\ndate: {when}\nfolder: {inert(m['folder'])}\n"
+            f"<notes>{inert(m['notes'])}</notes>\n<minutes>{inert(m['minutes'])}</minutes>\n"
+            f"<transcript>\n{inert(transcript_text(m))}\n</transcript>\n</meeting>")
 
 
 def chat_context(meetings, question):
@@ -244,7 +251,7 @@ def chat_context(meetings, question):
             break
         parts.append(block)
         used += len(block)
-    return "\n\n".join(parts) + f"\n\n<question>{question}</question>"
+    return "\n\n".join(parts) + f"\n\n<question>{inert(question)}</question>"
 
 
 # ---------- recording ----------
@@ -274,13 +281,15 @@ class Recorder:
 
     def _open_mic(self):
         import sounddevice as sd
-        self.mic = sd.InputStream(samplerate=RATE, channels=1, dtype="float32", blocksize=RATE // 10,
-                                  callback=self._hear)
-        self.mic.start()
+        with pa.LOCK:
+            self.mic = sd.InputStream(samplerate=RATE, channels=1, dtype="float32", blocksize=RATE // 10,
+                                      callback=self._hear)
+            self.mic.start()
 
     def _hear(self, data, *_):
         self.heard_at = time.time()
-        self.blocks.put(data[:, 0].copy())
+        if self.running:  # a recording that stopped (or could not be written) must not keep filling memory
+            self.blocks.put(data[:, 0].copy())
 
     def check_mic(self):
         """Once a second while recording: a microphone that stopped sending sound (a headset that disconnected, the
@@ -289,7 +298,8 @@ class Recorder:
             return
         self.heard_at = time.time()
         try:
-            self.mic.close()
+            with pa.LOCK:
+                self.mic.close()
         except Exception:  # the device is gone: closing it may fail too
             pass
         try:
@@ -319,17 +329,25 @@ class Recorder:
         return np.pad(take, (0, n - len(take)))
 
     def _write(self):
-        while self.running or not self.blocks.empty():
+        try:
+            while self.running or not self.blocks.empty():
+                try:
+                    mic = self.blocks.get(timeout=0.2)
+                except queue.Empty:
+                    continue
+                comp = self._take_computer(len(mic))
+                mixed = np.clip(0.8 * (mic + comp), -1, 1)
+                self.wav.writeframes((mixed * 32767).astype("<i2").tobytes())
+                self.level = min(1.0, float(np.sqrt(np.mean(mixed ** 2))) / 0.03) ** 0.5
+                self._measure(mic, comp)
+        except Exception as e:  # a full disk, a scanner locking the file: say so instead of "recording" nothing
+            self.error = f"Recording stopped: {e}. Free some space or check the folder, then record again."
+            self.running = False
+        finally:
             try:
-                mic = self.blocks.get(timeout=0.2)
-            except queue.Empty:
-                continue
-            comp = self._take_computer(len(mic))
-            mixed = np.clip(0.8 * (mic + comp), -1, 1)
-            self.wav.writeframes((mixed * 32767).astype("<i2").tobytes())
-            self.level = min(1.0, float(np.sqrt(np.mean(mixed ** 2))) / 0.03) ** 0.5
-            self._measure(mic, comp)
-        self.wav.close()
+                self.wav.close()
+            except Exception:
+                pass
 
     def _measure(self, mic, comp):
         """Loudness of both sources per diarize.WINDOW_S."""
@@ -397,8 +415,8 @@ def process(mid, audio, stt, language, vocabulary, clean, on_progress=lambda tex
 
 def minutes(m, clean):
     when = time.strftime("%Y-%m-%d %H:%M", time.localtime(m["started"]))
-    text = (f"title: {m['title']}\ndate: {when}\n<notes>{m['notes']}</notes>\n"
-            f"<transcript>\n{transcript_text(m)[-MAX_CONTEXT:]}\n</transcript>")
+    text = (f"title: {inert(m['title'])}\ndate: {when}\n<notes>{inert(m['notes'])}</notes>\n"
+            f"<transcript>\n{inert(transcript_text(m)[-MAX_CONTEXT:])}\n</transcript>")
     return (clean(MINUTES_PROMPT, text) or "").strip()
 
 

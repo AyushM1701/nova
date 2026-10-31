@@ -931,6 +931,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
       <div data-panel="phone" class="rows" hidden>
         <div class="row"><div class="what"><h2>Use Nova from your phone</h2><p>Your phone gets the same conversation as this window: type or dictate requests, see Nova's replies, and Allow or Deny from the couch. Nova still runs on this computer, so it has to be on.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="phone.enabled" id="phoneSwitch" aria-label="Use Nova from your phone"></button></div></div>
+        <div class="row"><div class="what"><h2>Only through Tailscale</h2><p>Nova listens on its Tailscale address and nowhere on Wi-Fi. Tailscale encrypts the traffic; plain Wi-Fi doesn't, so anyone on the same network could read the pairing key. Needs Tailscale on this computer and on your phone. Off, the phone also works on your home Wi-Fi.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="phone.tailscale_only" aria-label="Only through Tailscale"></button></div></div>
         <div class="row" style="display:block" id="phonePair" hidden><div class="what"><h2>Pair your phone</h2>
           <p>1. Connect the phone to the same Wi-Fi as this computer. 2. Point its Camera at the code and open the link. 3. In Safari, tap Share → Add to Home Screen, so Nova opens like an app. For “Hey Siri, Ask Nova”, tap Siri at the top of the phone page and follow its 5 steps. If nothing loads, allow Python through Windows Firewall on private networks (a Windows prompt asks the first time).</p></div>
           <p class="muted small" id="phoneTip" style="margin-top:10px" hidden>Pair with the Tailscale code if you can (Tailscale on, on the phone): its address never changes, it works at home and away, and it's encrypted. The Home Wi-Fi address can change when your router restarts, and then you'd have to scan again.</p>
@@ -966,6 +968,10 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><button class="switch" role="switch" data-bind="brain.clipboard_history" aria-label="Remember what you copy"></button></div></div>
         <div class="row"><div class="what"><h2>Answer permission requests by voice</h2><p>When Nova asks for your OK during a spoken request, say “allow” or “deny” (or “yes”, “go ahead”, “no”, “cancel”). Only a short, clear answer counts. Turn this off if other people talk near your computer and you'd rather always click or press a key.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="voice.approve_by_voice" aria-label="Answer permission requests by voice"></button></div></div>
+        <div class="row"><div class="what"><h2>Ask more when text from the screen is involved</h2><p>Text on a web page, in a document or in a call can carry instructions meant for the AI, not for you. When a request includes your screen, selected text, copied items or the computer's audio, Nova asks before every change, as in Manual mode, whatever the permission above. Reading and searching never ask.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="safety.tainted_manual" aria-label="Ask more when text from the screen is involved"></button></div></div>
+        <div class="row" style="display:block"><div class="what"><h2>Recent safety decisions</h2><p>The last 20 things the AI tried that Nova checked. <span id="safetyNow"></span></p></div>
+          <div class="small mono" id="safetyList" style="margin-top:10px"></div></div>
         <div class="row"><div class="what"><h2>Time to answer a permission request</h2><p>When the AI wants to delete files, install software or push code, Nova asks first. No answer means no.</p></div>
           <div class="how"><input class="input short num" type="number" min="10" max="300" data-bind="safety.confirm_timeout_s" aria-label="Seconds"><span class="muted">seconds</span></div></div>
         <div class="row"><div class="what"><h2>What stays on this computer</h2><p>Speech recognition, the wake word, spoken replies, settings and history. Only your request text (plus a screenshot when you ask about your screen) goes to your AI.</p></div></div>
@@ -976,6 +982,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><button class="btn sm" data-open="config">Open</button></div></div>
         <div class="row"><div class="what"><h2>Logs</h2><p>Every request, reply and safety decision, one file per day.</p></div>
           <div class="how"><button class="btn sm" data-open="logs">Open folder</button></div></div>
+        <div class="row"><div class="what"><h2>Crash log</h2><p>What Nova wrote down the last time it stopped unexpectedly. “Save diagnostics” below includes the latest part of it.</p></div>
+          <div class="how"><button class="btn sm" data-open="crash">Open</button></div></div>
         <div class="row"><div class="what"><h2>Report a problem</h2><p>Saves a diagnostics zip and opens a new GitHub issue to attach it to. The zip has which features ran, errors and your settings. What you said, Nova's replies, commands and your personal lists stay out, and nothing is sent unless you attach it.</p></div>
           <div class="how"><button class="btn sm" id="diagBtn">Save diagnostics</button></div></div>
         <div class="row"><div class="what"><h2>Notes</h2><p>Where Nova saves notes you dictate to it.</p></div>
@@ -1650,6 +1658,7 @@ function showTab(tab) {
   if (tab === "ai") { loadEngines($("#setEngines"), $("#setLog")); loadFallback(); }
   if (tab === "browsers") loadBrowsers($("#setBrowsers"), $("#browserLog"), false);
   if (tab === "phone") loadPhone();
+  if (tab === "privacy") renderSafety();
   if (tab === "meetings") loadCalendar();
   if (tab === "voice" && $("#voiceSel").options.length <= 1) loadVoices();
 }
@@ -2155,6 +2164,16 @@ function renderPermissions() {
       h("span", { class: "radio" }), h("div", {}, h("div", { class: "name" }, name), h("div", { class: "by" }, what)), h("span"));
   }));
   $("#permWarn").hidden = now !== "bypass";
+}
+
+async function renderSafety() {
+  let s; try { s = await api().safety_status(); } catch (e) { return; }
+  const mode = (PERMS.find(p => p[0] === s.mode) || [0, s.mode])[1];
+  $("#safetyNow").textContent = `Permissions now: ${mode}.`;
+  const when = t => new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  $("#safetyList").replaceChildren(...(s.verdicts.length ? s.verdicts.map(v => h("div", { style: "padding:3px 0" },
+    `${when(v.t)} · ${v.decision === "allow" ? "allowed" : "refused"} · ${v.tool}: ${v.summary}${v.reason ? ` (${v.reason})` : ""}`))
+    : [h("div", {}, "Nothing yet.")]));
 }
 
 /* ---------- phone ---------- */

@@ -93,8 +93,23 @@ chrome.runtime.onConnect.addListener(port => {
 });
 
 /* ---------- tools ---------- */
+// The agent window: pages the AI opens go to a window of their own that never takes focus, so the user's tabs and
+// windows stay put. Its id lives in session storage because this service worker is stopped and restarted at will.
+async function agentWindow() {
+  const { agentWin } = await chrome.storage.session.get("agentWin");
+  if (!agentWin) return null;
+  try { return await chrome.windows.get(agentWin); }
+  catch { await chrome.storage.session.remove("agentWin"); return null; }  // the user closed it
+}
+
+// a tool with no tab_id works on the agent window's page while there is one, else on the page the user is looking at
 async function activeTab(tabId) {
   if (tabId) return chrome.tabs.get(tabId);
+  const agent = await agentWindow();
+  if (agent) {
+    const [own] = await chrome.tabs.query({ active: true, windowId: agent.id });
+    if (own) return own;
+  }
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (!tab) throw new Error("No open tab. Open a window first.");
   return tab;
@@ -123,6 +138,8 @@ async function withDebugger(tabId, work) {
   finally { await chrome.debugger.detach(target).catch(() => {}); }  // the "being debugged" bar goes away
 }
 
+const inAgentWindow = async tab => (await agentWindow())?.id === tab.windowId;
+
 const describeTab = t => ({ id: t.id, title: t.title, url: t.url, active: t.active, window: t.windowId, group: t.groupId });
 
 // what you asked to see comes to the front: its tab active, its window focused and not minimized
@@ -132,11 +149,43 @@ async function bringForward(tab) {
   await chrome.windows.update(tab.windowId, win.state === "minimized" ? { state: "normal", focused: true } : { focused: true });
 }
 
+function webOnly(url) {  // never a script, a data page or a file of this computer, whatever Nova let through
+  if (/^\s*(javascript|data|file|blob|vbscript):/i.test(url || "")) throw new Error("Nova only opens web addresses.");
+  return url;
+}
+
 const TOOLS = {
-  async tabs({ action = "list", url, tab_id, tab_ids, title }) {
+  async tabs({ action = "list", url, tab_id, tab_ids, title, background = false }) {
     if (action === "list") return (await chrome.tabs.query({})).map(describeTab);
-    if (action === "open") { const t = await chrome.tabs.create({ url: url || "about:blank" }); await bringForward(t); await loaded(t.id); return describeTab(await chrome.tabs.get(t.id)); }
-    if (action === "switch") { const t = await chrome.tabs.get(tab_id); await bringForward(t); return describeTab(await chrome.tabs.get(tab_id)); }
+    if (action === "open") {
+      webOnly(url);
+      if (!background) { const t = await chrome.tabs.create({ url: url || "about:blank" }); await bringForward(t); await loaded(t.id); return describeTab(await chrome.tabs.get(t.id)); }
+      const agent = await agentWindow();
+      let t;
+      if (agent) t = await chrome.tabs.create({ windowId: agent.id, url: url || "about:blank", active: true });
+      else {
+        const win = await chrome.windows.create({ url: url || "about:blank", focused: false });  // not minimized: those load slowly
+        await chrome.storage.session.set({ agentWin: win.id });
+        t = win.tabs[0];
+      }
+      await loaded(t.id);
+      return describeTab(await chrome.tabs.get(t.id));
+    }
+    if (action === "switch") {  // the user wants to see it: it comes to the front and is theirs from now on
+      const t = await chrome.tabs.get(tab_id);
+      await bringForward(t);
+      if ((await agentWindow())?.id === t.windowId) await chrome.storage.session.remove("agentWin");
+      return describeTab(await chrome.tabs.get(tab_id));
+    }
+    if (action === "close_agent") {  // the request is over: the window goes, unless something is playing in it
+      const agent = await agentWindow();
+      if (!agent) return "none";
+      await chrome.storage.session.remove("agentWin");
+      const playing = (await chrome.tabs.query({ windowId: agent.id })).find(t => t.audible);
+      if (playing) { await bringForward(playing); return "kept: playing"; }
+      await chrome.windows.remove(agent.id);
+      return "closed";
+    }
     if (action === "close") { await chrome.tabs.remove(tab_ids || tab_id); return "closed"; }
     if (action === "group") {
       const group = await chrome.tabs.group({ tabIds: tab_ids });
@@ -147,11 +196,11 @@ const TOOLS = {
   },
   async navigate({ action = "go", url, tab_id }) {
     const tab = await activeTab(tab_id);
-    if (action === "go") await chrome.tabs.update(tab.id, { url });
+    if (action === "go") await chrome.tabs.update(tab.id, { url: webOnly(url) });
     else if (action === "back") await chrome.tabs.goBack(tab.id);
     else if (action === "forward") await chrome.tabs.goForward(tab.id);
     else if (action === "reload") await chrome.tabs.reload(tab.id);
-    await bringForward(tab);
+    if (!(await inAgentWindow(tab))) await bringForward(tab);
     await new Promise(r => setTimeout(r, 300));
     await loaded(tab.id);
     return describeTab(await chrome.tabs.get(tab.id));
@@ -197,11 +246,13 @@ const TOOLS = {
   async screenshot({ tab_id }) {
     const tab = await activeTab(tab_id);
     await chrome.tabs.update(tab.id, { active: true });
-    await chrome.windows.update(tab.windowId, { focused: true });
+    if (!(await inAgentWindow(tab))) await chrome.windows.update(tab.windowId, { focused: true });
     await new Promise(r => setTimeout(r, 250));
     return { image: await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" }) };
   },
   async download({ url, filename }) {
+    webOnly(url);
+    if (filename && !/^[\w. -]{1,100}$/.test(filename)) throw new Error("The download's file name must be plain.");
     const id = await chrome.downloads.download(filename ? { url, filename } : { url });
     return { download: id };
   },
@@ -271,6 +322,7 @@ function elementInfo(ref) {  // ref "": the element that has focus
            field: [el.getAttribute("name"), el.id, el.getAttribute("placeholder"), el.getAttribute("aria-label"),
                    el.getAttribute("data-testid")].filter(Boolean).join(" "),
            autocomplete: (el.getAttribute("autocomplete") || "").toLowerCase(), inForm: !!el.form, isSubmit,
+           formSecret: !!(el.form && el.form.querySelector("input[type=password], input[autocomplete^=cc-], input[autocomplete=one-time-code]")),
            href: el.href || "", url: location.href, host: location.host };
 }
 

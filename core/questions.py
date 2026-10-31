@@ -24,7 +24,8 @@ CHIP_RE = re.compile(r"^\W*(?:when|what|where|which|who|whom|whose|why|how|is|ar
 def chip_question(text):
     """A follow-up chip's text, which becomes a request when tapped: a question, and not a task (a chip can't ask
     Nova to delete or send something)."""
-    return bool(CHIP_RE.match(text)) and text.rstrip().endswith("?") and not ACT_RE.search(text)
+    return (bool(CHIP_RE.match(text)) and text.rstrip().endswith("?") and not ACT_RE.search(text)
+            and not re.match(r"^\W*(?:when|if) i say\b", text, re.I))  # a tap must not teach a shortcut
 
 
 def sketch_question(text):

@@ -22,6 +22,10 @@ from AVFoundation import AVCaptureDevice, AVMediaTypeAudio  # noqa: E402,F401
 from Quartz import (CGPreflightListenEventAccess, CGPreflightScreenCaptureAccess, CGRequestListenEventAccess,  # noqa
                     CGRequestScreenCaptureAccess, CGWindowListCopyWindowInfo)
 import core.app  # noqa: E402,F401  (the Nova window: pywebview on Cocoa)
+from ApplicationServices import (AXUIElementCopyAttributeValue, AXUIElementCreateApplication,  # noqa: E402,F401
+                                 AXUIElementPerformAction, AXUIElementSetAttributeValue)
+from core import hands_mac  # noqa: E402
+assert hands_mac._apps(), "NSWorkspace lists no apps"  # the call hands_mac makes first, which needs no permission
 print("ok: Mac-only modules load")
 
 # the pynput patch is in place: a listener macOS switches off is switched back on

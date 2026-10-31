@@ -15,16 +15,20 @@ import time
 
 import numpy as np
 
-from core.config import DATA, ROOT
+from core import pa
+from core.config import DATA, ROOT, log
 
 KEEP_S, CHUNK_S = 15 * 60, 12  # transcript window; seconds of audio per transcription pass
+RETRY_S, MAX_RETRY_S = 3, 60  # a capture that failed is tried again after this long, doubling up to the second
+DEVICE_CHECK_S = 10  # how often a running capture looks whether the default speakers changed
 IDLE_S = 30  # a stopped capture's transcriber ends after this long with nothing to do
 ASK_S = 120  # transcribed on request (a CPU without eager transcription): ten minutes of music took about a minute
 RATE = 16000
 MAC_HELPER, MAC_SOURCE = DATA / "bin" / "mac-audio-tap", ROOT / "helpers" / "mac_audio_tap.swift"
 # PortAudio (pyaudiowpatch) starting, opening or stopping in two threads at once corrupts memory and kills Nova:
-# the "Hey Nova" speaker check and the computer-audio memory both start a capture when Nova starts
-_PORTAUDIO = threading.Lock()
+# the "Hey Nova" speaker check and the computer-audio memory both start a capture when Nova starts. One lock for all
+# of Nova's PortAudio use (core/pa.py), sounddevice's streams included.
+_PORTAUDIO = pa.LOCK
 
 
 def available():
@@ -57,6 +61,18 @@ def to16k(audio, rate):
     return np.interp(t, np.arange(len(audio)) / rate, audio).astype(np.float32)
 
 
+def _default_loopback():
+    """The index of the loopback device of the speakers that are the default now. A fresh PortAudio: the one a
+    stream is open on keeps the device list it started with."""
+    import pyaudiowpatch as pyaudio
+    with _PORTAUDIO:
+        p = pyaudio.PyAudio()
+        try:
+            return p.get_default_wasapi_loopback()["index"]
+        finally:
+            p.terminate()
+
+
 def blocks(running):
     """Yield the computer's audio as 16 kHz mono blocks of about 100 ms while running() is true. Yields None
     when nothing is playing (Windows loopback delivers nothing while the computer is silent)."""
@@ -82,9 +98,16 @@ def blocks(running):
             rate, channels = int(dev["defaultSampleRate"]), dev["maxInputChannels"]
             stream = p.open(format=pa.paFloat32, channels=channels, rate=rate, input=True,
                             input_device_index=dev["index"], frames_per_buffer=rate // 10)
-        block = rate // 10
+        block, checked = rate // 10, time.monotonic()
         try:
             while running():
+                if time.monotonic() - checked > DEVICE_CHECK_S:  # headphones plugged in or out: the caller opens it again
+                    checked = time.monotonic()
+                    try:
+                        if _default_loopback() != dev["index"]:
+                            return
+                    except Exception:
+                        return
                 if stream.get_read_available() < block:  # never block on a read: silence delivers nothing
                     time.sleep(0.05)
                     yield None
@@ -117,7 +140,8 @@ class Tail:
     a video or call heard through the speakers (core/wake.py, is_echo)."""
 
     def __init__(self, seconds=4):
-        self.blocks, self.running = collections.deque(maxlen=seconds * 10), False
+        # a silent moment is a 50 ms block, a sound a 100 ms one: room for the busiest case, trimmed in recent()
+        self.seconds, self.blocks, self.running = seconds, collections.deque(maxlen=seconds * 20), False
 
     def start(self):
         self.running = True
@@ -125,15 +149,23 @@ class Tail:
         return self
 
     def _run(self):
-        try:
-            for block in blocks(lambda: self.running):
-                self.blocks.append(block if block is not None else np.zeros(RATE // 10, np.float32))
-        except Exception:  # no loopback device: Nova falls back to checking only its own voice
-            self.running = False
+        delay, failed = RETRY_S, False
+        while self.running:
+            try:
+                for block in blocks(lambda: self.running):
+                    failed, delay = False, RETRY_S
+                    self.blocks.append(block if block is not None else np.zeros(RATE // 20, np.float32))
+            except Exception as e:  # no loopback device (yet): Nova falls back to checking only its own voice
+                if not failed:
+                    log("error", error=f"computer audio for the speaker check, trying again: {e!r}")
+                failed = True
+            if self.running:  # the speakers changed, or none yet: open the capture again
+                time.sleep(delay)
+                delay = min(delay * 2, MAX_RETRY_S)
 
     def recent(self):
         """The last few seconds as one array, or None when nothing audible played."""
-        audio = np.concatenate(list(self.blocks)) if self.blocks else None
+        audio = np.concatenate(list(self.blocks))[-self.seconds * RATE:] if self.blocks else None
         return audio if audio is not None and float(np.abs(audio).max()) >= 2e-3 else None
 
     def stop(self):
@@ -166,27 +198,41 @@ class SystemAudio:
         self.running, self.stopped = False, True
 
     def _run(self):
-        heard = time.time()
+        heard, delay, failed = time.time(), RETRY_S, False
         try:
-            for block in blocks(lambda: self.running):
-                with self.lock:
-                    if block is None or self.muted:
-                        if self.buf and (self.muted or time.time() - heard > 1.5):  # playback stopped: close the chunk
-                            self._cut(len(self.buf))
-                        continue
-                    if not self.buf:
-                        self.buf_start = time.time()
-                    heard = time.time()
-                    self.buf.append(block)
-                    if len(self.buf) * 0.1 >= CHUNK_S:
-                        # end the chunk at the quietest 100 ms of its last 3 s, so no word is cut in half
-                        tail = [float(np.sqrt(np.mean(b ** 2))) for b in self.buf[-30:]]
-                        self._cut(len(self.buf) - len(tail) + int(np.argmin(tail)) + 1)
+            while self.running:
+                try:
+                    for block in blocks(lambda: self.running):
+                        failed, delay = False, RETRY_S
+                        heard = self._take(block, heard)
+                except Exception as e:  # the speakers changed or the device went away: open it again, don't go deaf
+                    if not failed:
+                        log("error", error=f"computer audio capture, trying again: {e!r}")
+                    failed = True
+                if self.running:
+                    time.sleep(delay)
+                    delay = min(delay * 2, MAX_RETRY_S)
             with self.lock:
                 if self.buf:  # stopping keeps the last few seconds too
                     self._cut(len(self.buf))
         finally:
             self.running = False
+
+    def _take(self, block, heard):
+        """One block from the capture. Returns when audio was last heard."""
+        with self.lock:
+            if block is None or self.muted:
+                if self.buf and (self.muted or time.time() - heard > 1.5):  # playback stopped: close the chunk
+                    self._cut(len(self.buf))
+                return heard
+            if not self.buf:
+                self.buf_start = time.time()
+            self.buf.append(block)
+            if len(self.buf) * 0.1 >= CHUNK_S:
+                # end the chunk at the quietest 100 ms of its last 3 s, so no word is cut in half
+                tail = [float(np.sqrt(np.mean(b ** 2))) for b in self.buf[-30:]]
+                self._cut(len(self.buf) - len(tail) + int(np.argmin(tail)) + 1)
+            return time.time()
 
     def _cut(self, n):
         """Turn the first n buffered blocks into a chunk (caller holds the lock)."""
@@ -210,6 +256,8 @@ class SystemAudio:
             except queue.Empty:
                 if self.stopped:
                     return
+            except Exception as e:  # one chunk that can't be transcribed: the next ones still are
+                log("error", error=f"transcribing the computer's audio: {e!r}")
 
     def _fill(self, chunk):
         with self.decode:
@@ -223,6 +271,8 @@ class SystemAudio:
         with self.lock:
             if self.buf:
                 self._cut(len(self.buf))
+            while self.chunks and self.chunks[0][0] < time.time() - self.keep_s:  # silence cuts nothing: forget by the clock
+                self.chunks.popleft()
             chunks = list(self.chunks)
         recent = time.time() - ASK_S
         for chunk in chunks:

@@ -120,7 +120,7 @@ def backtrack(text):
                     if w[-1] in PUNCT:
                         break
                 sent = [_norm(w) for w in out[starts[-1]:]]
-                cut = len(out) - len(repl)
+                cut = len(out) - min(len(repl), 2)  # a longer replacement still only swaps the last words
                 if repl and re.match(r"\d", repl[0]) and re.fullmatch(r"\d[\d:.]*", _norm(out[-1])):
                     cut = len(out) - 1  # "meet at 6, no wait, 7 near the metro": only the number changes
                 else:
@@ -144,7 +144,9 @@ def _tidy(t):
     t = re.sub(r"[,;:]\s*([.!?])", r"\1", t)
     t = re.sub(r"(^|[.!?]\s+)[,;:]\s*", r"\1", t)
     t = re.sub(r"\s{2,}", " ", t).strip()
-    return re.sub(r"(^|[.!?]\s+)([a-z])", lambda m: m.group(1) + m.group(2).upper(), t)
+    # (not after an abbreviation: "e.g. apples", "3 p.m. today")
+    return re.sub(r"(^|[.!?]\s+)([a-z])", lambda m: m.group(1) + (
+        m.group(2) if re.search(r"\b[a-z]\.[a-z]\.\s*$", t[:m.start(2)], re.I) else m.group(2).upper()), t)
 
 
 def local_clean(text):
@@ -199,7 +201,42 @@ def clean(raw, d, brain=None, tone=""):
         if brain and (tone or needs_llm(text, d["llm_min_words"])):
             prompt = LLM_PROMPT.format(dictionary=", ".join(d["dictionary"]) or "(none)", editing=d["editing"],
                                        tone=f"\nTone: {tone}. Adjust the wording to it, keep the meaning." if tone else "")
-            smart = brain.clean(prompt, f"<dictation>{raw}</dictation>", model_for(brain, d))
+            try:
+                smart = brain.clean(prompt, f"<dictation>{raw}</dictation>", model_for(brain, d))
+            except Exception:  # the AI is down or its answer can't be read: the local cleanup still gets typed
+                smart = None
             if smart:
                 text, how = smart, brain.name
     return apply_replacements(text, d["replacements"]), how
+
+
+def fix_vocabulary(text, words, cutoff=0.85):
+    """Handy's custom-word correction: a spoken word (or two run together: "Charge B") that is nearly one of the user's
+    dictionary words becomes it, so "Oprah GX" turns into "Opera GX". Only words of 5+ letters, only near-spellings."""
+    from difflib import SequenceMatcher
+    keys = {re.sub(r"\W", "", w).lower(): w for w in words if len(re.sub(r"\W", "", w)) >= 5}
+    if not keys:
+        return text
+    tokens = text.split(" ")
+    out, i = [], 0
+    while i < len(tokens):
+        for size in (2, 1):  # the longer match first
+            chunk = tokens[i:i + size]
+            if len(chunk) < size:
+                continue
+            core = re.sub(r"\W", "", "".join(chunk)).lower()
+            if core in keys or len(core) < 5:
+                continue
+            near = [k for k in keys if abs(len(core) - len(k)) <= 2]  # only these can match: the rest cost a compare each
+            if not near:
+                continue
+            best, score = max(((k, SequenceMatcher(None, core, k).ratio()) for k in near), key=lambda pair: pair[1])
+            if score >= cutoff:
+                tail = re.search(r"\W*$", chunk[-1]).group()  # keep the punctuation that followed
+                out.append(keys[best] + tail)
+                i += size
+                break
+        else:
+            out.append(tokens[i])
+            i += 1
+    return " ".join(out)

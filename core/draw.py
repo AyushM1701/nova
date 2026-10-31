@@ -79,8 +79,8 @@ def take(shown, shot):
         for i in range(len(p)):
             if i in POSITIONS[shape["kind"]]:  # an AI guess past the edge stays on the screenshot
                 p[i] = round((left if i % 2 == 0 else top) + min(p[i], width if i % 2 == 0 else height) / k)
-            else:
-                p[i] = round(p[i] / k)
+            else:  # a size: never bigger than the screenshot, or the picture for it would not fit in memory
+                p[i] = round(min(p[i], max(width, height)) / k)
     return shown, shapes[:MAX_SHAPES]
 
 

@@ -16,12 +16,17 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from core import ed25519
 from core.config import ROOT
 from core.system import NO_WINDOW
 
 REPO = "AyushM1701/nova"
 LATEST_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
-ASSET, SUMS = "nova-main.zip", "SHA256SUMS"
+ASSET, SUMS, SIG = "nova-main.zip", "SHA256SUMS", "SHA256SUMS.sig"
+# The Ed25519 public key that signs releases (helpers/release_key.py makes the pair). Empty: releases aren't signed
+# yet and the checksum alone is trusted. Once it is set, an update or walkthrough download whose SHA256SUMS lacks
+# this key's signature is refused: whoever took over the release could rewrite the zip and its checksum, not this.
+RELEASE_KEY = ""
 KEEP = {".git", ".venv", "data", "logs", "workspace", "config.json", ".update-files", ".update-staging"}  # this computer's own
 FILES = ".update-files"  # what the last update wrote, so the next one can remove what a new version dropped
 STAGING = ".update-staging"  # the new files land here first, then move into place, so a failed write changes nothing
@@ -77,9 +82,11 @@ def unpack(archive, root=ROOT):
                 parts = Path(info.filename).parts[1:]  # drop the "nova-main/" folder
                 if info.is_dir() or not parts or parts[0] in KEEP:
                     continue
-                if ".." in parts or Path(info.filename).is_absolute():
-                    raise ValueError(f"unexpected path in the update: {info.filename}")
+                if ".." in parts or Path(info.filename).is_absolute() or any(":" in p or "\\" in p for p in parts):
+                    raise ValueError(f"unexpected path in the update: {info.filename}")  # "C:x" is a drive on Windows
                 dest = stage.joinpath(*parts)
+                if not dest.resolve().is_relative_to(stage.resolve()):
+                    raise ValueError(f"unexpected path in the update: {info.filename}")
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(z.read(info))
                 if os.name != "nt" and (info.external_attr >> 16) & 0o111:
@@ -108,6 +115,20 @@ def fetch(url, timeout=60):
         return r.read()
 
 
+def signed_sums(sums_url, sig_url, get=None):
+    """The release's SHA256SUMS text, signed by the pinned release key when there is one."""
+    get = get or fetch
+    raw = get(sums_url, 10)
+    if RELEASE_KEY:
+        try:
+            signature = get(sig_url, 10) if sig_url else b""
+        except OSError:
+            signature = b""
+        if not ed25519.verify(bytes.fromhex(RELEASE_KEY), raw, signature):
+            raise ValueError("The update isn't signed by Nova's release key, so Nova didn't install it.")
+    return raw.decode("utf-8", "replace")
+
+
 def install():
     """Fetch the latest release, check it, and start setup in its own process (it stops and restarts Nova)."""
     version, assets = latest()
@@ -126,7 +147,7 @@ def install():
     else:
         if ASSET not in assets or SUMS not in assets:
             raise RuntimeError(f"Nova {version} on GitHub is missing its download or checksum. Try again later.")
-        unpack(verified(fetch(assets[ASSET]), fetch(assets[SUMS], 10).decode("utf-8", "replace")))
+        unpack(verified(fetch(assets[ASSET]), signed_sums(assets[SUMS], assets.get(SIG, ""))))
     if os.name == "nt":
         subprocess.Popen(["cmd", "/c", str(ROOT / "setup.cmd")], cwd=ROOT, creationflags=NO_WINDOW)
     else:  # the venv already exists, so its Python can run the setup window

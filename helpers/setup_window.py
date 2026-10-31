@@ -7,9 +7,11 @@ handle the microphone, your AI, the shortcut and macOS permissions. Stdlib + tki
 import os
 import platform
 import queue
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import tkinter as tk
@@ -141,6 +143,44 @@ def show_download(win, stop):
         win.ui(lambda s=size: win.detail.config(text=f"{s >> 20:,} MB of about {MODEL_BYTES >> 20:,} MB"))
 
 
+SIGNER = "Nova Local Signing"
+
+
+def signing_identity():
+    """The SHA-1 of the code-signing certificate named SIGNER in the keychain, made once if it isn't there (None if it
+    can't be). An ad hoc signature changes with every byte of the app, so macOS asked again for Accessibility, Screen
+    Recording and the microphone after each update; a certificate of our own keeps the same identity from one build to the next."""
+    def find():
+        out = subprocess.run(["security", "find-identity", "-p", "codesigning"], capture_output=True, text=True, timeout=30).stdout
+        found = re.search(rf'\b([0-9A-F]{{40}})\b "{SIGNER}"', out)
+        return found.group(1) if found else None
+    try:
+        if find():
+            return find()
+        if os.environ.get("CI"):  # a runner has no one to click a keychain prompt: the ad hoc path is what gets checked there
+            return None
+        return _create_identity() and find()
+    except (OSError, subprocess.SubprocessError):  # no security tool, or the keychain didn't answer: ad hoc signing it is
+        return None
+
+
+def _create_identity():
+    with tempfile.TemporaryDirectory() as tmp:
+        key, cert, bundle = (f"{tmp}/{name}" for name in ("k.pem", "c.pem", "n.p12"))
+        for command in (["/usr/bin/openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "7300", "-subj", f"/CN={SIGNER}",
+                         "-addext", "extendedKeyUsage=critical,codeSigning", "-addext", "keyUsage=critical,digitalSignature",
+                         "-keyout", key, "-out", cert],
+                        ["/usr/bin/openssl", "pkcs12", "-export", "-inkey", key, "-in", cert, "-out", bundle, "-passout", "pass:nova"],
+                        ["security", "import", bundle, "-P", "nova", "-T", "/usr/bin/codesign"]):  # -T: codesign may use the key unasked
+            if subprocess.run(command, capture_output=True, timeout=60).returncode:
+                return False
+    return True
+
+
+def signed_by_us():
+    return SIGNER in subprocess.run(["codesign", "-dvv", str(APP)], capture_output=True, text=True, timeout=30).stderr
+
+
 def make_app(run):
     """Write ~/Applications/Nova.app (run(*args) runs a command). Returns whether anything in it changed.
     helpers/check_mac.py builds it twice to check that an unchanged app is left alone."""
@@ -162,8 +202,12 @@ def make_app(run):
             path.write_bytes(data)
             changed = True
     launcher.chmod(0o755)
-    if changed:  # signed on this Mac ("ad hoc") under a fixed name, so it's the same Nova from one update to the next
-        run("codesign", "--force", "--sign", "-", "--identifier", "com.nova.assistant", APP)
+    # signed on this Mac under a fixed name and certificate, so it's the same Nova from one update to the next. Without a
+    # certificate it falls back to an ad hoc signature, and an app signed before the certificate existed is signed once more
+    identity = signing_identity()
+    if changed or (identity and not signed_by_us()):
+        run("codesign", "--force", "--sign", identity or "-", "--identifier", "com.nova.assistant", APP)
+        changed = True
     return changed
 
 

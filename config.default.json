@@ -31,6 +31,7 @@
     "cloud_stt_model": "",
     "custom_stt_url": "",
     "language": "auto",
+    "languages": ["en", "hi"],
     "tts_engine": "piper",
     "kokoro_voice": "af_heart",
     "kitten_voice": "expr-voice-2-f",
@@ -101,14 +102,17 @@
   "schedules": [],
   "browser": {
     "default": "opera-gx",
+    "agent_window": true,
     "enabled": []
   },
   "phone": {
     "enabled": false,
+    "tailscale_only": false,
     "keep_awake": true
   },
   "safety": {
     "mode": "auto",
+    "tainted_manual": true,
     "confirm_timeout_s": 30
   },
   "companion": {

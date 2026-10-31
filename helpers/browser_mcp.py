@@ -38,6 +38,14 @@ TOOLS = [
     ("screenshot", "See the visible part of a tab as an image.", {"tab_id": {"type": "integer"}}, []),
     ("download", "Download a file to the browser's downloads folder.", {
         "url": {"type": "string"}, "filename": {"type": "string"}}, ["url"]),
+    ("hands_see", "Desktop apps (not web pages): the numbered buttons, fields and items of an app's window "
+                  "(app = its name, or empty for the front window). Moves nothing on screen.",
+     {"app": {"type": "string"}}, []),
+    ("hands_click", "Press a control of a desktop app by its [number] from hands_see, or by its label. Never moves "
+                    "the mouse. Returns the window's controls afterwards.",
+     {"app": {"type": "string"}, "target": {"type": "string"}}, ["target"]),
+    ("hands_type", "Fill a text field of a desktop app by its [number] or label. Never types passwords.",
+     {"app": {"type": "string"}, "target": {"type": "string"}, "text": {"type": "string"}}, ["target", "text"]),
     ("script", "Last resort: run JavaScript in the page (through the debugger). The user must approve every "
                "script, so never use it to click, play, open or check something: read(mode=outline) and click a "
                "[ref], or read / screenshot to see the result. Only after read can't do it; Nova refuses a script "
