@@ -2,6 +2,7 @@
 import atexit
 import contextlib
 import ctypes
+import ctypes.wintypes as wt  # the struct below is defined on every platform; only Windows uses it
 import os
 import sys
 import threading
@@ -10,7 +11,6 @@ from pathlib import Path
 from core.system import IS_MAC
 
 if not IS_MAC:
-    import ctypes.wintypes as wt
     user32 = ctypes.windll.user32
     WM_CLOSE = 0x0010
     SW_RESTORE, SW_MAXIMIZE = 9, 3
