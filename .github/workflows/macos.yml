@@ -13,16 +13,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, macos-26]  # Apple Silicon, macOS 15 and 26 (macOS 14 images are retired from 2026-11-02)
+        os: [macos-15, macos-26, xcode-27]  # Apple Silicon, macOS 15, 26 and 27 (macOS 14 images are retired from 2026-11-02; the macOS 27 image is labelled xcode-27)
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      # setup.sh accepts Python 3.11-3.13 with Tk
+      # setup.sh accepts Python 3.11-3.13 with Tk and prefers 3.13: only 3.13.17 and later carry the Tk that macOS 27 needs
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
           cache: pip
           cache-dependency-path: requirements.txt
 

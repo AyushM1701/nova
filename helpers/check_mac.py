@@ -28,6 +28,18 @@ from core import hands_mac  # noqa: E402
 assert hands_mac._apps(), "NSWorkspace lists no apps"  # the call hands_mac makes first, which needs no permission
 print("ok: Mac-only modules load")
 
+# macOS 27 freezes Tk older than 8.6.19 / 9.0.5 (python/cpython#158053); Nova's bar and card are Tk
+import platform  # noqa: E402
+import tkinter  # noqa: E402
+root = tkinter.Tk()
+root.withdraw()
+tk_level = root.tk.call("info", "patchlevel")
+root.destroy()
+mac_major = int(platform.mac_ver()[0].split(".")[0])
+fixed = (9, 0, 5) if tk_level.startswith("9") else (8, 6, 19)
+assert mac_major < 27 or tuple(map(int, tk_level.split(".")[:3])) >= fixed, f"Tk {tk_level} freezes on macOS {mac_major}: use Python 3.13.17 or later"
+print(f"ok: Tk {tk_level} on macOS {platform.mac_ver()[0]}")
+
 # the pynput patch is in place: a listener macOS switches off is switched back on
 import pynput._util.darwin as pk_util  # noqa: E402
 from pynput import keyboard  # noqa: E402

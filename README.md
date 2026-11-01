@@ -168,7 +168,7 @@ Prefer to watch? The [one-minute setup walkthrough](docs/media/nova-setup.mp4) s
    cd ~ && curl -fsSL https://github.com/AyushM1701/nova/releases/latest/download/nova-main.tar.gz | tar xz && cd nova-main && bash setup.sh
    ```
 
-3. If Python 3.11–3.13 with Tk isn't installed, setup offers to install it with Homebrew, or tells you to get it from [python.org](https://www.python.org/downloads/macos/) and run the same line again.
+3. If Python 3.11–3.13 with Tk isn't installed, setup offers to install 3.13 with Homebrew (on macOS 27 use Python 3.13.17 or later: older Tk versions can freeze there), or tells you to get it from [python.org](https://www.python.org/downloads/macos/) and run the same line again.
 4. A Nova setup window shows the rest of the progress, then opens Nova from `~/Applications/Nova.app`. Nova runs from `~/nova-main`, so keep that folder.
 
 Prefer a ZIP? Download **`nova-main.zip`** from the [latest release](https://github.com/AyushM1701/nova/releases/latest), unpack it, and double-click **`setup.command`**. Because it was downloaded, macOS blocks it the first time ("Apple could not verify…"): click **Done**, open **System Settings → Privacy & Security**, scroll down to *"setup.command" was blocked*, click **Open Anyway**, enter your password and click **Open**. (On macOS 14 and earlier, right-click → **Open** does the same.)

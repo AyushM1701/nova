@@ -10,8 +10,9 @@ ask() { read -r -p "$1 [Y/n] " a; [[ ! "$a" =~ ^([nN]|no)$ ]]; }
 has() { command -v "$1" >/dev/null 2>&1; }
 
 find_python() {
-  # Python 3.11-3.13 with Tk (the speech libraries don't ship wheels for newer versions yet)
-  for p in python3.13 python3.12 python3.11 /opt/homebrew/bin/python3.12 /usr/local/bin/python3.12 python3; do
+  # Python 3.11-3.13 with Tk, 3.13 first: macOS 27 hangs Tk apps older than Tk 8.6.19, which only Python 3.13.17+ carries
+  # (the speech libraries don't ship wheels for newer versions yet)
+  for p in python3.13 /opt/homebrew/bin/python3.13 /usr/local/bin/python3.13 python3.12 python3.11 /opt/homebrew/bin/python3.12 /usr/local/bin/python3.12 python3; do
     # /usr/bin/python3 without the developer tools is a stub that pops an "install tools?" dialog (and is 3.9 anyway)
     [ "$(command -v "$p")" = /usr/bin/python3 ] && ! xcode-select -p >/dev/null 2>&1 && continue
     if has "$p" && "$p" -c 'import sys, tkinter; assert (3, 11) <= sys.version_info[:2] <= (3, 13)' 2>/dev/null; then
@@ -25,11 +26,11 @@ echo "Nova setup: everything is installed inside $ROOT (plus the speech models i
 step "Python"
 BASE="$(find_python || true)"
 if [ -z "$BASE" ]; then
-  if has brew && ask "Python 3.12 with Tk isn't installed. Install it with Homebrew?"; then
-    brew install python@3.12 python-tk@3.12
+  if has brew && ask "Python 3.13 with Tk isn't installed. Install it with Homebrew?"; then
+    brew install python@3.13 python-tk@3.13
     BASE="$(find_python || true)"
   fi
-  [ -n "$BASE" ] || { echo "Install Python 3.12 from https://www.python.org/downloads/macos/ and run setup again."; exit 1; }
+  [ -n "$BASE" ] || { echo "Install Python 3.13 from https://www.python.org/downloads/macos/ and run setup again."; exit 1; }
 fi
 echo "Using $BASE. Setup continues in the Nova setup window."
 "$BASE" "$ROOT/helpers/setup_window.py"
