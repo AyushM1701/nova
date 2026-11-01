@@ -2501,6 +2501,7 @@ for memory, cores, want in ((4, 8, False), (16, 2, False), (16, 8, True)):
     system.memory_gb, real_cores = (lambda m=memory: m), os.cpu_count
     os.cpu_count = lambda c=cores: c
     assert tts_mod.capable("kokoro") == want and tts_mod.capable("piper") and tts_mod.capable("kitten"), (memory, cores)
+    assert tts_mod.capable("pocket") == (want and tts_mod.pocket_supported()), (memory, cores)  # Pocket needs the same room as Kokoro
     os.cpu_count = real_cores
 system.memory_gb = real_memory
 assert system.memory_gb() > 1  # reads this computer's real memory
@@ -2546,7 +2547,8 @@ try:
     tts_mod.installed = real_installed
     for model, recorded, supported, want in ((True, True, True, True), (False, True, True, False), (True, False, True, False), (True, True, False, False)):
         models.installed, clone_mod.exists, tts_mod.pocket_supported = (lambda name, m=model: m or name != "pocket"), (lambda r=recorded: r), (lambda s=supported: s)
-        assert tts_mod.installed("pocket") == want and (tts_mod.capable("pocket") or not supported), (model, recorded, supported)
+        assert tts_mod.installed("pocket") == want, (model, recorded, supported)
+        assert supported or not tts_mod.capable("pocket")  # a speech library too old for it never offers it
     for have, want in (({"piper", "pocket"}, "pocket"), ({"piper"}, "piper"), ({"kitten"}, "kitten")):
         tts_mod.installed = lambda engine, have=have: engine in have
         assert tts_mod.pick({"tts_engine": "pocket"}) == want, have
