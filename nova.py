@@ -49,6 +49,7 @@ from core.background import BACKGROUND_RE, STOP_BACKGROUND_RE, BackgroundMixin, 
 from core.errors import friendly  # noqa: E402
 from core.questions import chip_question, screen_question, sketch_question  # noqa: E402
 from core.sketch import as_text as sketch_text, take as take_sketch  # noqa: E402
+from core import corrections  # noqa: E402
 from core.suggest import SuggestMixin  # noqa: E402
 from core.sketchpad import SketchPad  # noqa: E402
 from core import webimage  # noqa: E402
@@ -286,6 +287,7 @@ class Nova(BackgroundMixin, SuggestMixin):
         jobs.interrupt_stale()  # requests cut off when Nova last closed
         self.unfinished, self.quitting = jobs.resumable(), False
         self.suggestion, self.limiter = None, proactive.Limiter()  # a proactive card on screen; how often one may appear
+        self.habits, self.replied_at = corrections.Habits(), 0  # corrections Nova has noticed; when it last answered
         self.bg, self.asking_job = {}, False  # running background jobs (id -> thread, brain, cancel); a job asks now
         self.ask_event = None  # the open approval, so a phone or window that (re)connects can show its card too
         self.app_proc, self.wake_thread, self.level_t = None, None, 0.0
@@ -1632,6 +1634,8 @@ class Nova(BackgroundMixin, SuggestMixin):
         """A spoken request: Nova's own commands, else dictation or the AI. "Make this formal" with text selected is
         rewritten in place from either mode, never by the AI remote-controlling the app (which asks to run keystrokes)."""
         self.route_why = ""  # background() says why when this request starts a job
+        if mode == "assistant":
+            self.noticed(text)
         if self.command(text):
             log("route", tier=3 if self.route_why else 1, why=self.route_why or "command", text=text[:200])
             return
@@ -2449,6 +2453,7 @@ class Nova(BackgroundMixin, SuggestMixin):
         history = f"{shown}\n\n{sketch_text(sketch)}" if sketch else shown  # the window's history can't show the drawing
         log("reply", brain=main, request=text, reply=history, say=spoken,
             source="voice" if self.voice else "chat")
+        self.replied_at = time.time()
         jobs.update(rec, reply=history[:4000], say=spoken[:500], ask=ask or None)
         self.say("Nova", spoken, shown)
         if built:
