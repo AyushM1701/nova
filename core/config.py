@@ -138,7 +138,7 @@ def notes_folder_problem(path):
         if not (real == workspace or workspace in real.parents) and (real == install or install in real.parents or real in install.parents):
             return "That is Nova's own folder, or one that holds it."
         system = ([os.environ.get(v, "") for v in ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "ProgramData")] if os.name == "nt"
-                  else ["/System", "/Library", "/Applications", "/usr", "/bin", "/sbin", "/etc", "/var", "/private"])
+                  else ["/System", "/Library", "/Applications", "/usr", "/bin", "/sbin", "/etc", "/private/etc", "/private/var/db"])  # not /var or /private whole: a Mac's temp folders live there
         if any(d and (real == Path(d) or Path(d) in real.parents) for d in system):
             return "That is a system folder."
         probe = real / f".nova-write-test-{os.getpid()}"
