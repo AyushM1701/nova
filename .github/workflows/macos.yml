@@ -37,3 +37,17 @@ jobs:
 
       - name: macOS-only checks
         run: .venv/bin/python helpers/check_mac.py
+
+      # A look at the real window on this macOS (WKWebView): one picture per page, kept as a download of this run. It is
+      # for people to look at; if it cannot take pictures here, that must not fail the checks above.
+      - name: Screenshots of the Nova window
+        continue-on-error: true
+        run: .venv/bin/python helpers/mac_screenshots.py shots
+
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nova-window-${{ matrix.os }}
+          path: shots
+          if-no-files-found: warn
