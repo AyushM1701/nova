@@ -49,7 +49,7 @@ class Api:
     """Everything the page can call as `pywebview.api.<name>(...)`. Underscored names stay private."""
 
     def __init__(self):
-        self._window, self._conn, self._mic, self._level = None, None, None, 0.0
+        self._window, self._conn, self._mic, self._level, self._take = None, None, None, 0.0, None
         self._send_lock = threading.Lock()
 
     # ---------- link to Nova ----------
@@ -621,13 +621,47 @@ class Api:
             raise RuntimeError("The download didn't finish. Check your internet connection and try again.")
         return tts.installed(engine)
 
+    # ---------- your voice (core/clone.py): recorded here, from the microphone, never loaded from a file ----------
+    def clone_status(self):
+        """What Settings shows for Your voice: is the engine downloaded, is there a recording, and what to read."""
+        from core import clone, models
+        return {"model": models.installed("pocket"), "voice": clone.exists(), "supported": tts.pocket_supported(),
+                "passage": clone.PASSAGE, "min": clone.MIN_S, "max": clone.MAX_S}
+
+    def clone_record(self):
+        """Start recording the passage; levels arrive as {event: 'mic'}."""
+        self.mic_stop()
+        self._take = []
+        return self.mic_start(24000, self._take)
+
+    def clone_save(self):
+        """Stop and keep the recording as your voice. Returns the seconds kept, or says what to fix."""
+        import numpy as np
+        from core import clone
+        take, self._take = getattr(self, "_take", None), None
+        self.mic_stop()
+        if not take:
+            raise ValueError("Nothing was recorded. Try again.")
+        return clone.save(np.concatenate(take), 24000)
+
+    def clone_cancel(self):
+        self._take = None
+        return self.mic_stop()
+
+    def clone_remove(self):
+        """Delete your voice. Nova speaks with Piper again if it was the chosen voice."""
+        from core import clone
+        clone.remove()
+        return True
+
     def audio_devices(self):
         """Names of the microphones and speakers, for the pickers."""
         from core import audio
         return audio.devices()
 
-    def mic_start(self):
-        """Start the microphone test; levels arrive as {event: 'mic'}. Returns the device name."""
+    def mic_start(self, rate=16000, keep=None):
+        """Start the microphone test; levels arrive as {event: 'mic'}. Returns the device name. `keep`: a list that gets
+        each block heard, for recording your voice (clone_record)."""
         import numpy as np
         import sounddevice as sd
         from core import audio
@@ -635,7 +669,9 @@ class Api:
             audio.apply_devices(load_config()[0]["voice"])
             def callback(data, *_):
                 self._level = max(self._level * 0.6, audio.level(float(np.sqrt(np.mean(data ** 2)))))
-            self._mic = sd.InputStream(samplerate=16000, channels=1, dtype="float32", blocksize=480,
+                if keep is not None:
+                    keep.append(data[:, 0].copy())
+            self._mic = sd.InputStream(samplerate=rate, channels=1, dtype="float32", blocksize=rate * 3 // 100,
                                        callback=callback)
             self._mic.start()
             threading.Thread(target=self._meter, daemon=True).start()

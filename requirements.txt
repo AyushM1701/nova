@@ -4,7 +4,7 @@ numpy
 pystray
 pillow
 pywebview>=5,<7
-sherpa-onnx>=1.12,<2
+sherpa-onnx>=1.12.40,<2  # 1.12.40: the first with Pocket's voice copying (core/tts.py)
 pyaudiowpatch; sys_platform == "win32"
 websockets>=13,<18
 qrcode>=7
