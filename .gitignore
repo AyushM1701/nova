@@ -20,3 +20,9 @@ graphify-out/
 
 # scratch for docs/video/build.py (audio, projects, raw renders)
 docs/video/.build/
+
+# local agent tooling and scratch (written by skill updates and one-off research), never part of Nova
+.codex/
+.gemini/
+.agents/
+.tmp/
