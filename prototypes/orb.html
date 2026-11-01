@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nova orb prototype</title>
+<style>
+/* Standalone prototype: one file, no network, no build step, like core/app.html. */
+:root { --h: 252; --ink: hsl(var(--h) 90% 84%); --dim: hsl(var(--h) 30% 58%); --line: hsl(var(--h) 60% 60% / .35); }
+html, body { margin: 0; height: 100%; background: #05060d; color: var(--ink); overflow: hidden;
+  font: 12px/1.5 ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace; }
+canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+.hud { position: fixed; text-transform: uppercase; letter-spacing: .18em; pointer-events: none; }
+#title { left: 28px; top: 22px; font-size: 22px; letter-spacing: .5em; }
+#title small { display: block; margin-top: 4px; font-size: 9px; letter-spacing: .22em; color: var(--dim); }
+#status { left: 50%; top: 26px; transform: translateX(-50%); white-space: nowrap; }
+#status span { margin: 0 12px; color: var(--dim); }
+#status b { color: var(--ink); font-weight: 600; }
+#clock { right: 28px; top: 14px; text-align: right; font-size: 34px; letter-spacing: .04em; }
+#clock i { font-style: normal; color: hsl(var(--h) 90% 70%); font-size: 24px; }
+#clock small { display: block; font-size: 9px; letter-spacing: .22em; color: var(--dim); }
+#card { right: 9vw; top: 24vh; width: 190px; padding: 8px 10px; border-left: 2px solid hsl(var(--h) 80% 65%);
+  background: hsl(var(--h) 40% 10% / .75); opacity: 0; transition: opacity .35s; letter-spacing: .12em; }
+#card.on { opacity: 1; }
+#card b { display: block; font-size: 12px; }
+#card em { font-style: normal; color: var(--dim); font-size: 9px; word-break: break-all; }
+#bar { height: 2px; margin-top: 6px; background: hsl(var(--h) 30% 30% / .5); }
+#bar div { height: 100%; width: 0; background: hsl(var(--h) 90% 70%); transition: width .3s; }
+#hint { color: var(--dim); font-size: 12px; letter-spacing: .02em; max-width: 56ch; }
+#ctl { position: fixed; left: 28px; bottom: 18px; right: 300px; display: flex; flex-direction: column; gap: 10px; }
+#ctl .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+@media (max-width: 760px) { #ctl { right: 16px; left: 16px; } }
+button, label { font: inherit; text-transform: uppercase; letter-spacing: .14em; color: var(--ink); }
+button { background: transparent; border: 1px solid var(--line); padding: 4px 10px; cursor: pointer; }
+button:not(.sw):hover { background: hsl(var(--h) 60% 50% / .18); }
+button:not(.sw)[aria-pressed="true"] { border-color: hsl(var(--h) 90% 70%); background: hsl(var(--h) 60% 50% / .25); }
+button:focus-visible, input:focus-visible { outline: 2px solid hsl(var(--h) 90% 75%); outline-offset: 2px; }
+#sw { display: inline-flex; gap: 12px; align-items: center; padding: 0 8px; }
+.sw { width: 16px; height: 16px; padding: 0; border-radius: 50%; border: 0; opacity: .85; transition: opacity .15s, box-shadow .15s; }
+.sw:hover { opacity: 1; }
+/* Selected: a dark gap, then a thin ring, so it never touches its neighbours. */
+.sw[aria-pressed="true"] { opacity: 1; box-shadow: 0 0 0 2px #05060d, 0 0 0 3.5px hsl(var(--h) 90% 85%); }
+label { display: flex; gap: 6px; align-items: center; cursor: pointer; color: var(--dim); }
+@media (max-width: 760px) { #card, #status { display: none; } #clock { font-size: 22px; } #clock i { font-size: 16px; } }
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="Nova orb"></canvas>
+
+<div class="hud" id="title">NOVA<small>Voice layer · orb prototype</small></div>
+<div class="hud" id="status" role="status" aria-live="polite"></div>
+<div class="hud" id="clock"></div>
+<div class="hud" id="card"><b>INBOX BRIEF</b><em id="cardsub"></em><div id="bar"><div></div></div></div>
+<div id="ctl">
+  <div id="hint">Hold Space to talk, release to send. Esc cancels. Keys 1-4 jump between states. The speaking pulse is a synthetic envelope: call <code>orb.setLevel(0..1)</code> to drive it from real audio.</div>
+  <div class="row">
+    <button data-s="idle">1 Idle</button>
+    <button data-s="listening">2 Listening</button>
+    <button data-s="working">3 Working</button>
+    <button data-s="speaking">4 Speaking</button>
+    <span id="sw"></span>
+    <label><input type="checkbox" id="rm"> reduce motion</label>
+  </div>
+</div>
+
+<script>
+"use strict";
+const cv = document.getElementById("c"), ctx = cv.getContext("2d");
+const $ = (id) => document.getElementById(id);
+const HUES = { violet: 252, blue: 222, teal: 170, magenta: 310, amber: 35 };
+const N = 900, K = 3, FOCAL = 3.2;
+
+// What each state looks like. Targets are eased, so changes glide. Idle/working/speaking follow the reference
+// stills (working is looser and dimmer, speaking brighter); listening (tighter, brighter) is my own addition.
+const STATES = {
+  idle:      { spin: .12, bright: 1.00, spread: 1.00, edge: .30, pulse: 0,    scale: 1.00 },
+  listening: { spin: .22, bright: 1.00, spread: .88, edge: .42, pulse: .015, scale: .94 },
+  working:   { spin: .45, bright: .70, spread: 1.18, edge: .20, pulse: .010, scale: 1.02 },
+  speaking:  { spin: .16, bright: 1.25, spread: 1.00, edge: .45, pulse: .075, scale: 1.00 },
+};
+
+function rng(seed) { // mulberry32: same layout every load
+  return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+const rand = rng(7);
+const gauss = () => Math.sqrt(-2 * Math.log(rand() + 1e-9)) * Math.cos(2 * Math.PI * rand());
+
+// Points: random direction, radius biased to the centre so the core is dense.
+const P = Array.from({ length: N }, () => {
+  let x = gauss(), y = gauss(), z = gauss(); const l = Math.hypot(x, y, z) || 1;
+  const r = Math.pow(rand(), 0.5);
+  return { x: x / l * r, y: y / l * r, z: z / l * r, r, ph: rand() * 6.28, sp: .6 + rand() * 1.6 };
+});
+
+// Lines: each point joins its K nearest neighbours, built once (N^2 is cheap at this size).
+const edgeSet = new Set(), E = [];
+for (let i = 0; i < N; i++) {
+  const d = [];
+  for (let j = 0; j < N; j++) if (j !== i) d.push([(P[i].x - P[j].x) ** 2 + (P[i].y - P[j].y) ** 2 + (P[i].z - P[j].z) ** 2, j]);
+  d.sort((a, b) => a[0] - b[0]);
+  for (let k = 0; k < K; k++) {
+    const j = d[k][1], key = i < j ? i * N + j : j * N + i;
+    if (!edgeSet.has(key)) { edgeSet.add(key); E.push(i < j ? [i, j] : [j, i]); }
+  }
+}
+
+let W = 0, H = 0, dpr = 1;
+function resize() {
+  dpr = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener("resize", resize); resize();
+
+// Soft glow sprite for one node, rebuilt only when the hue moves.
+let sprite = null, spriteHue = -1;
+function makeSprite(h) {
+  const s = document.createElement("canvas"); s.width = s.height = 48; const g = s.getContext("2d");
+  const r = g.createRadialGradient(24, 24, 0, 24, 24, 24);
+  r.addColorStop(0, `hsla(${h},90%,92%,1)`); r.addColorStop(.25, `hsla(${h},85%,70%,.55)`); r.addColorStop(1, `hsla(${h},80%,50%,0)`);
+  g.fillStyle = r; g.fillRect(0, 0, 48, 48); sprite = s; spriteHue = h;
+}
+
+const mq = matchMedia("(prefers-reduced-motion: reduce)");
+let reduced = mq.matches; $("rm").checked = reduced;
+mq.addEventListener("change", (e) => { reduced = e.matches; $("rm").checked = reduced; });
+$("rm").addEventListener("change", (e) => { reduced = e.target.checked; });
+
+let state = "idle", hueTarget = HUES.violet, hue = hueTarget;
+let cur = { ...STATES.idle }, yaw = 0, t = 0, last = 0, env = 0, extLevel = -1, extAt = 0;
+let jobStart = 0, timers = [];
+const px = new Float32Array(N), py = new Float32Array(N), pd = new Float32Array(N);
+
+function setState(s) {
+  if (!STATES[s]) return;
+  state = s;
+  if (s === "working") jobStart = performance.now();
+  document.querySelectorAll("[data-s]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.s === s)));
+  $("card").classList.toggle("on", s === "working" || s === "speaking");
+}
+function setHue(h) {
+  hueTarget = h;
+  document.querySelectorAll(".sw").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.h === h)));
+}
+function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+function manual(s) { clearTimers(); setState(s); }
+
+// Demo loop: talk -> work -> speak -> idle.
+let talking = false;
+addEventListener("keydown", (e) => {
+  if (e.code === "Space" && !e.repeat) { e.preventDefault(); if (!talking) { talking = true; manual("listening"); } }
+  else if (e.code === "Escape") { talking = false; manual("idle"); }
+  else if (e.key >= "1" && e.key <= "4") manual(["idle", "listening", "working", "speaking"][+e.key - 1]);
+});
+addEventListener("keyup", (e) => {
+  if (e.code === "Space" && talking) {
+    talking = false; clearTimers(); setState("working");
+    timers.push(setTimeout(() => setState("speaking"), 2800), setTimeout(() => setState("idle"), 7800));
+  }
+});
+document.querySelectorAll("[data-s]").forEach((b) => b.addEventListener("click", () => manual(b.dataset.s)));
+Object.entries(HUES).forEach(([name, h]) => {
+  const b = document.createElement("button"); b.className = "sw"; b.dataset.h = h; b.title = name; b.setAttribute("aria-label", name);
+  b.style.background = `hsl(${h} 80% 60%)`; b.addEventListener("click", () => setHue(h)); $("sw").appendChild(b);
+});
+setHue(HUES.violet); setState("idle");
+
+function level(tt) {
+  if (performance.now() - extAt < 250 && extLevel >= 0) return extLevel; // real audio wins when fed
+  return Math.min(1, Math.abs(Math.sin(tt * 5.1)) * .6 + Math.abs(Math.sin(tt * 2.3 + 1.3)) * .4);
+}
+
+function frame(ts) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(.05, (ts - last) / 1000 || 0); last = ts; t += dt;
+  const tgt = STATES[state], k = 1 - Math.exp(-dt * 3);
+  for (const key in tgt) cur[key] += (tgt[key] - cur[key]) * k;
+  hue += (hueTarget - hue) * (1 - Math.exp(-dt * 4));
+  if (Math.abs(hue - spriteHue) > .6 || !sprite) makeSprite(hue);
+  document.documentElement.style.setProperty("--h", hue.toFixed(1));
+
+  const motion = reduced ? 0 : 1;
+  yaw += cur.spin * dt * motion;
+  const pitch = Math.sin(t * .15) * .25 * motion;
+  const want = state === "speaking" ? level(t) : 0;
+  env += (want - env) * (1 - Math.exp(-dt * 14));
+  // Reduced motion keeps only a slow, small swell instead of the fast pulse.
+  const pulse = reduced ? cur.pulse * .3 * (.5 + .5 * Math.sin(t * 1.2)) * (state === "speaking" ? 1 : 0) : cur.pulse * env;
+
+  const cx = W / 2, cy = H * .5, R = Math.min(W * .5, H) * .38 * cur.scale * (1 + pulse);
+  ctx.clearRect(0, 0, W, H);
+
+  // Backglow and floor.
+  const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 1.9);
+  bg.addColorStop(0, `hsla(${hue},80%,50%,${.16 * cur.bright * (1 + env * .6)})`); bg.addColorStop(1, `hsla(${hue},80%,40%,0)`);
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = `hsla(${hue},60%,60%,.07)`; ctx.lineWidth = 1; ctx.beginPath();
+  for (let i = 0; i < 7; i++) { const y = cy + R * 1.2 + i * i * 7; ctx.moveTo(0, y); ctx.lineTo(W, y); }
+  ctx.stroke();
+
+  // Project.
+  const cyw = Math.cos(yaw), syw = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+  for (let i = 0; i < N; i++) {
+    const p = P[i], w = motion * Math.sin(t * p.sp + p.ph) * .018 * cur.spread;
+    let x = (p.x + w) * cur.spread, y = (p.y + w) * cur.spread, z = p.z * cur.spread;
+    const x1 = x * cyw + z * syw, z1 = -x * syw + z * cyw;
+    const y1 = y * cp - z1 * sp, z2 = y * sp + z1 * cp;
+    const f = FOCAL / (FOCAL - z2);
+    px[i] = cx + x1 * f * R; py[i] = cy + y1 * f * R; pd[i] = Math.max(0, Math.min(1, (z2 + 1.3) / 2.6));
+  }
+
+  // Lines in three depth buckets, so the far side stays faint.
+  ctx.globalCompositeOperation = "lighter"; ctx.lineWidth = 1;
+  for (let b = 0; b < 3; b++) {
+    ctx.strokeStyle = `hsla(${hue},70%,66%,${Math.min(1, cur.edge * cur.bright * (.35 + .35 * b))})`;
+    ctx.beginPath();
+    for (const [a, c] of E) {
+      if (Math.min(2, Math.floor((pd[a] + pd[c]) * 1.5)) !== b) continue;
+      ctx.moveTo(px[a], py[a]); ctx.lineTo(px[c], py[c]);
+    }
+    ctx.stroke();
+  }
+
+  // Nodes: bigger and brighter toward the core.
+  for (let i = 0; i < N; i++) {
+    const p = P[i], core = 1 - p.r * .6, tw = reduced ? 1 : .75 + .25 * Math.sin(t * p.sp * 2.2 + p.ph);
+    const a = Math.min(1, cur.bright * (.25 + .75 * pd[i]) * tw * (.45 + core * .8));
+    const s = (5 + 9 * core * pd[i]) * (1 + env * .25);
+    ctx.globalAlpha = a; ctx.drawImage(sprite, px[i] - s / 2, py[i] - s / 2, s, s);
+  }
+  ctx.globalAlpha = 1;
+  const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * .5);
+  cg.addColorStop(0, `hsla(${hue},90%,85%,${.22 * cur.bright * (1 + env)})`); cg.addColorStop(1, `hsla(${hue},90%,70%,0)`);
+  ctx.fillStyle = cg; ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+  ctx.globalCompositeOperation = "source-over";
+
+  // Audio strip, bottom right: flat when quiet, live bars when speaking.
+  const bx = W - 270, by = H - 36, bars = 36;
+  ctx.fillStyle = `hsla(${hue},80%,72%,${state === "speaking" ? .85 : .25})`;
+  for (let i = 0; i < bars; i++) {
+    const hgt = 2 + (state === "speaking" ? env * 22 * Math.abs(Math.sin(t * 9 + i * 1.7) * .7 + Math.sin(t * 5 + i * .6) * .3) : 0);
+    ctx.fillRect(bx + i * 7, by - hgt / 2, 4, hgt);
+  }
+
+  // Job card and the elbow line from it to the orb.
+  const card = $("card");
+  if (card.classList.contains("on")) {
+    const done = state === "speaking", s = ((performance.now() - jobStart) / 1000) | 0;
+    $("cardsub").textContent = done ? "2026-11-01-inbox-brief.md" : `0:${String(s).padStart(2, "0")} · working`;
+    card.querySelector("#bar div").style.width = done ? "100%" : Math.min(92, 10 + s * 11) + "%";
+    const r = card.getBoundingClientRect();
+    ctx.strokeStyle = `hsla(${hue},80%,70%,.5)`; ctx.beginPath();
+    ctx.moveTo(r.left + 1, r.bottom); ctx.lineTo(r.left + 1, r.bottom + 46); ctx.lineTo(cx + R * .75, r.bottom + 46); ctx.stroke();
+  }
+
+  const label = { idle: "IDLE", listening: "LISTENING", working: "WORKING", speaking: "SPEAKING" }[state];
+  const st = `<span>Core · <b>${label}</b></span><span>Link · online</span><span>Runner · alive</span>`;
+  if ($("status").innerHTML !== st) $("status").innerHTML = st;
+  const d = new Date(), z2 = (n) => String(n).padStart(2, "0");
+  $("clock").innerHTML = `${z2(d.getHours())}:${z2(d.getMinutes())}<i>:${z2(d.getSeconds())}</i><small>${d.toDateString()}</small>`;
+}
+requestAnimationFrame(frame);
+
+window.orb = { setState: manual, setHue, setLevel(v) { extLevel = Math.max(0, Math.min(1, v)); extAt = performance.now(); } };
+</script>
+</body>
+</html>
