@@ -32,14 +32,9 @@ jobs:
           python -m venv .venv
           .venv/bin/python -m pip install --quiet --disable-pip-version-check --prefer-binary -r requirements.txt
 
-      - name: Self-checks
-        run: .venv/bin/python tests.py
-
-      - name: macOS-only checks
-        run: .venv/bin/python helpers/check_mac.py
-
-      # A look at the real window on this macOS (WKWebView): one picture per page, kept as a download of this run. It is
-      # for people to look at; if it cannot take pictures here, that must not fail the checks above.
+      # A look at the real window on this macOS (WKWebView): one picture per page, kept as a download of this run. It runs
+      # before the checks because the checks open sockets, which makes macOS put a "local network" question over the screen.
+      # It is for people to look at; if it cannot take pictures here, that must not fail the checks below.
       - name: Screenshots of the Nova window
         continue-on-error: true
         run: .venv/bin/python helpers/mac_screenshots.py shots
@@ -51,3 +46,9 @@ jobs:
           name: nova-window-${{ matrix.os }}
           path: shots
           if-no-files-found: warn
+
+      - name: Self-checks
+        run: .venv/bin/python tests.py
+
+      - name: macOS-only checks
+        run: .venv/bin/python helpers/check_mac.py
