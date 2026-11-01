@@ -89,10 +89,13 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("out", type=Path)
     ap.add_argument("--no-capture", action="store_true", help="open the window and go through the pages, take no pictures")
+    ap.add_argument("--control", action="store_true", help="instead: a picture of a plain page in a plain pywebview window, to tell a capture problem from a Nova one")
     ap.add_argument("--pages", default=",".join(PAGES))
     ap.add_argument("--settle", type=float, default=3.0, help="seconds to let a page draw before the picture")
     args = ap.parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
+    if args.control:
+        return control(args.out)
     (args.out / "facts.txt").write_text(facts(), encoding="utf-8")
     taken = []
     config = ROOT / "config.json"
@@ -108,14 +111,28 @@ def main(argv=None):
     return 0 if args.no_capture or taken else 1
 
 
+def control(out):
+    import webview
+    def capture(window):
+        time.sleep(4)
+        subprocess.run(["screencapture", "-x", str(out / "control.png")], check=False, timeout=60)
+        window.destroy()
+    window = webview.create_window("Control", html="<body style='margin:0;background:#123456;color:#fff;font:64px sans-serif'>Control page</body>", width=800, height=500)
+    webview.start(capture, window)
+    return 0
+
+
 def shoot(args):
     taken = []
-    with Window() as win:
+    with Window(env={"NOVA_PROBE": "1"}) as win:  # the window answers a probe only when it was started for one
         win.wait()
         time.sleep(args.settle + 3)  # the first paint, the deck's first read
         for page in args.pages.split(","):
             win.show(page)
             time.sleep(args.settle)
+            if not args.no_capture:  # what the page itself says it drew, to tell an empty picture from an empty page
+                win.conn.send({"event": "probe", "path": str(args.out / f"{page.replace(':', '-')}.probe.json")})
+                time.sleep(1)
             if not args.no_capture:
                 shot = args.out / f"{page.replace(':', '-')}.png"
                 subprocess.run(["screencapture", "-x", str(shot)], check=False, timeout=60)

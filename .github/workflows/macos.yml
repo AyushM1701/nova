@@ -39,6 +39,12 @@ jobs:
         continue-on-error: true
         run: .venv/bin/python helpers/mac_screenshots.py shots
 
+      # A plain page in a plain pywebview window, photographed the same way: if this one is empty too, the pictures cannot see web
+      # content on this runner, and an empty picture of Nova says nothing about Nova
+      - name: Control picture
+        continue-on-error: true
+        run: .venv/bin/python helpers/mac_screenshots.py shots --control
+
       - name: Keep the screenshots
         if: always()
         uses: actions/upload-artifact@v4
