@@ -367,10 +367,13 @@ import time  # noqa: E402
 phone_mod.PORT = 47899
 phone_mod.NETWORK = phone_mod.TOKEN.with_name("phone-network")  # not this computer's real one
 siri.enable(True)
-for _ in range(40):
+started = time.time()
+for _ in range(600):  # up to 30 s: finding the network (route, arp, this computer's name) was too slow for 2 s on the macOS 27 runner
     if siri.server:
         break
     time.sleep(0.05)
+assert siri.server, f"Phone never started listening: hosts={siri.hosts!r} error={siri.error!r}"
+print(f"phone server up after {time.time() - started:.1f}s")
 pooled = http.client.HTTPConnection("127.0.0.1", 47899, timeout=5)
 for _ in range(2):  # the second request goes down the same socket, like a browser's reload
     pooled.request("GET", "/")
