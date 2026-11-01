@@ -72,6 +72,9 @@ class Api:
         try:
             while True:
                 event = self._conn.recv()
+                if event.get("event") == "probe" and os.environ.get("NOVA_PROBE"):  # helpers/mac_screenshots.py: what did the page draw?
+                    Path(event["path"]).write_text(str(self._window.evaluate_js(PROBE_JS)), encoding="utf-8")
+                    continue
                 if event.get("event") == "focus":
                     self._focus()
                 self._push(event)
@@ -840,6 +843,13 @@ def window_bg():
     except Exception:  # no setting saved means the system default, which is light
         dark = False
     return "#0d0f1a" if dark else "#f5f6fb"
+
+
+PROBE_JS = """JSON.stringify({text: document.body.innerText.length, booted: typeof S !== "undefined" && !!S.cfg,
+  page: typeof S !== "undefined" ? S.page : null, size: [innerWidth, innerHeight], dpr: devicePixelRatio,
+  bg: getComputedStyle(document.body).backgroundColor, ua: navigator.userAgent, vars: getComputedStyle(document.documentElement).getPropertyValue("--accent"),
+  home: (document.querySelector("#page-home") || {}).clientHeight, dock: (document.querySelector(".dock") || {}).clientHeight,
+  colorMix: CSS.supports("background", "color-mix(in srgb, red 50%, blue)")})"""
 
 
 def main():
