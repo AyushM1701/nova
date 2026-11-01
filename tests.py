@@ -5918,7 +5918,12 @@ for bad, why in ((vault, "top of an Obsidian vault"), (vault / "missing", "doesn
                  (Path(vault.anchor), "whole drive"), (Path(os.environ.get("SystemRoot", "/usr")), "system folder")):
     folder, problem = config_mod.notes_dir({"notes": {"folder": str(bad)}})
     assert folder == config_mod.DEFAULT_NOTES and why in problem, (bad, problem)  # refused: the default, and the reason
-assert config_mod.notes_folder_problem(config_mod.WORKSPACE / "notes") == ""  # the default place is always fine
+real_workspace, config_mod.WORKSPACE = config_mod.WORKSPACE, Path(tempfile.mkdtemp(prefix="nova-workspace-"))  # a fresh checkout has none
+(config_mod.WORKSPACE / "notes").mkdir()
+try:
+    assert config_mod.notes_folder_problem(config_mod.WORKSPACE / "notes") == ""  # the default place is always fine
+finally:
+    config_mod.WORKSPACE = real_workspace
 assert config_mod.NOTES == config_mod.notes_dir()[0] or config_mod.NOTES_PROBLEM  # what was resolved at start-up
 # copying in: skips what is there, never deletes, leaves links and Obsidian's settings out
 src = Path(tempfile.mkdtemp(prefix="nova-notes-src-"))
