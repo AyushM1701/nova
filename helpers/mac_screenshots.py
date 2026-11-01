@@ -95,6 +95,21 @@ def main(argv=None):
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "facts.txt").write_text(facts(), encoding="utf-8")
     taken = []
+    config = ROOT / "config.json"
+    made = not config.exists()  # a fresh checkout would open the first-run tour over every page: say it is done, and put it back after
+    if made:
+        config.write_text('{"onboarded": true, "walked": true}', encoding="utf-8")
+    try:
+        taken = shoot(args)
+    finally:
+        if made:
+            config.unlink(missing_ok=True)
+    print(f"{len(taken)} pictures in {args.out}: {', '.join(taken) or 'none (no capture)'}")
+    return 0 if args.no_capture or taken else 1
+
+
+def shoot(args):
+    taken = []
     with Window() as win:
         win.wait()
         time.sleep(args.settle + 3)  # the first paint, the deck's first read
@@ -106,8 +121,7 @@ def main(argv=None):
                 subprocess.run(["screencapture", "-x", str(shot)], check=False, timeout=60)
                 if shot.exists() and shot.stat().st_size > 2000:
                     taken.append(shot.name)
-    print(f"{len(taken)} pictures in {args.out}: {', '.join(taken) or 'none (no capture)'}")
-    return 0 if args.no_capture or taken else 1
+    return taken
 
 
 if __name__ == "__main__":
