@@ -1013,8 +1013,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
             <button class="btn" id="sttGet">Get a key</button>
           </div>
           <p class="muted small" id="sttStatus" style="margin-top:10px"></p></div>
-        <div class="row"><div class="what"><h2>Nova's voice</h2><p>All run on this computer. Piper (the default) and Kitten come with Nova; Kitten is the lightest. Kokoro is the most natural: picking it downloads it (330 MB) in the background, and Nova keeps talking with Piper until it's ready. Your voice speaks in a copy of a recording of you. System uses your computer's own voices.</p></div>
-          <div class="how"><div class="seg" role="radiogroup" data-bind="voice.tts_engine" data-options="piper:Piper,kitten:Kitten,kokoro:Kokoro,pocket:Your voice,system:System"></div></div></div>
+        <div class="row" style="display:block"><div class="what"><h2>Nova's voice</h2><p>All run on this computer. Piper (the default) and Kitten come with Nova; Kitten is the lightest. Kokoro is the most natural: picking it downloads it (330 MB) in the background, and Nova keeps talking with Piper until it's ready. Your voice speaks in a copy of a recording of you. System uses your computer's own voices.</p></div>
+          <div class="how" style="margin-top:12px;justify-content:flex-start"><div class="seg" role="radiogroup" data-bind="voice.tts_engine" data-options="piper:Piper,kitten:Kitten,kokoro:Kokoro,pocket:Your voice,system:System"></div></div></div>
         <div class="row" data-engine="piper"><div class="what"><h2>Piper voice</h2><p>A clear American English voice.</p></div>
           <div class="how"><button class="btn sm" id="testPiper">Play</button></div></div>
         <div class="row" data-engine="kitten"><div class="what"><h2>Kitten voice</h2><p>Eight voices, four men and four women. Small and quick on any computer.</p></div>
