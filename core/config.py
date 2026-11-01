@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG, DEFAULTS = ROOT / "config.json", ROOT / "config.default.json"
 LOGS, DATA, WORKSPACE = ROOT / "logs", ROOT / "data", ROOT / "workspace"
-NOTES = WORKSPACE / "notes"
+DEFAULT_NOTES = WORKSPACE / "notes"
 LOG_HOOKS = []  # Nova forwards every log entry to its open app window
 KEEP_LOG_DAYS = 30
 CAP_BYTES = 4 << 20  # crash.txt and setup.log grow without a day boundary: past this only the newest quarter stays
@@ -117,6 +117,73 @@ def user_config():
     return data
 
 
+def notes_folder_problem(path):
+    """Why `path` can't be Nova's notes folder, or "" if it can. Checked where the setting is made: the AI works in this
+    folder without asking, so it must be one only Nova's notes live in."""
+    try:
+        path = Path(path).expanduser()
+        if not path.is_absolute():
+            return "Pick a full folder path."
+        if not path.is_dir():
+            return "That folder doesn't exist."
+        real = Path(os.path.realpath(path))
+        if (real / ".obsidian").exists():  # the top of a vault: plugins in there run code, and every other note is in reach
+            return ("That is the top of an Obsidian vault. Pick a folder inside it instead, for example <your vault>/Nova, "
+                    "so Nova can only change its own notes and never Obsidian's plugins or your other notes.")
+        if real.parent == real:
+            return "That is a whole drive. Pick a folder on it."
+        if real == Path.home():
+            return "Pick a folder inside your home folder, not the home folder itself."
+        workspace, install = Path(os.path.realpath(WORKSPACE)), Path(os.path.realpath(ROOT))
+        if not (real == workspace or workspace in real.parents) and (real == install or install in real.parents or real in install.parents):
+            return "That is Nova's own folder, or one that holds it."
+        system = ([os.environ.get(v, "") for v in ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "ProgramData")] if os.name == "nt"
+                  else ["/System", "/Library", "/Applications", "/usr", "/bin", "/sbin", "/etc", "/var", "/private"])
+        if any(d and (real == Path(d) or Path(d) in real.parents) for d in system):
+            return "That is a system folder."
+        probe = real / f".nova-write-test-{os.getpid()}"
+        probe.write_text("x", encoding="utf-8")
+        probe.unlink()
+    except OSError:
+        return "Nova can't write to that folder."
+    return ""
+
+
+def notes_dir(cfg=None):
+    """(folder, problem): the notes folder the settings ask for (`notes.folder`), or the default one and, if a folder was
+    asked for but can't be used, why. NOTES below is this at start-up, so a change applies after Nova restarts."""
+    try:
+        want = str(((cfg if cfg is not None else user_config()).get("notes") or {}).get("folder") or "").strip()
+    except (ValueError, OSError, AttributeError):
+        want = ""
+    if not want:
+        return DEFAULT_NOTES, ""
+    problem = notes_folder_problem(want)
+    return (DEFAULT_NOTES, f"Using the default notes folder: {problem}") if problem else (Path(want).expanduser(), "")
+
+
+def copy_notes(src, dst):
+    """Copy the notes in `src` into `dst`, skipping files already there and never deleting anything (links, and an
+    Obsidian settings folder, are not copied). Returns how many files were copied."""
+    src, dst, count = Path(src), Path(dst), 0
+    if not src.is_dir() or os.path.realpath(src) == os.path.realpath(dst):
+        return 0
+    for root, dirs, files in os.walk(src):
+        dirs[:] = [d for d in dirs if d != ".obsidian" and not os.path.islink(os.path.join(root, d))]
+        target = dst / Path(root).relative_to(src)
+        for name in files:
+            from_file, to_file = Path(root) / name, target / name
+            if os.path.islink(from_file) or to_file.exists():
+                continue
+            try:
+                target.mkdir(parents=True, exist_ok=True)
+                to_file.write_bytes(from_file.read_bytes())
+                count += 1
+            except OSError:
+                continue
+    return count
+
+
 def _busy(action, tries=50):
     """Windows refuses to read or replace a file another program is replacing or reading this instant: retry."""
     for attempt in range(tries):
@@ -151,6 +218,9 @@ def _saving():
     finally:
         os.close(fd)
         lock.unlink(missing_ok=True)
+
+
+NOTES, NOTES_PROBLEM = notes_dir()  # the notes folder for this run of Nova
 
 
 def load_config():

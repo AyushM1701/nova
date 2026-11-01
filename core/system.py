@@ -792,6 +792,65 @@ def set_volume(percent):
         media("volume_up", percent // 2)
 
 
+def _mac_keys(code, times):
+    subprocess.run(["osascript", "-e", 'tell application "System Events"', "-e", f"repeat {times} times",
+                    "-e", f"key code {code}", "-e", "end repeat", "-e", "end tell"], capture_output=True)
+
+
+def brightness(change=0, level=None):
+    """The screen's brightness percent after moving it by `change` points (or to `level`): -1 on a Mac, where the level
+    can't be read back, and None when this screen can't be set from here (a desktop monitor has its own buttons)."""
+    if IS_MAC:  # shortcut: macOS has no brightness API for apps, so press its brightness keys (16 steps end to end)
+        from ApplicationServices import AXIsProcessTrusted
+        if not AXIsProcessTrusted():
+            return None
+        if level is not None:
+            _mac_keys(145, 16)
+            change = round(level / 100 * 16) * 100 / 16
+        _mac_keys(144 if change > 0 else 145, max(1, round(abs(change) / 6.25)))
+        return -1
+    target = str(int(level)) if level is not None else f"$cur + {int(change)}"
+    script = ("$ErrorActionPreference='Stop'; $cur=(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness"
+              f" | Select-Object -First 1).CurrentBrightness; $new=[Math]::Max(5,[Math]::Min(100,{target})); "  # never black
+              "Invoke-CimMethod -InputObject (Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods"
+              " | Select-Object -First 1) -MethodName WmiSetBrightness -Arguments @{Timeout=1;Brightness=[byte]$new} | Out-Null; $new")
+    try:
+        done = subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True,
+                              creationflags=NO_WINDOW, timeout=20)
+        return int(done.stdout.strip()) if done.returncode == 0 else None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def battery():
+    """(percent, plugged in) or None on a computer without a battery."""
+    if IS_MAC:
+        out = subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True).stdout
+        found = re.search(r"(\d+)%", out)
+        return (int(found[1]), "AC Power" in out) if found else None
+    import ctypes
+
+    class PowerStatus(ctypes.Structure):
+        _fields_ = [("ac", ctypes.c_ubyte), ("flag", ctypes.c_ubyte), ("percent", ctypes.c_ubyte), ("reserved", ctypes.c_ubyte),
+                    ("seconds", ctypes.c_ulong), ("full_seconds", ctypes.c_ulong)]
+    status = PowerStatus()
+    if not ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status)) or status.percent == 255 or status.flag & 128:
+        return None  # 255: unknown; flag 128: no battery
+    return status.percent, status.ac == 1
+
+
+# "open my downloads": Windows follows a folder that moved to OneDrive, which a plain path would miss
+FOLDER_SHELL = {"downloads": "shell:Downloads", "documents": "shell:Personal", "desktop": "shell:Desktop",
+                "pictures": "shell:My Pictures", "music": "shell:My Music", "videos": "shell:My Video"}
+
+
+def open_folder(name):
+    if IS_MAC:
+        open_path(Path.home() / ("Movies" if name == "videos" else name.title()))
+    else:
+        os.startfile(FOLDER_SHELL[name])
+
+
 # apps people name that aren't Start-menu shortcuts on Windows
 WIN_APPS = {"calculator": "calc", "calc": "calc", "notepad": "notepad", "paint": "mspaint", "settings": "ms-settings:",
             "file explorer": "explorer", "explorer": "explorer", "files": "explorer", "task manager": "taskmgr",
@@ -818,6 +877,7 @@ def open_app(name):
     """Open an installed app by its spoken name. False if Nova can't find it (then the AI takes over)."""
     name = ALIASES.get(name.lower(), name.lower())
     if IS_MAC:
+        name = "finder" if name in ("file explorer", "explorer") else name
         return subprocess.run(["open", "-a", name], capture_output=True).returncode == 0
     words = lambda s: s.lower().replace("-", " ").split()
     for rescan in (False, True):  # the remembered list first; an app installed since is found on the second look

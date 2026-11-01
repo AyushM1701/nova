@@ -1,5 +1,6 @@
 """Everyday requests Nova handles itself, instantly and offline, without spending any AI quota:
-volume, media keys, opening apps and websites, the time and date, timers and locking the screen.
+volume, brightness, media keys, opening apps, folders and websites, the time, date and battery, timers and locking
+the screen.
 
 parse() only understands the request; nova.py carries it out. Anything not recognised here goes to the AI.
 """
@@ -21,6 +22,10 @@ GENERIC_MUSIC = {"a song", "some music", "music", "something", "a track", "songs
 POLITE = r"(?:(?:hey |ok |okay )?(?:nova )?(?:please |can you |could you |would you |will you )?(?:please )?)"
 TAIL = r"(?: for me)?(?: please)?(?: now)?"
 AMOUNT = r"(?: (?:a bit|a little|a little bit|slightly|a lot|way up|way down|more|some|by \d{1,3}(?: percent)?))?"
+VOL = r"(?:the )?(?:volume|sound|music|audio)"
+BRIGHT = r"(?:the )?(?:screen |display |monitor )?brightness"
+FOLDERS = ("downloads", "documents", "desktop", "pictures", "music", "videos")
+NOT_APPS = {"sleep", "bed", "shut down", "shutdown", "restart", "reboot", "hibernate"}  # "go to sleep" is not an app to open
 UNITS = {"second": 1, "sec": 1, "minute": 60, "min": 60, "hour": 3600, "hr": 3600}
 _ONES = "one two three four five six seven eight nine".split()
 _TEENS = "ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split()
@@ -49,15 +54,34 @@ def parse(text):
     t = re.sub(r"\s+", " ", t).strip(" .")
     body = re.sub(rf"^{POLITE}", "", t)
 
+    # brightness, like volume, is a few steps up or down; "set brightness to 50" is exact. _amount counts 2-point steps
+    m = re.fullmatch(rf"(?:set |change |put |turn )?{BRIGHT}(?: level)? (?:to |at )?(\d{{1,3}})(?: percent)?{TAIL}", body)
+    if m:
+        return "brightness_set", max(0, min(100, int(m.group(1))))
+    if re.fullmatch(rf"(?:max|maximum|full) {BRIGHT}{TAIL}", body):
+        return "brightness_set", 100
+    if re.fullmatch(rf"(?:(?:turn|crank|bump|pump) (?:up {BRIGHT}|{BRIGHT} up)|(?:raise|increase|boost) {BRIGHT}"
+                    rf"|{BRIGHT} up|brighten(?: up)?(?: the)?(?: screen| display| monitor)?|make (?:it|the screen|the display)"
+                    rf" brighter|brighter){AMOUNT}{TAIL}", body):
+        return "brightness_up", _amount(body) * 2
+    if re.fullmatch(rf"(?:(?:turn|bump|pump|crank|take|bring) (?:down {BRIGHT}|{BRIGHT} down)|(?:decrease|lower|reduce)"
+                    rf" {BRIGHT}|{BRIGHT} down|dim(?: it| the screen| the display| the monitor)?|make (?:it|the screen|the display)"
+                    rf" (?:dimmer|darker)|dimmer|darker){AMOUNT}{TAIL}", body):
+        return "brightness_down", _amount(body) * 2
+
     m = re.fullmatch(rf"(?:set |change |put |turn )?(?:the )?(?:volume|sound)(?: level)? (?:to |at )?(\d{{1,3}})(?: percent)?{TAIL}", body)
     if m:
         return "volume_set", max(0, min(100, int(m.group(1))))
-    if re.fullmatch(rf"(?:(?:turn|crank|bump|pump) (?:it|the volume|the sound|the music) up|(?:increase|raise|boost) "
-                    rf"(?:the )?(?:volume|sound)|volume up|louder|make it louder){AMOUNT}{TAIL}", body):
+    if re.fullmatch(rf"(?:(?:turn|crank|bump|pump) (?:it up|up {VOL}|{VOL} up)|(?:raise|increase|boost) {VOL}|volume up|{VOL} up"
+                    rf"|louder|make it louder){AMOUNT}{TAIL}", body):
         return "volume_up", _amount(body)
-    if re.fullmatch(rf"(?:turn (?:it|the volume|the sound|the music) down|(?:decrease|lower|reduce) (?:the )?(?:volume|sound)"
-                    rf"|volume down|quieter|make it quieter|softer){AMOUNT}{TAIL}", body):
+    if re.fullmatch(rf"(?:(?:turn|crank|bump|pump|take|bring) (?:it down|down {VOL}|{VOL} down)|(?:decrease|lower|reduce) {VOL}"
+                    rf"|volume down|{VOL} down|quieter|make it quieter|softer){AMOUNT}{TAIL}", body):
         return "volume_down", _amount(body)
+
+    if re.fullmatch(rf"(?:(?:what(?: s| is)?|tell me|show me|check)(?: the| my)? |how much )?battery(?: level| percentage| percent"
+                    rf"| status| life| left| remaining| charge)*(?: do i have| is left| is there)?(?: left| remaining)?{TAIL}", body):
+        return "battery", None
     if re.fullmatch(rf"(?:un)?mute(?: the)?(?: volume| sound| audio| music| it)?{TAIL}", body):
         return "media", "mute"
     if re.fullmatch(rf"(?:pause|stop|resume|unpause|continue)(?: the| this)?(?: music| song| track| playback| video)?{TAIL}"
@@ -130,9 +154,18 @@ def parse(text):
         if not inner and len(m.group(2).split()) >= 2:
             return "learn_ai", (m.group(1), m.group(2))  # not an instant command: the AI does it once, Nova records how
 
+    m = re.fullmatch(rf"(?:open|go to|bring up|pull up)(?: up)? (?:the |my )?({'|'.join(FOLDERS)})(?: folder)?{TAIL}", body)
+    if m:
+        return "folder", m.group(1)
+    m = re.fullmatch(rf"(?:open|launch|show|bring up|pull up)(?: up)? (?:the |my )?(file explorer|explorer|finder){TAIL}", body)
+    if m:
+        return "app", "finder" if m.group(1) == "finder" else "file explorer"
+
     m = re.fullmatch(rf"(?:open|launch|start|bring up|pull up|go to)(?: up)? (?:the )?(.+?)(?: app| application| website| site)?{TAIL}", body)
     if m and len(m.group(1).split()) <= 4 and not re.search(r"\b(?:and|then|in|with|my|file|folder|project|tab|that|this)\b", m.group(1)):
         target = m.group(1).strip()
+        if target in NOT_APPS:
+            return None
         if target in SITES:
             return "url", SITES[target]
         if re.fullmatch(r"[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:/\S*)?", target):

@@ -34,6 +34,21 @@
     color-scheme: dark;
   }
 }
+/* The Nova window is one dark HUD whatever the system theme (the agentic OS look). This block wins over the two above, which
+   the phone page and the browser panel still copy; the window's brand violet #7b6dff lives in the orb and the tray icon. */
+:root {
+  --bg: #080a15; --side: #0a0c19; --surface: #0f1226; --raised: #151833; --sunk: #060812;
+  --line: rgba(143, 149, 230, .16); --line-strong: rgba(143, 149, 230, .30);
+  --text: #e8eaff; --muted: #a3a9d2; --faint: #8a90bd;
+  --accent: #6d5ff7; --accent-hover: #5e4ff0; --accent-ink: #ffffff; --accent-soft: rgba(123, 109, 255, .16); --accent-text: #b9b1ff;
+  --amber: #ffba3c; --amber-soft: rgba(255, 186, 60, .10); --amber-line: rgba(255, 186, 60, .42);
+  --ok: #3ecf8e; --danger: #ff7a7a; --danger-soft: rgba(255, 122, 122, .10);
+  --pill: #1a1d30; --pill-ink: #ffffff;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 12px 32px rgba(0, 0, 0, .4);
+  --focus: 0 0 0 2px var(--accent-text);  /* 9.5:1 on the panel (WCAG 1.4.11) */
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, Menlo, monospace;
+  color-scheme: dark;
+}
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body {
@@ -42,17 +57,18 @@ body {
   -webkit-font-smoothing: antialiased; overflow: hidden;
 }
 ::selection { background: var(--accent-soft); color: var(--text); }
+::placeholder { color: var(--faint); opacity: 1; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 /* the transparent outline is invisible normally; Windows contrast themes drop box-shadow and paint it instead */
-:focus-visible { outline: 2px solid transparent; box-shadow: var(--focus); border-radius: 8px; }
+:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 8px; }  /* an outline, so no control's own box-shadow (a selected segment's) can cover it */
 /* Windows only: on a Mac, styling the scrollbar would replace its overlay scrollbars that fade away */
 html:not(.mac) ::-webkit-scrollbar { width: 10px; height: 10px; }
 html:not(.mac) ::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
 html:not(.mac) ::-webkit-scrollbar-track { background: transparent; }
 html.mac :is(button, .engine) { cursor: default; }  /* Mac controls keep the arrow; the pointing hand is for links */
 /* the app's chrome isn't text to select; messages, history and settings text still are */
-:is(.side, button, .engine, .tabs, .seg, kbd) { -webkit-user-select: none; user-select: none; }
+:is(.dock, button, .engine, .tabs, .seg, kbd) { -webkit-user-select: none; user-select: none; }
 svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 kbd {
   display: inline-flex; align-items: center; min-width: 1.9em; justify-content: center; padding: 1px 7px;
@@ -60,38 +76,174 @@ kbd {
   font: 600 12px/1.6 inherit; font-family: inherit; color: var(--text); white-space: nowrap;
 }
 .keys { display: inline-flex; gap: 4px; align-items: center; vertical-align: baseline; }
-.mono { font-family: "Cascadia Code", "SF Mono", Consolas, ui-monospace, monospace; font-size: 12.5px; }
+.mono { font-family: "Cascadia Code", "SF Mono", Consolas, ui-monospace, monospace; font-size: 13px; }
 .num { font-variant-numeric: tabular-nums; }
 [hidden] { display: none !important; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-/* ---------- shell ---------- */
-.app { display: grid; grid-template-columns: 232px 1fr; height: 100vh; }
-.side { background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 18px 12px 14px; gap: 18px; min-height: 0; }
-.brand { display: flex; align-items: center; gap: 10px; padding: 0 8px; font-weight: 650; font-size: 16px; letter-spacing: -.01em; }
-.brand svg { width: 22px; height: 22px; }
-.live { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
-.live canvas { width: 76px; height: 30px; flex: none; }
-.live b { display: block; font-weight: 600; font-size: 13px; line-height: 1.3; }
-.live span { display: block; color: var(--muted); font-size: 12px; line-height: 1.3; }
-nav { display: flex; flex-direction: column; gap: 2px; }
-nav button {
-  display: flex; align-items: center; gap: 11px; padding: 8px 10px; border: 0; border-radius: 9px; background: none;
-  color: var(--muted); text-align: left; font-weight: 500; transition: background .15s, color .15s;
+/* ---------- shell: one dock at the top of every page ---------- */
+.app { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100vh; }
+.dock { display: flex; align-items: center; gap: 14px; padding: 8px 16px; background: var(--side); border-bottom: 1px solid var(--line); min-width: 0; }
+.brand { display: flex; align-items: center; gap: 9px; font-weight: 650; font-size: 15px; letter-spacing: -.01em; flex: none; }
+.brand svg { width: 24px; height: 24px; }
+.live { display: flex; align-items: center; gap: 9px; padding: 3px 12px 3px 8px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); flex: none; }
+.live canvas { width: 58px; height: 24px; flex: none; }
+.live b { display: block; font: 600 11.5px/1.25 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.live span { display: block; color: var(--muted); font-size: 11px; line-height: 1.25; white-space: nowrap; }
+.dock nav { display: flex; flex: 1; flex-wrap: nowrap; justify-content: center; gap: 2px; min-width: 0; }
+.dock nav button { flex: none; }
+.dock nav button {
+  position: relative; display: flex; align-items: center; gap: 8px; padding: 7px 11px; border: 0; border-radius: 8px; background: none;
+  color: var(--muted); font-weight: 500; transition: background .15s, color .15s;
 }
-nav button:hover { background: var(--raised); color: var(--text); }
-nav button[aria-current="page"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
-nav button[aria-current="page"] svg { color: var(--accent); }
-nav .badge { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
-.side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
-.side-foot .label { padding: 0 6px; color: var(--faint); font-size: 12px; }
+.dock nav button:hover { background: var(--raised); color: var(--text); }
+.dock nav button[aria-current="page"] { background: var(--accent-soft); color: var(--text); }
+.dock nav button[aria-current="page"] svg { color: var(--accent-text); }
+.dock nav .badge { position: absolute; top: 5px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
+.dock-end { display: flex; align-items: center; gap: 8px; flex: none; }
+.dock .seg { width: auto; }
 main { overflow-y: auto; min-width: 0; position: relative; }
-.page { max-width: 780px; margin: 0 auto; padding: 40px 40px 64px; }
-.page.wide { max-width: 860px; }
+#pauseBtn { color: var(--text); }
+
+/* ---------- Home: the agentic OS deck. Claude's real numbers on the left, the orb and your request in the middle,
+   skills and your library on the right. Dark in every system theme; the type for data is mono, the rest is the window's. ---------- */
+#page-home { height: 100%; min-height: 0; }
+.hud { display: flex; flex-direction: column; }
+.hud-banners { padding: 12px 16px 0; }
+.hud-banners .banner { margin: 0 0 8px; }
+.hud-banners .banner[hidden] + .banner[hidden] { margin: 0; }
+.hud-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) minmax(240px, 300px); gap: 14px; padding: 14px 16px 16px; }
+.hud-col { min-height: 0; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 2px; }
+.hud-panel { flex: none; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(15, 18, 38, .85); background: color-mix(in srgb, var(--surface) 85%, transparent); }
+.hud-panel.grow { flex: none; display: flex; flex-direction: column; }
+.cap { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font: 400 11px/1.2 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--muted); }
+.cap::after { content: ""; flex: 1; height: 1px; background: var(--line-strong); }
+.cap.sub { margin-top: 14px; }
+
+/* the vitals: label, value, one line of detail */
+.deck-row { padding: 0 0 9px; margin: 0 0 9px; border-bottom: 1px solid var(--line); }
+.deck-row .k { display: block; font: 400 11px/1.3 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.deck-row .v { display: flex; align-items: center; gap: 7px; margin-top: 1px; font: 600 15px/1.35 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.deck-row .s { display: block; margin-top: 1px; font: 400 12px/1.4 var(--mono); color: var(--muted); word-break: break-word; overflow-wrap: anywhere; }
+.deck-row svg { display: block; width: 100%; height: 26px; margin-top: 5px; }
+.deck-foot { font-size: 12px; line-height: 1.45; color: var(--muted); }
+.deck-foot.warn { color: var(--amber); }
+
+/* the middle: the orb, what Nova is doing, and a place to ask */
+.hud-core { position: relative; min-height: 0; min-width: 0; display: grid; grid-template-rows: auto minmax(180px, 1fr) auto auto; border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+  background: radial-gradient(110% 90% at 50% 40%, #171a38, #080a15 72%); box-shadow: var(--shadow); }
+.core-head { position: relative; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 16px 0; }
+.core-head { flex-wrap: wrap; }
+.core-head > div:first-child { min-width: 0; flex: 1 1 280px; }
+.core-greet { font-size: 19px; line-height: 1.25; }
+.core-lede { margin-top: 3px; max-width: 46ch; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.deck-status { flex: none; font: 400 11px/1.5 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); text-align: right; white-space: nowrap; }
+.deck-status b { color: var(--text); font-weight: 600; }
+.deck-status span { display: inline-block; white-space: nowrap; }
+.deck-status span + span { margin-left: 12px; }
+.core-orb { position: relative; min-height: 0; }
+.core-orb canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.deck-job { position: absolute; right: 14px; bottom: 10px; width: 176px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: rgba(12, 14, 30, .88); }
+.deck-job b { display: block; font: 600 11px/1.3 var(--mono); letter-spacing: .1em; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck-job span { font: 400 12px/1.3 var(--mono); color: var(--muted); }
+.deck-job i { display: block; height: 2px; margin-top: 6px; background: var(--line-strong); }
+.deck-job u { display: block; height: 100%; width: 100%; background: var(--accent-text); transform-origin: left; transform: scaleX(.1); transition: transform 1s linear; }
+.strip { position: relative; z-index: 1; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 0 14px 8px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: rgba(8, 10, 21, .94); font-size: 13px; }
+.strip .strip-text { flex: 1 1 180px; min-width: 0; word-break: break-word; overflow-wrap: anywhere; }
+.strip.reply .strip-text { max-height: 7.5em; overflow-y: auto; }
+.strip .strip-text.mono { font: 400 12px/1.5 var(--mono); color: var(--muted); }
+.strip .dots { display: inline-flex; gap: 3px; }
+.strip .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent-text); animation: blink 1.2s infinite; }
+.strip .dots i:nth-child(2) { animation-delay: .15s; } .strip .dots i:nth-child(3) { animation-delay: .3s; }
+.strip.needs { border-color: var(--amber-line); background: #1e1a19; background: color-mix(in srgb, var(--amber) 9%, #080a15); }
+.strip.needs b { color: var(--amber); font-weight: 600; }
+.strip.needs .btns { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+@keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .strip .dots i { animation: none; opacity: .8; } }
+.core-composer { position: relative; z-index: 1; display: flex; align-items: flex-end; gap: 8px; margin: 0 14px 14px; padding: 7px 8px 7px 14px; border: 1px solid var(--line-strong); border-radius: 12px; background: rgba(8, 10, 21, .9); }
+.core-composer:focus-within { border-color: var(--accent); box-shadow: var(--focus); }
+.core-composer textarea { flex: 1; min-width: 0; max-height: 120px; padding: 6px 0; border: 0; outline: 0; resize: none; background: none; color: var(--text); line-height: 1.5; }
+.core-composer textarea::placeholder { color: var(--faint); }
+
+/* right column: skills (yours, then Claude's), then the rest of Nova */
+.deck-skills { display: grid; gap: 2px; }
+.deck-skill { display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 8px; border: 0; border-radius: 8px; background: none; color: var(--text); font: 500 12px/1.35 var(--mono); letter-spacing: .06em; text-transform: uppercase; text-align: left; }
+.deck-skill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck-skill:hover { background: var(--accent-soft); }
+.deck-empty { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.field-err { margin: 8px 0 0; color: var(--danger); font-size: 13px; line-height: 1.45; }
+.flabel { display: block; margin: 20px 0 6px; font-size: 13px; font-weight: 600; color: var(--text); }
+.claude-find { margin: 0 0 8px; }
+.claude-find input { width: 100%; padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--sunk); color: var(--text); font-size: 13px; }
+.claude-find input:focus { outline: 0; border-color: var(--accent); box-shadow: var(--focus); }
+.claude-list { flex: 0 1 auto; max-height: 380px; min-height: 0; overflow-y: auto; }
+.cmd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.cmd { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-width: 0; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--sunk); color: var(--text); font-size: 12.5px; font-weight: 500; line-height: 1.3; text-align: left; overflow: hidden; word-break: break-word; overflow-wrap: anywhere; }
+.cmd:hover { background: var(--accent-soft); border-color: var(--line-strong); }
+.cmd-more { display: flex; align-items: center; gap: 6px; margin-top: 8px; padding: 4px 2px; border: 0; background: none; color: var(--muted); font-size: 12.5px; }
+.cmd-more:hover { color: var(--text); }
+.cmd-more svg { width: 14px; height: 14px; }
+.hero { padding: 0 0 10px; margin: 0 0 10px; border-bottom: 1px solid var(--line); }
+.hero .k { display: block; font: 400 11px/1.3 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.hero .big { display: block; margin: 2px 0 6px; font: 600 34px/1.1 var(--mono); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.hero .gauge { height: 4px; border-radius: 999px; background: var(--line-strong); overflow: hidden; }
+.hero .gauge i { display: block; height: 100%; min-width: 2px; border-radius: 999px; background: var(--accent-text); }
+.hero .s { display: block; margin-top: 6px; font: 400 12px/1.4 var(--mono); color: var(--muted); }
+.plan-line { margin: 0 0 12px; font-size: 12.5px; color: var(--muted); }
+.plan-line.warn { color: var(--amber); }
+.spark-ax { display: flex; justify-content: space-between; margin-top: 2px; font: 400 12px/1.3 var(--mono); color: var(--muted); }
+
+.claude-list h3.muted { margin: 10px 0 6px; font: 400 11px/1.3 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+.claude-list h3.muted:first-child { margin-top: 2px; }
+.claude-list .chips { gap: 6px; }
+.claude-list .chip { padding: 4px 10px; font-size: 12px; }
+.lib { display: grid; gap: 2px; }
+.lib-row { display: flex; align-items: center; gap: 8px; border-radius: 8px; }
+.lib-row:hover { background: var(--accent-soft); }
+.lib-row > button:first-child { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 5px 8px; border: 0; background: none; text-align: left; color: var(--text); border-radius: 8px; }
+.lib-row .lib-t { display: block; font-weight: 550; font-size: 13px; }
+.lib-row .lib-s { display: block; color: var(--muted); font-size: 12px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-row svg { color: var(--accent-text); }
+.lib-row .btn { margin-right: 6px; flex: none; border: 1px solid var(--line-strong); }
+.hud details { border: 1px solid var(--line); border-radius: 12px; background: rgba(15, 18, 38, .7); background: color-mix(in srgb, var(--surface) 70%, transparent); flex: none; }
+.hud details > summary { display: flex; align-items: center; gap: 8px; list-style: none; padding: 10px 14px; cursor: pointer; font: 400 11px/1.2 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.hud details > summary::-webkit-details-marker { display: none; }
+.hud details > summary::before { content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform .15s; }
+.hud details[open] > summary::before { transform: rotate(45deg); }
+.hud details[open] > summary { border-bottom: 1px solid var(--line); }
+.hud details .try { padding: 6px 8px 10px; grid-template-columns: 1fr; gap: 6px; }
+.hud details .try h3 { margin: 8px 6px 2px; font-size: 12px; color: var(--muted); }
+.hud details .phrase { font-size: 13px; }
+.hud .status { flex-direction: column; margin: 0 0 8px; border: 0; border-radius: 0; background: none; }
+.hud .status > button { flex: none; display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 6px 4px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; color: var(--text); text-align: left; }
+.hud .status > button:last-child { border-bottom: 0; }
+.hud .status > button:hover { background: var(--accent-soft); }
+.hud .status .k { color: var(--muted); font-size: 12px; }
+.hud .status { margin-top: 0; }
+.hud .status .v { font-size: 12.5px; }
+.hud .feed time { white-space: nowrap; }
+.feed .body .t, .feed .body .sub { max-width: 62ch; }  /* about 75 characters of ordinary text */
+.msg.nova .md { max-width: 62ch; }
+.hud .feed li { grid-template-columns: 54px 16px minmax(0, 1fr); gap: 8px; padding: 8px 2px; }
+.hud .feed .acts { display: none; }
+.hud .feed .body .t { -webkit-line-clamp: 2; font-size: 13px; }
+.hud .week { margin-top: 10px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+@media (max-width: 1000px) {  /* too narrow for three columns: the orb first, then the panels two across */
+  #page-home { height: auto; }
+  .hud-grid { display: flex; flex-direction: column; }
+  .hud-core { order: -1; grid-template-rows: auto 280px auto auto; flex: none; }
+  .hud-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); align-items: start; overflow: visible; }
+  .hud-panel.grow { min-height: 0; }
+}
+@media (max-width: 1560px) { .live span, .dock-end .seg button span, #pauseBtn span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } .dock .seg button { padding: 6px 10px; } }
+@media (max-width: 1180px) { .dock nav { gap: 8px; } .dock nav button:not([aria-current="page"]) span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } .dock nav button { padding: 8px 10px; } }
+@media (max-width: 900px) { .dock nav { gap: 2px; } .dock nav button span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } .brand span, .live > div { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } .live { padding: 3px 6px; } .dock-end .seg button span, #pauseBtn span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } .dock { gap: 8px; padding: 8px 10px; } }
+.page { max-width: 940px; margin: 0 auto; padding: 40px 40px 64px; }
+.page.wide { max-width: 940px; }
 h1 { font-size: 26px; line-height: 1.2; font-weight: 650; letter-spacing: -.02em; margin: 0; text-wrap: balance; }
 h2 { font-size: 15px; font-weight: 650; letter-spacing: -.005em; margin: 40px 0 12px; }
 h3, .what h2 { font-size: 14px; font-weight: 600; margin: 0; letter-spacing: 0; }
-p { margin: 0; }
+p, li { margin: 0; text-wrap: pretty; }
 .lede { color: var(--muted); font-size: 15px; margin-top: 8px; max-width: 62ch; }
 .muted { color: var(--muted); }
 .faint { color: var(--faint); }
@@ -102,8 +254,8 @@ p { margin: 0; }
 /* ---------- controls ---------- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 34px; padding: 0 14px;
-  border-radius: 9px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font-weight: 550;
-  white-space: nowrap; transition: background .15s, border-color .15s, transform .1s;
+  border-radius: 10px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font-weight: 550;
+  white-space: nowrap; transition: background .15s, border-color .15s, transform .15s;
 }
 .btn:hover { background: var(--raised); }
 .btn:active { transform: translateY(1px); }
@@ -113,13 +265,13 @@ p { margin: 0; }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.ghost:hover { background: var(--raised); color: var(--text); }
 .btn.danger { color: var(--danger); }
-.btn.danger.armed { background: var(--danger); color: #fff; border-color: transparent; }
+.btn.danger.armed { background: var(--danger); color: var(--accent-ink); border-color: transparent; }
 .btn.sm { height: 28px; padding: 0 10px; font-size: 13px; border-radius: 8px; }
-.btn.lg { height: 42px; padding: 0 20px; font-size: 15px; border-radius: 11px; }
+.btn.lg { height: 42px; padding: 0 20px; font-size: 15px; border-radius: 12px; }
 .icon-btn { width: 32px; height: 32px; padding: 0; border-radius: 8px; border: 0; background: none; color: var(--muted); display: inline-grid; place-items: center; }
 .icon-btn:hover { background: var(--raised); color: var(--text); }
 .input, select.input, textarea.input {
-  height: 34px; padding: 0 11px; border-radius: 9px; border: 1px solid var(--line-strong); background: var(--surface);
+  height: 34px; padding: 0 11px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--surface);
   color: var(--text); min-width: 0; transition: border-color .15s, box-shadow .15s;
 }
 .input::placeholder { color: var(--faint); }
@@ -127,15 +279,15 @@ p { margin: 0; }
 select.input { padding-right: 30px; appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
 .input.short { width: 92px; }
 .seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--sunk); border: 1px solid var(--line); gap: 2px; }
-.seg button { border: 0; background: none; padding: 5px 12px; border-radius: 7px; color: var(--muted); font-weight: 550; font-size: 13px; }
+.seg button { border: 0; background: none; padding: 5px 12px; border-radius: 8px; color: var(--muted); font-weight: 550; font-size: 13px; }
 .seg button[aria-checked="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
 .seg.full { display: flex; } .seg.full button { flex: 1; }
-#modeSeg svg { display: none; width: 17px; height: 17px; }
-.switch { position: relative; width: 38px; height: 22px; border-radius: 22px; border: 0; background: var(--line-strong); flex: none; transition: background .18s; padding: 0; }
-.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .18s cubic-bezier(.2,.8,.2,1); }
+#modeSeg svg { display: block; width: 16px; height: 16px; }
+.switch { position: relative; width: 42px; height: 24px; border-radius: 999px; border: 0; background: var(--line-strong); flex: none; transition: background .15s; padding: 0; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--accent-ink); box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .15s cubic-bezier(.16, 1, .3, 1); }
 .switch[aria-checked="true"] { background: var(--accent); }
-.switch[aria-checked="true"]::after { transform: translateX(16px); }
-input[type=range] { accent-color: var(--accent); width: 180px; }
+.switch[aria-checked="true"]::after { transform: translateX(18px); }
+input[type=range] { accent-color: var(--accent); width: 180px; height: 24px; }
 
 /* settings rows */
 .rows { border-top: 1px solid var(--line); }
@@ -188,11 +340,11 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
 .feed .kind.dict { color: var(--accent-text); }
 .feed .kind.warn { color: var(--amber); }
 .feed .body { min-width: 0; }
-.feed .body .t { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+.feed .body .t { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
 .feed .body.open .t { -webkit-line-clamp: unset; display: block; }
-.feed .body .sub { color: var(--faint); font-size: 12.5px; margin-top: 2px; overflow-wrap: anywhere; }
+.feed .body .sub { color: var(--faint); font-size: 12.5px; margin-top: 2px; word-break: break-word; overflow-wrap: anywhere; }
 .feed .body .code { margin-top: 5px; color: var(--faint); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-.feed .body.open .code { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; color: var(--muted); }
+.feed .body.open .code { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; color: var(--muted); }
 .feed .acts { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
 .feed li:hover .acts, .feed li:focus-within .acts { opacity: 1; }
 .day { color: var(--muted); font-size: 12.5px; font-weight: 600; margin: 28px 0 6px; }
@@ -210,7 +362,7 @@ input[type=range] { accent-color: var(--accent); width: 180px; }
 .upcoming { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
 .upcoming .ev { padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; background: var(--surface); }
 .upcoming .ev b { display: block; font-weight: 600; }
-.title-in { font-size: 22px; font-weight: 650; width: 100%; padding: 6px 10px; }
+.title-in { font-size: 19px; font-weight: 650; width: 100%; padding: 6px 10px; }
 .short-w { width: 150px; }
 .mt-pane { margin-top: 16px; }
 .mt-pane[hidden] { display: none; }
@@ -231,12 +383,12 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 /* ---------- chat ---------- */
 .chat { display: flex; flex-direction: column; height: 100vh; }
 .chat-head { display: flex; align-items: center; gap: 12px; padding: 18px 28px; border-bottom: 1px solid var(--line); }
-.chat-head h1 { font-size: 18px; }
+.chat-head h1 { font-size: 19px; }
 .chat-head .grow { flex: 1; }
 .thread { flex: 1; overflow-y: auto; padding: 28px 28px 12px; }
 .thread-inner { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
-.msg { max-width: 100%; overflow-wrap: anywhere; }
-.msg.user { align-self: flex-end; max-width: 78%; background: var(--accent-soft); color: var(--text); padding: 9px 14px; border-radius: 16px 16px 4px 16px; white-space: pre-wrap; }
+.msg { max-width: 100%; word-break: break-word; overflow-wrap: anywhere; }
+.msg.user { align-self: flex-end; max-width: 78%; background: var(--accent-soft); color: var(--text); padding: 9px 14px; border-radius: 14px 14px 6px 14px; white-space: pre-wrap; }
 .msg.user .spoken { display: flex; align-items: center; gap: 5px; color: var(--accent-text); font-size: 12px; margin-bottom: 2px; }
 .msg.user .spoken svg { width: 13px; height: 13px; }
 .msg.nova { display: grid; grid-template-columns: 26px 1fr; gap: 12px; align-items: start; }
@@ -246,7 +398,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .md p { margin: 0 0 10px; } .md p:last-child { margin-bottom: 0; }
 .md ul, .md ol { margin: 0 0 10px; padding-left: 20px; }
 .md li { margin: 3px 0; }
-.md code { font-family: "Cascadia Code", "SF Mono", Consolas, ui-monospace, monospace; font-size: 12.5px; background: var(--raised); padding: 1px 5px; border-radius: 5px; }
+.md code { font-family: "Cascadia Code", "SF Mono", Consolas, ui-monospace, monospace; font-size: 13px; background: var(--raised); padding: 1px 5px; border-radius: 6px; }
 .md pre { background: var(--sunk); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow-x: auto; margin: 0 0 10px; }
 .md pre code { background: none; padding: 0; }
 .md strong { font-weight: 650; }
@@ -258,7 +410,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .work { display: grid; grid-template-columns: 26px 1fr; gap: 12px; }
 .work .steps { border-left: 1px solid var(--line-strong); padding-left: 14px; margin-left: -1px; display: flex; flex-direction: column; gap: 4px; }
 .work .head-line { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; font-weight: 550; }
-.work .step { color: var(--faint); font-size: 12.5px; overflow-wrap: anywhere; }
+.work .step { color: var(--faint); font-size: 12.5px; word-break: break-word; overflow-wrap: anywhere; }
 .work.done .head-line { color: var(--faint); font-weight: 500; }
 .dots { display: inline-flex; gap: 4px; }
 .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: pulse 1.1s infinite ease-in-out; }
@@ -266,15 +418,15 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 @keyframes pulse { 0%, 100% { opacity: .3; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
 .ask { border: 1px solid var(--amber-line); background: var(--amber-soft); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
 .ask .t { display: flex; align-items: center; gap: 8px; font-weight: 650; color: var(--amber); }
-.ask pre { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow-y: auto; }
-.ask .bar { height: 3px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.ask pre { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; max-height: 180px; overflow-y: auto; }
+.ask .bar { height: 3px; border-radius: 999px; background: var(--line); overflow: hidden; }
 .ask .bar i { display: block; height: 100%; background: var(--amber); transform-origin: left; }
 .ask .btns { display: flex; gap: 8px; align-items: center; }
 .ask .what { font-size: 15px; font-weight: 560; line-height: 1.45; }
 .ask .why { color: var(--muted); font-size: 13px; margin-top: -6px; }
 .ask details summary { width: fit-content; cursor: pointer; color: var(--muted); font-size: 13px; list-style: none; display: flex; align-items: center; gap: 6px; border-radius: 6px; }
 .ask details summary::-webkit-details-marker { display: none; }
-.ask details summary::before { content: ""; width: 6px; height: 6px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform .15s ease-out; }
+.ask details summary::before { content: ""; width: 6px; height: 6px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform .15s cubic-bezier(.16, 1, .3, 1); }
 .ask details[open] summary::before { transform: rotate(45deg); }
 .ask details summary:hover { color: var(--text); }
 .ask details pre { margin-top: 8px; }
@@ -282,7 +434,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .ask.resolved .t { color: var(--muted); }
 .composer-wrap { padding: 12px 28px 18px; }
 .composer { max-width: 720px; margin: 0 auto; display: flex; align-items: flex-end; gap: 6px; padding: 6px 6px 6px 18px; border-radius: 24px; border: 1px solid var(--line-strong); background: var(--surface); box-shadow: var(--shadow); transition: border-color .15s, box-shadow .15s; }
-.composer:focus-within { outline: 2px solid transparent; border-color: color-mix(in srgb, var(--accent) 70%, transparent); box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow); }
+.composer:focus-within { outline: 2px solid transparent; border-color: var(--accent); border-color: color-mix(in srgb, var(--accent) 70%, transparent); box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow); }
 .composer textarea:focus-visible { box-shadow: none; outline: none; }  /* the composer around it shows focus */
 .composer textarea { flex: 1; border: 0; background: none; resize: none; outline: none; padding: 8px 0; max-height: 180px; line-height: 1.45; }
 .composer textarea::placeholder { color: var(--faint); }
@@ -298,12 +450,12 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .chip:hover { border-color: var(--accent); color: var(--accent-text); }
 .chat-empty { margin: 9vh auto 0; text-align: center; max-width: 480px; }
 .chat-empty canvas { width: 152px; height: 52px; margin-bottom: 18px; }
-.chat-empty h2 { margin: 0 0 6px; font-size: 20px; letter-spacing: -.01em; }
+.chat-empty h2 { margin: 0 0 6px; font-size: 19px; letter-spacing: -.01em; }
 
 /* ---------- dictionary ---------- */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .word { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line-strong); }
-.word button { width: 22px; height: 22px; border-radius: 50%; border: 0; background: none; color: var(--faint); display: grid; place-items: center; padding: 0; }
+.word button { width: 24px; height: 24px; border-radius: 50%; border: 0; background: none; color: var(--faint); display: grid; place-items: center; padding: 0; }
 .word button:hover { background: var(--raised); color: var(--danger); }
 .word button svg { width: 14px; height: 14px; }
 .add { display: flex; gap: 8px; margin-top: 16px; max-width: 460px; }
@@ -327,7 +479,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 .tag.ok { color: var(--ok); }
 .tag svg { width: 15px; height: 15px; }
-.log { margin-top: 10px; max-height: 140px; overflow-y: auto; padding: 10px 12px; border-radius: 10px; background: var(--sunk); border: 1px solid var(--line); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.log { margin-top: 10px; max-height: 140px; overflow-y: auto; padding: 10px 12px; border-radius: 10px; background: var(--sunk); border: 1px solid var(--line); color: var(--muted); white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
 .skel { display: inline-block; height: 10px; width: 90px; border-radius: 6px; background: linear-gradient(90deg, var(--raised), var(--sunk), var(--raised)); background-size: 200% 100%; animation: shimmer 1.2s infinite linear; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 
@@ -335,7 +487,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .onb { position: fixed; inset: 0; background: var(--bg); display: grid; grid-template-rows: auto 1fr auto; z-index: 20; }
 .onb-top { display: flex; align-items: center; justify-content: space-between; padding: 20px 28px; }
 .progress { display: flex; gap: 6px; }
-.progress i { width: 26px; height: 4px; border-radius: 4px; background: var(--line-strong); transition: background .25s; }
+.progress i { width: 26px; height: 4px; border-radius: 999px; background: var(--line-strong); transition: background .25s; }
 .progress i.on { background: var(--accent); }
 .onb-body { overflow-y: auto; display: grid; place-items: center; padding: 12px 28px; }
 .onb-step { width: 100%; max-width: 560px; animation: rise .32s cubic-bezier(.2,.8,.2,1); }
@@ -351,7 +503,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .walk-video { position: relative; border-radius: 14px; overflow: hidden; background: #0b0c18; aspect-ratio: 16 / 9; box-shadow: 0 18px 50px rgba(0,0,0,.35); }
 .walk-video video { width: 100%; height: 100%; display: block; }
 .walk-cover { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: #eef0fa; padding: 24px; }
-.walk-cover h2 { font-size: 28px; margin-bottom: 8px; }
+.walk-cover h2 { font-size: 30px; margin-bottom: 8px; }
 .walk-turn { margin-top: 20px; padding: 18px 20px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line-strong); animation: rise .32s cubic-bezier(.2,.8,.2,1); }
 .walk-turn h2 { font-size: 19px; margin: 0 0 6px; }
 .walk-turn p { font-size: 15.5px; line-height: 1.55; }
@@ -361,8 +513,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 @keyframes walkpulse { 50% { opacity: .25; } }
 @media (prefers-reduced-motion: reduce) { .walk-status .pulse { animation: none; } }
 .big-keys { display: flex; gap: 8px; margin: 28px 0 8px; align-items: center; flex-wrap: wrap; }
-.big-keys kbd { font-size: 20px; padding: 8px 16px; border-radius: 10px; border-bottom-width: 3px; min-width: 56px; }
-.big-keys .plus { color: var(--faint); font-size: 18px; }
+.big-keys kbd { font-size: 19px; padding: 8px 16px; border-radius: 10px; border-bottom-width: 3px; min-width: 56px; }
+.big-keys .plus { color: var(--faint); font-size: 19px; }
 .recording kbd { border-color: var(--accent); color: var(--accent-text); }
 .callout { margin-top: 20px; padding: 14px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); display: flex; gap: 12px; align-items: flex-start; }
 .callout svg { color: var(--accent); margin-top: 2px; }
@@ -389,7 +541,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .scene .line { height: .55em; border-radius: 1em; background: var(--raised); margin: .7em 0; }
 .scene .tool { display: flex; gap: .45em; justify-content: flex-end; padding: .55em .8em; border-bottom: 1px solid var(--line); }
 .scene .tool b { padding: .25em .7em; border-radius: .5em; border: 1px solid var(--line-strong); font-weight: 550; color: var(--muted); }
-.scene .tool b.hit { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); transition: all .3s; }
+.scene .tool b.hit { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); transition: border-color .25s, color .25s, background .25s; }
 .scene .photo { margin: .9em 1.1em; height: 52%; border-radius: .6em; background: linear-gradient(135deg, #5a8cff, #7b6dff 45%, #e0479a); opacity: .85; }
 .scene .typed { min-height: 3.2em; }
 .scene .caret { display: inline-block; width: 1.5px; height: 1.1em; vertical-align: -.2em; background: var(--accent); animation: blink 1s steps(1) infinite; }
@@ -398,12 +550,12 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .scene .bar-hit { position: absolute; left: 50%; bottom: 3.5%; width: 17%; height: 9%; transform: translateX(-50%); border: 0; border-radius: 99px; background: transparent; padding: 0; }
 .scene .heard { position: absolute; left: 50%; bottom: 15%; max-width: 70%; transform: translate(-50%, 6px); opacity: 0; padding: .45em .85em; border-radius: 1em;
   background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); color: var(--muted); font-style: italic; text-align: center;
-  transition: opacity .35s, transform .45s cubic-bezier(.16, 1, .3, 1); pointer-events: none; }
+  transition: opacity .25s, transform .45s cubic-bezier(.16, 1, .3, 1); pointer-events: none; }
 .scene .heard.on { opacity: 1; transform: translate(-50%, 0); }
 .scene .heard s { color: var(--faint); text-decoration-color: var(--danger); }
 .scene .card { position: absolute; right: 3%; bottom: 17%; width: 52%; padding: .85em 1em; border-radius: .9em; background: rgba(13, 15, 26, .97); color: #d4d7e8;
   border: 1px solid rgba(255, 255, 255, .12); box-shadow: 0 2px 4px rgba(0, 0, 0, .2), 0 14px 32px rgba(8, 10, 20, .35);
-  opacity: 0; transform: translateY(8px) scale(.98); filter: blur(3px); transition: opacity .3s, transform .45s cubic-bezier(.16, 1, .3, 1), filter .35s; }
+  opacity: 0; transform: translateY(8px) scale(.98); filter: blur(3px); transition: opacity .25s, transform .45s cubic-bezier(.16, 1, .3, 1), filter .25s; }
 .scene .card.on { opacity: 1; transform: none; filter: none; }
 .scene .card .t { display: flex; align-items: center; gap: .5em; color: #f0f2fa; font-weight: 600; }
 .scene .card .t i { width: .55em; height: .55em; border-radius: 50%; background: #7b6dff; }
@@ -419,7 +571,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .scene .ptr.on { opacity: 1; }
 .scene .ptr svg { width: 1.6em; height: 1.6em; margin: -.15em 0 0 -.15em; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .3)); }
 .scene .ptr span { margin-top: 1.05em; padding: .3em .75em; border-radius: 1em; background: rgba(13, 15, 26, .93); color: #f0f2fa; font-weight: 550; white-space: nowrap;
-  opacity: 0; transform: scale(.85); transform-origin: left center; transition: opacity .25s, transform .35s cubic-bezier(.16, 1, .3, 1); }
+  opacity: 0; transform: scale(.85); transform-origin: left center; transition: opacity .25s, transform .25s cubic-bezier(.16, 1, .3, 1); }
 .scene .ptr.landed span { opacity: 1; transform: none; }
 .scene .ask { position: absolute; left: 50%; bottom: 15%; transform: translateX(-50%); padding: .5em 1em; border-radius: 1em; border: 1px solid var(--accent);
   background: var(--surface); color: var(--accent-text); font-size: 1.05em; font-weight: 600; white-space: nowrap; transition: opacity .25s; }
@@ -429,31 +581,19 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .scene-cap { min-height: 3.2em; font-size: 15px; color: var(--text); text-wrap: pretty; }
 .scene-cap b { color: var(--accent-text); font-weight: 600; }
 .scene-ctl { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
-.scene-ctl .track { flex: 1; height: 3px; border-radius: 3px; background: var(--line-strong); overflow: hidden; }
+.scene-ctl .track { flex: 1; height: 3px; border-radius: 999px; background: var(--line-strong); overflow: hidden; }
 .scene-ctl .track i { display: block; height: 100%; width: 100%; background: var(--accent); transform-origin: left; transform: scaleX(0); }
 .scene-ctl .btn svg { width: 15px; height: 15px; }
 @media (prefers-reduced-motion: reduce) { .scene .caret { animation: none; } .scene .poke { animation: none; box-shadow: var(--focus); } }
 @media (forced-colors: active) { .scene .card, .scene .ptr span { forced-color-adjust: none; } }
 
-.toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 16px); opacity: 0; pointer-events: none; background: var(--pill); color: var(--pill-ink); padding: 8px 16px; border-radius: 999px; font-size: 13px; font-weight: 550; box-shadow: var(--shadow); transition: opacity .2s, transform .2s cubic-bezier(.2,.8,.2,1); z-index: 40; display: flex; gap: 8px; align-items: center; }
+.toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 16px); opacity: 0; pointer-events: none; background: var(--pill); color: var(--pill-ink); padding: 8px 16px; border-radius: 999px; font-size: 13px; font-weight: 550; box-shadow: var(--shadow); transition: opacity .15s, transform .15s cubic-bezier(.16, 1, .3, 1); z-index: 40; display: flex; gap: 8px; align-items: center; }
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
 .toast.bad { background: var(--danger); }
 .banner { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--amber-line); background: var(--amber-soft); margin-bottom: 20px; font-size: 13.5px; }
 .banner svg { color: var(--amber); }
 
 @media (max-width: 960px) {
-  .app { grid-template-columns: 72px 1fr; }
-  .side-foot .label { display: none; }
-  /* labels and Nova's status leave the screen but stay readable to screen readers; title shows names on hover */
-  .brand span, nav button span, .side-foot button span, .live > div { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .live { justify-content: center; padding: 8px 4px; }
-  .live canvas { width: 52px; }
-  nav button { justify-content: center; }
-  .side-foot { align-items: center; }
-  #modeSeg { flex-direction: column; align-self: stretch; }
-  #modeSeg button { display: grid; place-items: center; padding: 7px 0; }
-  #modeSeg svg { display: block; }
-  #pauseBtn { width: 36px; padding: 0; }
   .page { padding: 32px 28px 56px; }
   .try, .try.can ul { grid-template-columns: 1fr; }
   .try.can li:nth-child(2) { border-top: 0; }
@@ -482,7 +622,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
    wave through while thinking, and bounce like a voice while talking */
 .mark { display: block; flex: none; overflow: visible; }
 .mark g rect { fill: url(#nv-ink); transform-box: fill-box; transform-origin: center;
-  transition: transform .1s ease-out; animation: nv-rise .7s cubic-bezier(.3, 1.5, .5, 1) calc(var(--i) * .07s) backwards; }
+  transition: transform .15s cubic-bezier(.16, 1, .3, 1); animation: nv-rise .7s cubic-bezier(.16, 1, .3, 1) calc(var(--i) * .07s) backwards; }
 .mark .nv-glow { filter: url(#nv-blur); opacity: .8; }
 [data-nova="listening"] .mark g rect { transform: scaleY(calc(.4 + .75 * var(--l))); }
 [data-nova="listening"] .mark .nv-glow { opacity: 1; }
@@ -498,7 +638,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 @media (prefers-reduced-motion: reduce) { .mark * { animation: none !important; transition: none !important; } }
 
 /* ---------- settings: glass cards, side nav, big titles ---------- */
-#page-settings.page.wide { max-width: 1060px; }
+#page-settings.page.wide { max-width: 940px; }
 #page-settings .set-grid { display: grid; grid-template-columns: 188px minmax(0, 1fr); gap: 36px; align-items: start; }
 #page-settings .tabs { display: flex; flex-direction: column; gap: 2px; border: 0; margin: 0; overflow: visible; position: sticky; top: 24px; }
 #page-settings .tabs button { text-align: left; padding: 9px 14px; border: 0; margin: 0; border-radius: 10px; font-size: 14px; }
@@ -507,36 +647,44 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 #page-settings .ptitle { font-size: 34px; letter-spacing: -.02em; font-weight: 700; line-height: 1.15; }
 #page-settings .psub { color: var(--muted); font-size: 14px; margin: 6px 0 22px; max-width: 62ch; min-height: 1px; }
 #page-settings .rows { border: 0; display: flex; flex-direction: column; gap: 12px; }
-#page-settings .row { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px; box-shadow: var(--shadow); }
+#page-settings .row.flat { background: none; border: 0; box-shadow: none; padding: 0; }
+#page-settings .row { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; box-shadow: var(--shadow); }
 #page-settings .sec { font-size: 11.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--faint); margin: 14px 4px -2px; }
 #page-settings .sec:first-child { margin-top: 0; }
 #page-settings .btn { border-radius: 999px; }
 #page-settings kbd { min-width: 2.3em; padding: 3px 11px; border-radius: 9px; font-size: 13px; background: var(--raised); box-shadow: 0 1px 0 var(--line-strong); }
 #page-settings .seg, #page-settings .seg button { border-radius: 999px; }
-#page-settings .switch[aria-checked="true"] { background: #4aa8ff; }
+#page-settings .switch[aria-checked="true"] { background: var(--accent); }
 #page-settings .pills { display: inline-flex; gap: 6px; }
 #page-settings .pills button { border: 1px solid var(--line-strong); background: none; color: var(--muted); border-radius: 999px; padding: 6px 16px; font-weight: 600; font-size: 13px; }
-#page-settings .pills button[aria-checked="true"] { background: #4aa8ff; border-color: transparent; color: #fff; }
+#page-settings .pills button[aria-checked="true"] { background: var(--accent); border-color: transparent; color: var(--accent-ink); }
 .tiles { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
 .tiles button { width: 74px; height: 74px; border-radius: 16px; border: 2px solid transparent; background: var(--raised); display: grid; place-items: center; }
-.tiles button[aria-checked="true"] { border-color: #4aa8ff; background: var(--accent-soft); }
-.tiles button i { width: 26px; height: 26px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 5px color-mix(in srgb, currentColor 22%, transparent); }
+.tiles button[aria-checked="true"] { border-color: var(--accent-text); background: var(--accent-soft); }
+.tiles button i { width: 26px; height: 26px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 5px rgba(255, 255, 255, .18); box-shadow: 0 0 0 5px color-mix(in srgb, currentColor 22%, transparent); }
 .devlist { display: flex; flex-direction: column; gap: 4px; }
 .devlist button { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 0; border-radius: 12px; background: none; text-align: left; color: var(--text); font-size: 14px; }
 .devlist button:hover { background: var(--raised); }
 .devlist button[aria-checked="true"] { background: var(--accent-soft); }
-.devlist button[aria-checked="true"] .radio { border-color: #4aa8ff; }
-.devlist button[aria-checked="true"] .radio::after { content: ""; width: 9px; height: 9px; border-radius: 50%; background: #4aa8ff; }
+.devlist button[aria-checked="true"] .radio { border-color: var(--accent-text); }
+.devlist button[aria-checked="true"] .radio::after { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--accent-text); }
 @media (max-width: 760px) {
-  #page-settings .set-grid { grid-template-columns: 1fr; gap: 16px; }
+  #page-settings .set-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   #page-settings .tabs { flex-direction: row; overflow-x: auto; position: static; }
+  /* a setting's controls go under its words instead of beside them, and wrap */
+  #page-settings .row { flex-direction: column; align-items: stretch; gap: 12px; padding: 16px; }
+  #page-settings .how { flex-wrap: wrap; min-width: 0; }
+  #page-settings .how .seg, #page-settings .how .input { max-width: 100%; }
+  #page-settings .what, #page-settings .how > * { min-width: 0; }
+  #page-settings .pills, #page-settings .add, #page-settings .tag { flex-wrap: wrap; white-space: normal; }
+  #page-settings .set-main, #page-settings .what p { min-width: 0; word-break: break-word; overflow-wrap: anywhere; }
 }
 </style>
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><linearGradient id="nv-tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#131528"/><stop offset="1" stop-color="#080a12"/></linearGradient><linearGradient id="nv-ink" gradientUnits="userSpaceOnUse" x1="8" y1="24" x2="40" y2="24"><stop offset="0.00" stop-color="#7b6dff"/><stop offset="0.31" stop-color="#5a8cff"/><stop offset="0.62" stop-color="#3fd6e6"/><stop offset="1.00" stop-color="#e0479a"/></linearGradient><filter id="nv-blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.4"/></filter></defs></svg>
 <div class="app" id="app">
-  <aside class="side">
+  <header class="dock">
     <div class="brand"><svg class="mark" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="11" fill="url(#nv-tile)"/><g class="nv-glow"><rect x="8.3" y="11" width="5" height="26" rx="2.5" style="--i:0;--d:0.42s;--l:var(--nv-l0,.5)"/><rect x="14.9" y="11.5" width="5" height="13" rx="2.5" style="--i:1;--d:0.34s;--l:var(--nv-l1,.5)"/><rect x="21.5" y="17.5" width="5" height="13" rx="2.5" style="--i:2;--d:0.5s;--l:var(--nv-l2,.5)"/><rect x="28.1" y="23.5" width="5" height="13" rx="2.5" style="--i:3;--d:0.38s;--l:var(--nv-l3,.5)"/><rect x="34.7" y="11" width="5" height="26" rx="2.5" style="--i:4;--d:0.46s;--l:var(--nv-l4,.5)"/></g><g class="nv-bars"><rect x="8.3" y="11" width="5" height="26" rx="2.5" style="--i:0;--d:0.42s;--l:var(--nv-l0,.5)"/><rect x="14.9" y="11.5" width="5" height="13" rx="2.5" style="--i:1;--d:0.34s;--l:var(--nv-l1,.5)"/><rect x="21.5" y="17.5" width="5" height="13" rx="2.5" style="--i:2;--d:0.5s;--l:var(--nv-l2,.5)"/><rect x="28.1" y="23.5" width="5" height="13" rx="2.5" style="--i:3;--d:0.38s;--l:var(--nv-l3,.5)"/><rect x="34.7" y="11" width="5" height="26" rx="2.5" style="--i:4;--d:0.46s;--l:var(--nv-l4,.5)"/></g></svg><span>Nova</span></div>
     <div class="live" id="live" title="What Nova is doing">
       <canvas id="livePill" width="152" height="60" aria-hidden="true"></canvas>
@@ -544,55 +692,94 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
     </div>
     <nav aria-label="Sections">
       <button data-page="home" title="Home"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9v11h14V9"/></svg><span>Home</span></button>
-      <button data-page="chat" title="Chat"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg><span>Chat</span><i class="badge" id="chatBadge" hidden></i></button>
+      <button data-page="chat" title="Chat"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg><span>Chat</span><i class="badge" id="chatBadge" role="img" aria-label="Nova needs your OK" hidden></i></button>
       <button data-page="history" title="History"><svg class="i" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5v4.5H8"/><path d="M12 7.5V12l3 2"/></svg><span>History</span></button>
-      <button data-page="meetings" title="Meetings"><svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/><circle cx="12" cy="15" r="1.6"/></svg><span>Meetings</span><i class="badge rec" id="recBadge" hidden></i></button>
+      <button data-page="meetings" title="Meetings"><svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/><circle cx="12" cy="15" r="1.6"/></svg><span>Meetings</span><i class="badge rec" id="recBadge" role="img" aria-label="Recording" hidden></i></button>
       <button data-page="dictionary" title="Dictionary"><svg class="i" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 2-2h12v15H7a2 2 0 0 0-2 2z"/><path d="M5 20a2 2 0 0 0 2 1h12"/><path d="M9 7.5h6"/></svg><span>Dictionary</span></button>
+      <button data-page="skills" title="Skills"><svg class="i" viewBox="0 0 24 24"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/></svg><span>Skills</span></button>
       <button data-page="memory" title="Memory"><svg class="i" viewBox="0 0 24 24"><path d="M12 3a7 7 0 0 0-7 7c0 2.4 1.2 4.2 3 5.4V20h8v-4.6c1.8-1.2 3-3 3-5.4a7 7 0 0 0-7-7z"/><path d="M10 20v1.5h4V20"/><circle cx="12" cy="10" r="1.6"/></svg><span>Memory</span></button>
       <button data-page="settings" title="Settings"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg><span>Settings</span></button>
     </nav>
-    <div class="side-foot">
-      <span class="label">Mode</span>
-      <div class="seg full" role="radiogroup" aria-label="Mode" id="modeSeg">
+    <div class="dock-end">
+      <div class="seg" role="radiogroup" aria-label="Mode" id="modeSeg">
         <button role="radio" data-mode="assistant" title="Assistant"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg><span>Assistant</span></button>
         <button role="radio" data-mode="dictation" title="Dictation"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7V5h16v2M12 5v14M9 19h6"/></svg><span>Dictation</span></button>
       </div>
       <button class="btn ghost sm" id="pauseBtn" title="Pause Nova"><svg class="i" viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></svg><span>Pause Nova</span></button>
     </div>
-  </aside>
+  </header>
 
   <main id="main">
     <!-- HOME -->
-    <section class="page" id="page-home" hidden>
-      <div class="banner" id="gone" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17v.01"/></svg><span>Nova isn't running, so voice, chat and live status are off. Start Nova from the Start menu or Applications.</span></div>
-      <div class="banner" id="updateBanner" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span class="grow" style="flex:1"></span><button class="btn sm primary" id="updateBtn">Update</button></div>
-      <div class="banner" id="cfgError" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17v.01"/></svg><span></span></div>
-      <h1 id="greet">Hello</h1>
-      <p class="lede" id="homeLede"></p>
-      <div class="status" id="status">
-        <button data-go="settings:ai"><span class="k">Brain</span><span class="v"><i class="dot" id="stBrainDot"></i><span id="stBrain">…</span></span></button>
-        <button data-go="settings:voice"><span class="k">Speech recognition</span><span class="v"><i class="dot" id="stSttDot"></i><span id="stStt">…</span></span></button>
-        <button data-go="settings:general"><span class="k">“Hey Nova”</span><span class="v"><i class="dot" id="stWakeDot"></i><span id="stWake">…</span></span></button>
+    <section class="hud" id="page-home" hidden>
+      <div class="hud-banners">
+        <div class="banner" id="gone" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17v.01"/></svg><span>Nova isn't running, so voice, chat and live status are off. Start Nova from the Start menu or Applications.</span></div>
+        <div class="banner" id="updateBanner" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span class="grow" style="flex:1"></span><button class="btn sm primary" id="updateBtn">Update</button></div>
+        <div class="banner" id="cfgError" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17v.01"/></svg><span></span></div>
       </div>
-      <button class="btn sm" id="walkOpen" style="margin-top:4px">Take the 2-minute walkthrough</button>
-      <h2>Try saying</h2>
-      <div class="try">
-        <div>
-          <h3><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>Assistant</h3>
-          <ul id="tryAssistant"></ul>
+      <div class="hud-grid" id="deck" role="region" aria-label="Nova at a glance">
+        <div class="hud-col">
+          <section class="hud-panel" aria-labelledby="capClaude">
+            <h2 class="cap" id="capClaude">Claude</h2>
+            <div id="deckVitals"></div>
+          </section>
+          <section class="hud-panel" aria-labelledby="capSystem">
+            <h2 class="cap" id="capSystem">System</h2>
+            <div class="status" id="status">
+              <button data-go="settings:ai"><span class="k">Brain</span><span class="v"><i class="dot" id="stBrainDot"></i><span id="stBrain">…</span></span></button>
+              <button data-go="settings:voice"><span class="k">Speech recognition</span><span class="v"><i class="dot" id="stSttDot"></i><span id="stStt">…</span></span></button>
+              <button data-go="settings:general"><span class="k">“Hey Nova”</span><span class="v"><i class="dot" id="stWakeDot"></i><span id="stWake">…</span></span></button>
+            </div>
+            <button class="btn sm" id="walkOpen">Take the 2-minute walkthrough</button>
+          </section>
+          <section class="hud-panel" aria-labelledby="capRecent">
+            <h2 class="cap" id="capRecent">Recent</h2>
+            <ul class="feed" id="recent"></ul>
+            <p class="week" id="week"></p>
+            <p class="week" id="allTime" hidden></p>
+            <button class="btn ghost sm" data-go="history" style="margin-top:8px">See all history</button>
+          </section>
         </div>
-        <div>
-          <h3><svg class="i" viewBox="0 0 24 24"><path d="M4 7V5h16v2M12 5v14M9 19h6"/></svg>Dictation</h3>
-          <ul id="tryDictation"></ul>
+
+        <div class="hud-core">
+          <div class="core-head">
+            <div><h1 class="core-greet" id="greet">Hello</h1><p class="core-lede" id="homeLede"></p></div>
+            <div class="deck-status" id="deckStatus"></div>
+          </div>
+          <div class="core-orb">
+            <canvas id="orb" aria-hidden="true"></canvas>
+            <div class="deck-job" id="deckJob" hidden><b id="deckJobName"></b><span id="deckJobTime"></span><i><u id="deckJobBar"></u></i></div>
+          </div>
+          <div class="strip" id="homeStrip" hidden></div>
+          <form class="core-composer" id="homeComposer">
+            <textarea id="homePrompt" rows="1" placeholder="Ask Nova to do something…" aria-label="Ask Nova"></textarea>
+            <button type="button" class="round" id="homeMic" aria-label="Speak instead"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
+            <button type="submit" class="round go" id="homeSend" aria-label="Send" disabled><svg class="i" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></svg></button>
+          </form>
+        </div>
+
+        <div class="hud-col">
+          <section class="hud-panel grow" aria-labelledby="capSkills">
+            <h2 class="cap" id="capSkills">Nova skills</h2>
+            <div class="deck-skills" id="deckSkills"></div>
+            <h2 class="cap sub">Claude skills</h2>
+            <div class="claude-find"><input type="search" id="deckClaudeSearch" placeholder="Search Claude skills" aria-label="Search Claude skills"></div>
+            <div class="claude-list" id="deckClaude"></div>
+          </section>
+          <section class="hud-panel" aria-labelledby="capLibrary">
+            <h2 class="cap" id="capLibrary">Library</h2>
+            <div class="lib" id="library"></div>
+          </section>
+          <details>
+            <summary>What Nova can do</summary>
+            <div class="try">
+              <div><h3>Say to Nova</h3><ul id="tryAssistant"></ul></div>
+              <div><h3>Dictate</h3><ul id="tryDictation"></ul></div>
+            </div>
+            <div class="try can"><ul id="canDo"></ul></div>
+          </details>
         </div>
       </div>
-      <h2>More Nova can do</h2>
-      <div class="try can"><ul id="canDo"></ul></div>
-      <h2>This week</h2>
-      <p class="week" id="week"></p>
-      <p class="week" id="allTime" hidden></p>
-      <h2 style="display:flex;align-items:center">Recent <span class="grow" style="flex:1"></span><button class="btn ghost sm" data-go="history">See all</button></h2>
-      <ul class="feed" id="recent"></ul>
     </section>
 
     <!-- CHAT -->
@@ -637,6 +824,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <button class="btn primary" id="mtRecord"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/></svg><span>Record</span></button></div>
         <div class="banner live-rec" id="mtLive" hidden><i class="rec-dot"></i><span class="grow" id="mtLiveText"></span><button class="btn sm" id="mtLiveOpen">Take notes</button><button class="btn sm danger" id="mtStop">Stop</button></div>
         <div id="mtUpcoming"></div>
+        <label class="flabel" for="mtQuestion" style="margin-top:0">Ask your meetings</label>
         <form class="mt-ask" id="mtAsk"><input class="input" id="mtQuestion" placeholder="Ask your meetings, like “what did we decide about pricing?”" aria-label="Ask your meetings"><button class="btn primary" type="submit">Ask</button></form>
         <div class="answer md" id="mtAnswer" hidden></div>
         <div class="toolbar">
@@ -666,7 +854,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
     <section class="page" id="page-dictionary" hidden>
       <h1>Dictionary</h1>
       <p class="lede">Names, jargon and brands Nova should always spell right. You can also say “add Kubernetes to my dictionary”.</p>
-      <form class="add" id="wordForm"><input class="input" id="wordInput" placeholder="Add a word or name" aria-label="New word" maxlength="60"><button class="btn primary">Add</button></form>
+      <label class="flabel" for="wordInput">Add a word or name</label>
+      <form class="add" id="wordForm"><input class="input" id="wordInput" placeholder="For example, Kubernetes" aria-label="New word" maxlength="60"><button class="btn primary">Add</button></form>
       <div class="chips" id="words"></div>
       <h2>Replacements</h2>
       <p class="muted">When speech recognition keeps writing something wrong, Nova swaps it for what you meant.</p>
@@ -680,11 +869,23 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
       <button class="btn sm" id="addSnip" style="margin-top:12px"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add snippet</button>
     </section>
 
+    <!-- SKILLS -->
+    <section class="page" id="page-skills" hidden>
+      <div class="head"><div class="grow"><h1>Skills</h1><p class="lede">Tasks you wrote down once. Say “run morning intel”, or press Run: it works in the background and leaves a note you can correct, which the next run reads first.</p></div>
+        <button class="btn" id="skillsFolder"><svg class="i" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Open folder</span></button></div>
+      <ul class="feed" id="skillList"></ul>
+      <h2 id="claudeSkillsHead">Claude skills</h2>
+      <p class="muted">Everything installed for Claude Code on this computer. Press one to use it in Chat; if it needs something from you, it asks there.</p>
+      <div class="search" style="margin:12px 0 4px"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input class="input" id="claudeSearch" type="search" placeholder="Search Claude skills" aria-label="Search Claude skills"></div>
+      <div id="claudeSkills"></div>
+    </section>
+
     <!-- MEMORY -->
     <section class="page" id="page-memory" hidden>
       <h1>Memory</h1>
       <p class="lede">What Nova remembers about you and your projects. It learns these when you tell it something lasting, like “remember I use pnpm”, and uses them in every request. It's stored on this computer in your notes folder.</p>
-      <form class="add" id="memForm"><input class="input" id="memInput" placeholder="Add something Nova should remember" aria-label="New memory" maxlength="300"><button class="btn primary">Add</button></form>
+      <label class="flabel" for="memInput">Something Nova should remember</label>
+      <form class="add" id="memForm"><input class="input" id="memInput" placeholder="For example, I use pnpm" aria-label="New memory" maxlength="300"><button class="btn primary">Add</button></form>
       <ul class="feed" id="memList" style="margin-top:20px"></ul>
       <button class="btn danger sm" id="memClear" style="margin-top:16px"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg><span>Forget everything</span></button>
     </section>
@@ -713,12 +914,18 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 
       <div data-panel="general" class="rows">
         <div id="setMacPerms" style="display:contents" hidden></div>
-        <div class="row"><div class="what"><h2>Start in</h2><p>The mode Nova opens in. Switch any time with the sidebar or by saying “switch to dictation”.</p></div>
+        <div class="row"><div class="what"><h2>Start in</h2><p>The mode Nova opens in. Switch any time with the Mode switch at the top or by saying “switch to dictation”.</p></div>
           <div class="how"><div class="seg" role="radiogroup" data-bind="start_mode" data-options="assistant:Assistant,dictation:Dictation"></div></div></div>
         <div class="row"><div class="what"><h2>Open Nova when you sign in</h2><p>Nova waits quietly in the tray (the ^ by the clock) or the menu bar.</p></div>
           <div class="how"><button class="switch" role="switch" id="autostart" aria-label="Open Nova when you sign in"></button></div></div>
         <div class="row"><div class="what"><h2>Where the bar sits</h2><p>Bottom: above the taskbar or Dock. Top: along the top of the screen; on a MacBook with a notch, Nova hangs from the notch and grows out of it while it listens and talks.</p></div>
           <div class="how"><div class="seg" role="radiogroup" data-bind="overlay.position" data-options="bottom:Bottom,top:Top"></div></div></div>
+        <div class="row"><div class="what"><h2>Notes folder</h2><p>Where Nova keeps its memory, skills, run notes and meeting notes. Pick a folder inside your Obsidian vault (for example <span class="mono">Nova</span>) to read them in Obsidian, and on your other devices through whatever syncs the vault.</p>
+          <p class="mono" id="notesPath" style="margin-top:6px;overflow-wrap:anywhere"></p><p class="muted small" id="notesNote"></p>
+          <div class="banner" id="notesAsk" hidden style="margin:10px 0 0"><span class="grow" style="flex:1" id="notesAskText"></span><button class="btn sm primary" id="notesCopy">Copy my notes in</button><button class="btn sm" id="notesJust">Use without copying</button><button class="btn sm ghost" id="notesCancel">Cancel</button></div></div>
+          <div class="how"><button class="btn sm" id="notesChoose">Choose folder</button><button class="btn sm ghost" id="notesDefault">Use default</button><button class="btn sm ghost" id="notesOpen">Open</button></div></div>
+        <div class="row"><div class="what"><h2>Obsidian</h2><p id="obsNote"></p><div class="log mono" id="obsLog" hidden></div></div>
+          <div class="how"><button class="btn sm primary" id="obsInstall" hidden>Install Obsidian</button><button class="btn sm" id="obsSetup">Set up a vault for Nova</button><button class="btn sm ghost" id="obsOpen" hidden>Open in Obsidian</button></div></div>
         <div class="row"><div class="what"><h2>Hide replies after</h2><p>How long the reply card stays on screen after Nova finishes talking.</p></div>
           <div class="how"><input class="input short num" type="number" min="2" max="60" data-bind="overlay.hide_after_s" aria-label="Seconds"><span class="muted">seconds</span></div></div>
       </div>
@@ -763,11 +970,11 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 
       <div data-panel="cursor" class="rows" hidden>
         <div class="sec">Colour</div>
-        <div class="row" style="display:block"><div class="what"><h2>Cursor colour</h2><p>The colour of the marker beside your mouse pointer, and of what Nova draws with it.</p></div>
+        <div class="row" style="display:block"><div class="what"><h2>Cursor colour</h2><p>Nova uses its own colours by default. Pick one to tint the marker beside your mouse pointer instead.</p></div>
           <div class="tiles" id="colorTiles" role="radiogroup" aria-label="Cursor colour"></div></div>
         <div class="sec">Behaviour</div>
-        <div class="row"><div class="what"><h2>Companion</h2><p>A small glowing marker that stays beside your mouse pointer. It shows what Nova is doing (listening, thinking, speaking, waiting for your OK, and a number when agents are working for you), flies to what Nova is pointing at, draws with its tip when Nova draws on your screen, then comes back. It dims when you stop moving the mouse, hides in games, and shows in screen recordings.</p></div>
-          <div class="how"><button class="switch" role="switch" data-bind="companion.enabled" aria-label="Show the cursor"></button></div></div>
+        <div class="row"><div class="what"><h2>Follow the mouse pointer</h2><p>Off, Nova's mark (the five bars that make an N) shows up only when it points at something, takes you through a step or draws on your screen, then goes away. On, it also stays beside your mouse pointer and shows what Nova is doing (listening, thinking, speaking, waiting for your OK, and a number when agents are working for you). It dims when you stop moving the mouse, hides in games, and shows in screen recordings.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="companion.enabled" aria-label="Follow the mouse pointer"></button></div></div>
         <div class="row"><div class="what"><h2>Circle to ask</h2><p>Hold the shortcut and draw a circle around something on screen: Nova asks about exactly that.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="brain.circle_to_ask" aria-label="Circle to ask"></button></div></div>
       </div>
@@ -879,7 +1086,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
       </div>
 
       <div data-panel="ai" class="rows" hidden>
-        <div class="row" style="display:block"><div class="what"><h2>Brain</h2><p>Nova sends your requests to the AI you choose and signs in with your own account.</p></div>
+        <div class="row flat" style="display:block"><div class="what"><h2>Brain</h2><p>Nova sends your requests to the AI you choose and signs in with your own account.</p></div>
           <div class="engines" id="setEngines" role="radiogroup" aria-label="Brain"></div><div class="log mono" id="setLog" hidden></div></div>
         <div class="row" style="display:block"><div class="what"><h2>Backup brain</h2><p>When Claude Code or Codex hits its usage limit, Nova can keep going with Google Gemini on a free API key, until your limit resets. Its commands pass the same safety guard. On Google's free tier, your requests may be used to improve Google's products, so leave this off if that matters to you.</p></div>
           <div class="add" id="fbForm" style="max-width:none">
@@ -1048,6 +1255,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 <div class="sr" id="say" aria-live="polite"></div>
 
 <!-- md.js -->
+<!-- orb.js -->
 <script>
 "use strict";
 // macOS 12's WebKit (Safari 15) has no canvas roundRect; without it every pill stops drawing
@@ -1073,7 +1281,7 @@ const I = {
   pause: '<svg class="i" viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></svg>',
   play: '<svg class="i" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg>',
   info: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg>',
-  get logo() { return document.querySelector(".side .brand .mark").outerHTML.replace('class="mark"', 'class="who mark"'); },
+  get logo() { return document.querySelector(".dock .brand .mark").outerHTML.replace('class="mark"', 'class="who mark"'); },
 };
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -1103,6 +1311,14 @@ function toast(text, bad = false) {
   const t = $("#toast");
   t.textContent = text; t.classList.toggle("bad", bad); t.classList.add("on");
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("on"), bad ? 4200 : 1600);
+}
+function failAt(el, e) {  // the message sits under the field's row, named by the field, and clears when the user types
+  const msg = String(e && e.message || e).replace(/^Error:\s*/, "");
+  const row = el.closest(".add, .how, .what") || el.parentElement;
+  let p = row.nextElementSibling && row.nextElementSibling.classList.contains("field-err") ? row.nextElementSibling : null;
+  if (!p) { p = h("p", { class: "field-err", role: "alert", id: "err-" + (el.id || Math.random().toString(36).slice(2, 7)) }); row.after(p); }
+  p.textContent = msg; el.setAttribute("aria-invalid", "true"); el.setAttribute("aria-describedby", p.id);
+  el.addEventListener("input", () => { p.remove(); el.removeAttribute("aria-invalid"); el.removeAttribute("aria-describedby"); }, { once: true });
 }
 function fail(e) { toast(String(e && e.message || e).replace(/^Error:\s*/, ""), true); }
 function prettyKeys(combo) {  // a Mac shows modifiers as the symbols on its keys and in its menus
@@ -1267,6 +1483,129 @@ const liveSource = () => ({ state: S.gone ? "gone" : S.bar, levels: S.levels });
 const micLevels = new Array(15).fill(0);
 const micSource = () => ({ state: "listening", levels: micLevels });
 
+/* ---------- the orb on Home: it only draws while it can be seen ---------- */
+Orb.mount($("#orb"), { hue: 248 });  // the window's violet accent
+function syncOrb() { S.page === "home" && !document.hidden ? Orb.resume() : Orb.pause(); }
+document.addEventListener("visibilitychange", syncOrb);
+
+
+/* ---------- Home: ask Nova here, and see what it is doing in the strip above the box ---------- */
+const strip = () => $("#homeStrip");
+function stripSet(kind, ...kids) { const el = strip(); el.className = "strip " + kind; el.hidden = !kids.length; el.dataset.ask = ""; el.replaceChildren(...kids); }
+function homeWorking(text) { stripSet("work", h("span", { class: "dots", html: "<i></i><i></i><i></i>" }), h("span", { class: "strip-text mono" }, String(text || "Working").slice(0, 240))); }
+function homeReply(text) {
+  stripSet("reply", h("div", { class: "strip-text md", html: md(String(text || "")) }),
+    h("button", { class: "btn sm", onclick: () => go("chat") }, "Open in Chat"), h("button", { class: "icon-btn", "aria-label": "Dismiss", title: "Dismiss", html: I.x, onclick: () => stripSet("") }));
+}
+function homeNote(text) { stripSet("note", h("span", { class: "strip-text" }, String(text || "")), h("button", { class: "icon-btn", "aria-label": "Dismiss", title: "Dismiss", html: I.x, onclick: () => stripSet("") })); }
+function homeAsk(ev) {
+  const allow = h("button", { class: "btn primary sm", onclick: () => send("approve", { ok: true, id: ev.id }) }, "Allow");
+  const deny = h("button", { class: "btn sm", onclick: () => send("approve", { ok: false, id: ev.id }) }, "Deny");
+  stripSet("needs", h("b", {}, `${ev.who} needs your OK`), h("span", { class: "strip-text" }, ev.plain || `It wants to run something that ${ev.reason}.`),
+    h("div", { class: "btns" }, allow, deny, h("a", { href: "#", class: "small faint", onclick: e => { e.preventDefault(); go("chat"); } }, "Show command")));
+  strip().setAttribute("role", "alert"); strip().dataset.ask = ev.id;
+}
+function homeAnswered(ev) { if (strip().dataset.ask == ev.id) { ev.allowed ? homeWorking("Allowed, continuing\u2026") : homeNote("Denied. Nova won\u2019t do it."); } }
+function askHome() { const t = $("#homePrompt").value; if (!t.trim()) return; ask(t); homeWorking("Working"); $("#homePrompt").value = ""; growHome(); renderComposer(); }
+function growHome() { const t = $("#homePrompt"); t.style.height = "auto"; t.style.height = Math.min(120, t.scrollHeight) + "px"; }
+$("#homePrompt").addEventListener("input", () => { growHome(); renderComposer(); });
+$("#homePrompt").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!S.state.phase || S.state.phase === "idle") askHome(); } });
+$("#homeComposer").addEventListener("submit", e => { e.preventDefault(); if (S.state.phase && S.state.phase !== "idle") send("cancel"); else askHome(); });
+$("#homeMic").addEventListener("click", () => send("listen"));
+
+const LIB = { meetings: null, memory: null, upcoming: null };
+async function loadLibrary() {
+  const [m, mem, up] = await Promise.all([api().meetings_list("", "").catch(() => null), api().memory(null).catch(() => null), api().upcoming().catch(() => null)]);
+  Object.assign(LIB, { meetings: m, memory: mem, upcoming: up }); renderLibrary();
+}
+function renderLibrary() {
+  const week = Date.now() / 1000 - 7 * 86400, asked = S.history.filter(e => e.event === "reply" && e.t > week).length;
+  const words = (get("dictation.dictionary") || []).length, rec = S.state.recording;
+  const meetings = LIB.meetings ? LIB.meetings.meetings : null, next = LIB.upcoming && LIB.upcoming[0];
+  const row = (page, icon, title, sub, extra) => h("div", { class: "lib-row" },
+    h("button", { "data-go": page }, h("span", { html: icon }), h("span", { style: "min-width:0" }, h("span", { class: "lib-t" }, title), h("span", { class: "lib-s" }, sub))), extra);
+  const rbtn = h("button", { class: "btn sm", "aria-label": "Record a meeting" }, rec ? "Recording\u2026" : "Record");
+  rbtn.disabled = !!rec || S.gone; rbtn.addEventListener("click", () => send("meeting_start", { folder: "" }));
+  $("#library").replaceChildren(
+    row("history", '<svg class="i" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5v4.5H8"/><path d="M12 7.5V12l3 2"/></svg>', "History", `${asked} request${asked === 1 ? "" : "s"} this week`),
+    row("meetings", '<svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>', "Meetings",
+      next ? `Next: ${next.title}` : meetings ? `${meetings.length} saved` : "Record a call without a bot", rbtn),
+    row("memory", '<svg class="i" viewBox="0 0 24 24"><path d="M12 3a7 7 0 0 0-7 7c0 2.4 1.2 4.2 3 5.4V20h8v-4.6c1.8-1.2 3-3 3-5.4a7 7 0 0 0-7-7z"/><circle cx="12" cy="10" r="1.6"/></svg>', "Memory", LIB.memory ? `${LIB.memory.length} thing${LIB.memory.length === 1 ? "" : "s"} remembered` : "What Nova remembers"),
+    row("dictionary", '<svg class="i" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 2-2h12v15H7a2 2 0 0 0-2 2z"/><path d="M5 20a2 2 0 0 0 2 1h12"/></svg>', "Dictionary", `${words} word${words === 1 ? "" : "s"}`),
+    row("settings", '<svg class="i" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>', "Settings", "Voice, AI, safety, phone"));
+}
+
+/* ---------- the deck around it: the AI's reported usage, skills, the job running now ---------- */
+let DECK = null, deckTick = 0, deckSkillsKey = "", DECK_SIGNED_OUT = false, DECK_AT = 0, DECK_FAILED = false;
+const tokens = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e4 ? Math.round(n / 1e3) + "k" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n);
+const SAFETY = { auto: "Auto", plan: "Plan", bypass: "Bypass", ask: "Ask" };
+function deckRow(k, v, s, extra) { return h("div", { class: "deck-row" }, h("span", { class: "k" }, k), h("span", { class: "v" }, v), s ? h("span", { class: "s" }, s) : null, ...[extra].flat()); }
+function sparkline(values) {
+  const max = Math.max(1, ...values), pts = values.map((v, i) => `${(i / (values.length - 1) * 100).toFixed(1)},${(24 - v / max * 22).toFixed(1)}`).join(" ");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 100 26"); svg.setAttribute("preserveAspectRatio", "none"); svg.setAttribute("aria-hidden", "true");
+  svg.innerHTML = `<polyline points="${pts}" fill="none" stroke="#8b7dff" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
+  return svg;
+}
+function untilReset(epoch) {
+  const m = Math.max(0, Math.round((epoch - Date.now() / 1000) / 60));
+  return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+}
+function heroRow(k, big, gauge, sub) { return h("div", { class: "hero" }, h("span", { class: "k" }, k), h("span", { class: "big" }, big), gauge == null ? null : h("div", { class: "gauge", role: "img", "aria-label": `${gauge}% of your busiest 5 hours` }, h("i", { style: `width:${Math.max(0, Math.min(100, gauge))}%` })), h("span", { class: "s" }, sub)); }
+function renderDeck() {
+  const brain = S.state.brain, c = DECK && DECK.claude, sum = t => t.input + t.output;
+  const fromClaude = brain === "Claude Code" && c;  // Claude's own session files; Codex has no such record here, so Nova's own
+  const auth = c && c.auth, signedOut = !!(auth && !auth.logged_in);
+  const mode = `${SAFETY[(S.cfg.safety || {}).mode] || "Auto"} mode`;
+  const rows = [h("p", { class: "plan-line" + (signedOut ? " warn" : "") },
+    signedOut ? "Claude is signed out. Run claude auth login." : [auth && auth.plan ? auth.plan[0].toUpperCase() + auth.plan.slice(1) + " plan" : null, mode].filter(Boolean).join(" \u00b7 "))];
+  let foot = "As the AI tool reports it. Not your plan\u2019s limit.";
+  if (fromClaude && c.usage) {
+    const u = c.usage, b = u.block;
+    rows.push(heroRow("5-hour window", b ? `${u.percent}%` : "Idle", b ? u.percent : null, b ? `${tokens(b.tokens)} of ${tokens(u.peak)} peak \u00b7 resets in ${untilReset(b.resets)}` : "Starts when you next use Claude"));
+    rows.push(deckRow("Used today", u.today.tokens ? tokens(u.today.tokens) + " tokens" : "Nothing yet", `${u.today.messages} message${u.today.messages === 1 ? "" : "s"}`));
+    const peak = Math.max(0, ...u.days.map(d => d.tokens));
+    rows.push(deckRow("7 days", tokens(u.week) + " tokens", "all Claude Code on this PC", [sparkline(u.days.map(d => d.tokens)),
+      h("div", { class: "spark-ax" }, h("span", {}, new Date(u.days[0].date + "T12:00").toLocaleDateString([], { month: "short", day: "numeric" })), h("span", {}, `busiest ${tokens(peak)}`), h("span", {}, "today"))]));
+    foot = "From Claude Code\u2019s own files. The percentage is of your own busiest 5 hours, not a plan limit.";
+  } else if (fromClaude) {
+    rows.push(deckRow("Usage", "Reading\u2026", "Claude Code\u2019s history on this PC"));
+  } else if (DECK && DECK.usage) {
+    const u = DECK.usage, cost = t => t.cost_usd ? ` \u00b7 $${t.cost_usd.toFixed(2)} API price` : "";
+    rows.push(deckRow("Used today", sum(u.today) ? tokens(sum(u.today)) + " tokens" : "Nothing yet", `${u.today.runs} request${u.today.runs === 1 ? "" : "s"}${cost(u.today)}`));
+    rows.push(deckRow("7 days", tokens(sum(u.week)) + " tokens", `${u.week.runs} requests`, sparkline(u.days.map(sum))));
+  }
+  DECK_SIGNED_OUT = signedOut; renderStatusBrain();
+  const clock = sec => new Date(sec * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const at = (fromClaude && c.at) || DECK_AT, failed = DECK_FAILED || (fromClaude && c.error);
+  $("#deckVitals").replaceChildren(...rows, h("div", { class: "deck-foot" + (failed ? " warn" : ""), role: failed ? "status" : null },
+    failed ? `Couldn\u2019t refresh just now. These numbers are from ${at ? clock(at) : "earlier"}.` : `${foot}${at ? ` Updated ${clock(at)}.` : ""}`));
+  const skills = DECK ? DECK.skills.slice(0, 6) : [], skillsKey = JSON.stringify(skills);
+  if (skillsKey !== deckSkillsKey) $("#deckSkills").replaceChildren(...(skills.length ? skills.map(s => {
+    const b = h("button", { class: "deck-skill", title: `Run ${s.title}`, "aria-label": `Run ${s.title}` }, h("i", { class: "dot " + (s.status === "done" ? "ok" : s.status ? "warn" : "") }), h("span", {}, s.title));
+    b.addEventListener("click", () => { send("skill", { name: s.name }); toast("Asked Nova to run it"); homeWorking("Starting " + s.title); setTimeout(loadDeck, 1500); });
+    return b;
+  }) : [h("p", { class: "deck-empty" }, DECK ? "None yet. After a task, say \u201cturn that into a skill\u201d." : "")]));
+  deckSkillsKey = skillsKey;
+  renderDeckStatus(); renderJob();
+}
+function renderDeckStatus() {
+  const core = S.gone ? "Offline" : (PHRASE[S.bar] || PHRASE.idle)[0];
+  $("#deckStatus").replaceChildren(h("span", {}, "Core ", h("b", {}, core)), h("span", {}, "Link ", h("b", {}, S.gone ? "Off" : "Online")), h("span", {}, "Jobs ", h("b", {}, String((DECK ? DECK.running.length : S.state.jobs) || 0))));
+}
+function renderJob() {
+  const job = DECK && DECK.running[0];
+  $("#deckJob").hidden = !job;
+  clearInterval(deckTick); deckTick = 0;
+  if (!job) return;
+  $("#deckJobName").textContent = job.label + (DECK.running.length > 1 ? ` +${DECK.running.length - 1}` : "");
+  const tick = () => { const s = Math.max(0, Math.floor(Date.now() / 1000 - job.started)); $("#deckJobTime").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} \u00b7 working`; $("#deckJobBar").style.transform = `scaleX(${Math.min(92, 10 + s * 1.5) / 100})`; };
+  tick(); deckTick = setInterval(() => { S.page === "home" && !document.hidden && tick(); }, 1000);
+}
+async function loadDeck() { try { DECK = await api().deck(); DECK_AT = Date.now() / 1000; DECK_FAILED = false; } catch (e) { DECK_FAILED = true; /* keep the old numbers, and say so */ } renderDeck(); }
+// live: Claude's own files are read again every few seconds while Home is showing (a first read of a month takes longer)
+setInterval(() => { if (S.page === "home" && !document.hidden) loadDeck(); }, 5000);
+
 /* ---------- live status ---------- */
 const PHRASE = {
   idle: ["Ready", () => `${keysText(hotkey())} to talk`],
@@ -1276,21 +1615,33 @@ const PHRASE = {
   approval: ["Needs your OK", () => "Allow or deny below"],
   paused: ["Paused", () => "Resume to use Nova"],
 };
+function syncBanners() {  // the row holding the three banners hides when none shows (no :has selector, which older WebKit lacks)
+  const row = $(".hud-banners");
+  row.hidden = !$$(".banner", row).some(b => !b.hidden);
+}
+function renderStatusBrain() {
+  const brain = S.state.brain, out = DECK_SIGNED_OUT && brain === "Claude Code";
+  $("#stBrain").textContent = out ? "Claude Code, signed out" : brain || "Not connected";
+  $("#stBrainDot").className = "dot " + (out ? "bad" : brain ? "ok" : "warn");
+}
 function renderLive() {
   const [title, sub] = S.gone ? ["Not running", () => "Start Nova to use it"] : PHRASE[S.bar] || PHRASE.idle;
   $("#liveTitle").textContent = title; $("#liveSub").textContent = sub();
   document.documentElement.dataset.nova = S.gone ? "gone" : S.bar;  // animates Nova's mark
+  Orb.set(S.gone ? "gone" : S.bar);
+  if (typeof renderDeckStatus === "function") renderDeckStatus();
   $$("#modeSeg button").forEach(b => b.setAttribute("aria-checked", b.dataset.mode === S.state.mode));
   $("#pauseBtn").innerHTML = (S.state.paused ? I.play : I.pause) + `<span>${S.state.paused ? "Resume Nova" : "Pause Nova"}</span>`;
-  $("#pauseBtn").title = S.state.paused ? "Resume Nova" : "Pause Nova";
+  $("#pauseBtn").title = S.state.paused ? "Resume Nova" : "Pause Nova"; $("#pauseBtn").setAttribute("aria-label", $("#pauseBtn").title);
   $("#chatWith").textContent = S.state.brain ? `with ${S.state.brain}` : "No AI connected";
   $("#gone").hidden = !S.gone;
   const upd = S.state.update || S.updateFound;
   $("#updateBanner").hidden = !upd || S.updating;
+  syncBanners();
   if (upd) $("#updateBanner span").textContent = `Nova ${upd} is available. You have ${S.version}. Updating keeps your settings, history and notes.`;
   $("#chatBadge").hidden = !(S.state.pending && S.page !== "chat");
   const st = S.state;
-  $("#stBrain").textContent = st.brain || "Not connected"; $("#stBrainDot").className = "dot " + (st.brain ? "ok" : "warn");
+  renderStatusBrain();
   $("#stStt").textContent = !st.stt ? (S.gone ? "Off" : "Loading…") : st.speech && st.speech !== "Whisper" ? st.speech : `On this computer (${st.stt})`; $("#stSttDot").className = "dot " + (st.stt ? "ok" : "");
   $("#stWake").textContent = S.cfg.wake_word ? "Listening for it" : "Off"; $("#stWakeDot").className = "dot " + (S.cfg.wake_word ? "ok" : "");
   renderLede(); renderComposer();
@@ -1313,6 +1664,9 @@ function go(page, tab) {
   if (page === "settings") showTab(tab || S.tab || "general");
   if (page === "history") renderHistory();
   if (page === "memory") loadMemory();
+  if (page === "skills") loadSkills();
+  syncOrb();
+  if (page === "home") { loadDeck(); loadLibrary(); if (!CLAUDE_SKILLS.length) loadClaudeSkills(); }
   if (page === "meetings") { if (MT.id) refreshMeeting(); else loadMeetings(); }
   if (page !== "settings") stopMic();
   $("#main").scrollTop = 0;
@@ -1345,7 +1699,7 @@ function renderHome() {
     h("span", {}, h("b", {}, what), h("span", { class: "muted" }, local(line))), h("span", { html: I.arrow, style: "flex:none" })))));
   const hr = new Date().getHours();
   $("#greet").textContent = hr < 5 ? "Working late" : hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
-  $("#tryAssistant").replaceChildren(...TRY_A.map(t => h("li", {}, h("button", { class: "phrase", title: "Send in Chat", onclick: () => { go("chat"); ask(t); } }, h("span", {}, t), h("span", { html: I.arrow, style: "flex:none" })))));
+  $("#tryAssistant").replaceChildren(...TRY_A.map(t => h("li", {}, h("button", { class: "phrase", title: "Send to Nova", onclick: () => { ask(t); homeWorking("Working"); } }, h("span", {}, t), h("span", { html: I.arrow, style: "flex:none" })))));
   $("#tryDictation").replaceChildren(...TRY_D.map(t => h("li", {}, h("div", { class: "phrase static" }, h("span", {}, t)))));
   const week = Date.now() / 1000 - 7 * 86400, recent = S.history.filter(e => e.t > week);
   const words = recent.filter(e => e.event === "dictation" || e.event === "edit").reduce((n, e) => n + String(e.text || "").split(/\s+/).filter(Boolean).length, 0);
@@ -1357,16 +1711,19 @@ function renderHome() {
     $("#allTime").hidden = !s.dictations;
     if (s.dictations) $("#allTime").innerHTML = `So far: <b class="num">${s.words.toLocaleString()}</b> words dictated at <b class="num">${s.wpm}</b> words a minute, about <b class="num">${s.minutes_saved}</b> minutes saved over typing.`;
   }).catch(() => {});
-  const items = S.history.filter(isShown).slice(0, 5);
+  const items = S.history.filter(isShown).slice(0, 4);
+  if (typeof renderLibrary === "function") renderLibrary();
   $("#recent").replaceChildren(...(items.length ? items.map(feedItem) : [h("li", { style: "display:block" }, h("p", { class: "muted" }, "Your dictations and requests will appear here."))]));
 }
 
 /* ---------- history ---------- */
+const FAILED_RE = /^(Failed to authenticate|Claude Code error|Codex error|The job failed|.* is at its usage limit)/i;
+const unmd = t => String(t || "").replace(/```[\s\S]*?```/g, " ").replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`#>~]+/g, "").replace(/\s+/g, " ").trim();
 function isShown(e) { return e.event === "dictation" || e.event === "edit" || e.event === "reply" || (e.event === "approval") ; }
 function describe(e) {
   if (e.event === "dictation") return { icon: I.type, kind: "dict", text: e.text, sub: e.how && e.how !== "local" && e.how !== "verbatim" ? `Tidied by ${e.how}` : "Dictated", copy: e.text };
   if (e.event === "edit") return { icon: I.pen, kind: "dict", text: e.text, sub: `Rewrote selection: “${e.instruction}”`, copy: e.text };
-  if (e.event === "reply") return { icon: I.chat, kind: "", text: e.request, sub: e.reply, copy: e.reply };
+  if (e.event === "reply") return { icon: I.chat, kind: FAILED_RE.test(String(e.reply)) ? "warn" : "", text: e.request, sub: unmd(e.reply), copy: e.reply };
   if (e.event === "approval") {
     const r = e.request || {}, why = plainReason(r.reason || "");
     const verdict = e.allowed ? "Allowed" : e.timed_out ? "Denied (no answer)" : "Denied";
@@ -1403,16 +1760,18 @@ function renderHistory() {
     return;
   }
   const out = []; let day = "", ul;
-  for (const e of items) {
+  const limit = S.histLimit || 50, total = items.length;
+  for (const e of items.slice(0, limit)) {
     const d = dayLabel(e.t);
     if (d !== day) { day = d; out.push(h("div", { class: "day" }, d)); ul = h("ul", { class: "feed" }); out.push(ul); }
     ul.append(feedItem(e));
   }
+  if (total > limit) out.push(h("button", { class: "btn", style: "margin-top:16px", onclick: () => { S.histLimit = limit + 50; renderHistory(); } }, `Show ${Math.min(50, total - limit)} more (${total - limit} left)`));
   list.replaceChildren(...out);
 }
-$("#histSearch").addEventListener("input", renderHistory);
+$("#histSearch").addEventListener("input", () => { S.histLimit = 50; renderHistory(); });
 $$("#histFilter button").forEach(b => b.addEventListener("click", () => {
-  S.histFilter = b.dataset.f; $$("#histFilter button").forEach(x => x.setAttribute("aria-checked", x === b)); renderHistory();
+  S.histFilter = b.dataset.f; S.histLimit = 50; $$("#histFilter button").forEach(x => x.setAttribute("aria-checked", x === b)); renderHistory();
 }));
 armed($("#clearHist"), "Click again to delete", () => api().clear_history().then(() => { S.history = []; renderHistory(); renderHome(); toast("History cleared"); }).catch(fail));
 async function loadHistory() { try { S.history = await api().history(); } catch (e) { S.history = []; } renderHome(); if (S.page === "history") renderHistory(); }
@@ -1442,7 +1801,7 @@ function startWork() {
   const steps = h("div", { class: "steps" }, h("div", { class: "head-line" }, h("span", { class: "dots", html: "<i></i><i></i><i></i>" }), h("span", { class: "label" }, "Working")));
   S.work = addMsg(h("div", { class: "work" }, h("span"), steps));
 }
-function step(text) { if (!S.work) startWork(); $(".steps", S.work).append(h("div", { class: "step mono" }, text)); scrollThread(); }
+function step(text) { homeWorking(text); if (!S.work) startWork(); $(".steps", S.work).append(h("div", { class: "step mono" }, text)); scrollThread(); }
 function endWork(label) {
   if (!S.work) return;
   const w = S.work; S.work = null;
@@ -1482,6 +1841,9 @@ function renderComposer() {
   const btn = $("#sendBtn");
   btn.innerHTML = busy ? I.stop : I.send; btn.setAttribute("aria-label", busy ? "Stop" : "Send");
   btn.disabled = !busy && !$("#prompt").value.trim();
+  const hb = $("#homeSend");
+  hb.innerHTML = busy ? I.stop : I.send; hb.setAttribute("aria-label", busy ? "Stop" : "Send"); hb.disabled = !busy && !$("#homePrompt").value.trim();
+  $("#homeMic").classList.toggle("live-mic", S.bar === "listening");
   $("#micBtn").classList.toggle("live-mic", S.bar === "listening");
   $("#micBtn").setAttribute("aria-pressed", S.bar === "listening");  // the icon alone shows it's listening
 }
@@ -1647,6 +2009,135 @@ $("#memForm").addEventListener("submit", e => {
 });
 armed($("#memClear"), "Click again to forget all", () => saveMemory("Memory cleared", () => { memLines = []; }));
 
+/* ---------- the notes folder (Settings -> General) ---------- */
+let notesPick = null;
+async function loadNotes() {
+  try {
+    const n = await api().notes_info();
+    $("#notesPath").textContent = n.path;
+    $("#notesNote").textContent = n.problem ? n.problem
+      : n.restart ? "Chosen. Quit Nova from the tray icon and open it again to use it."
+      : n.custom ? "If this folder is synced (Obsidian Sync, iCloud, Dropbox), everything in it is uploaded, including run notes, which can hold text from the email or web pages a skill read. Never keep keys or passwords in notes."
+      : "The default, inside Nova's own folder. Nothing is synced.";
+    $("#notesNote").style.color = n.problem ? "var(--amber)" : "";
+    $("#notesDefault").disabled = !n.custom && !n.restart;
+  } catch (e) { fail(e); }
+}
+$("#notesChoose").addEventListener("click", async () => {
+  try {
+    const picked = await api().choose_notes_folder(); if (!picked) return;
+    notesPick = picked;
+    $("#notesAskText").textContent = picked.empty ? `Use ${picked.path}? It is empty. Nova can copy your current notes into it.` : `Use ${picked.path}? It already has files. Nova will keep them and never overwrite or delete anything there.`;
+    $("#notesCopy").hidden = !picked.empty; $("#notesAsk").hidden = false;
+  } catch (e) { $("#notesNote").textContent = String(e && e.message || e).replace(/^Error:\s*/, ""); $("#notesNote").style.color = "var(--amber)"; $("#notesNote").setAttribute("role", "alert"); }
+});
+async function useNotes(copy) {
+  try { const r = await api().set_notes_folder(notesPick.path, copy); $("#notesAsk").hidden = true; toast(copy ? `Copied ${r.copied} file${r.copied === 1 ? "" : "s"}. Restart Nova to use the new folder` : "Saved. Restart Nova to use the new folder"); loadNotes(); } catch (e) { fail(e); }
+}
+$("#notesCopy").addEventListener("click", () => useNotes(true));
+$("#notesJust").addEventListener("click", () => useNotes(false));
+$("#notesCancel").addEventListener("click", () => { $("#notesAsk").hidden = true; });
+$("#notesDefault").addEventListener("click", async () => { try { await api().use_default_notes(); toast("Back to the default. Restart Nova to use it"); loadNotes(); } catch (e) { fail(e); } });
+$("#notesOpen").addEventListener("click", () => api().open("notes").catch(fail));
+
+/* Obsidian: found, or installed here on request, then a vault with a Nova folder for the notes */
+async function loadObsidian() {
+  try {
+    const o = await api().obsidian_info();
+    $("#obsInstall").hidden = !!o.found; $("#obsInstall").textContent = o.can_install ? "Install Obsidian" : "Get Obsidian";
+    $("#obsOpen").hidden = !o.found || !o.vault_exists;
+    $("#obsSetup").textContent = o.vault_exists ? "Use my Nova vault" : "Set up a vault for Nova";
+    $("#obsNote").textContent = o.found
+      ? `Obsidian is installed. “Set up a vault” makes ${o.vault}, with a Nova folder inside it for your notes, copies your current notes in, and uses it from the next start. It never touches a vault you already have.`
+      : o.can_install ? "Obsidian isn't on this computer. It's a separate app made by someone else; check its current terms. Install puts it here with " + (S.platform === "mac" ? "Homebrew" : "winget") + "; you can still set up the vault first."
+      : "Obsidian isn't on this computer. Get Obsidian opens its download page. You can set up the vault now; Obsidian will find it after you install and open the folder as a vault.";
+  } catch (e) { fail(e); }
+}
+$("#obsInstall").addEventListener("click", async () => {
+  const log = $("#obsLog"), btn = $("#obsInstall"), was = btn.textContent;
+  btn.disabled = true; btn.textContent = "Installing\u2026"; log.hidden = false; log.textContent = ""; S.installLog = log;
+  try { const r = await api().install_obsidian(); toast(r.opened_download ? "Opened the Obsidian download page" : r.found ? "Obsidian is installed" : "Done, but Nova can't see Obsidian yet. Open it once, then come back"); }
+  catch (e) { fail(e); } finally { btn.disabled = false; btn.textContent = was; loadObsidian(); }
+});
+$("#obsSetup").addEventListener("click", async () => {
+  const btn = $("#obsSetup"); btn.disabled = true;
+  try {
+    const r = await api().setup_obsidian_vault();
+    $("#obsNote").textContent = `Done. Your vault is ${r.vault}; Nova will keep its notes in ${r.notes} (${r.copied} file${r.copied === 1 ? "" : "s"} copied). Quit Nova from the tray icon and open it again to use it. ` +
+      (r.registered ? "Obsidian will list the vault when it opens." : r.running ? "Obsidian is open, so Nova didn't change its list: in Obsidian choose “Open folder as vault” and pick that folder." : "In Obsidian choose “Open folder as vault” and pick that folder.");
+    loadNotes();
+  } catch (e) { fail(e); } finally { btn.disabled = false; }
+});
+$("#obsOpen").addEventListener("click", () => api().open_obsidian_vault().catch(fail));
+
+/* ---------- skills ---------- */
+function renderSkills(list) {
+  if (!list.length) {
+    $("#skillList").replaceChildren(h("li", { style: "display:block" }, h("p", { class: "muted" }, "None yet. Do a task with Nova, then say “turn what we just did into a skill”. Or put a markdown file in the skills folder.")));
+    return;
+  }
+  $("#skillList").replaceChildren(...list.map(s => {
+    const last = s.last;
+    const when = last && last.started ? last.started.replace("T", " ").slice(0, 16) : "";
+    const sub = last ? `Last run ${when}${last.status ? ", " + last.status : ""}${last.usage ? ". " + last.usage : ""}` : "Hasn't run yet";
+    const run = h("button", { class: "btn primary sm", "aria-label": `Run ${s.title}` }, "Run");
+    run.addEventListener("click", () => { send("skill", { name: s.name }); toast("Asked Nova to run it"); go("chat"); });
+    const note = h("button", { class: "btn sm", disabled: !last }, "Last run");
+    note.addEventListener("click", () => api().open_skill(s.name, "note").catch(fail));
+    const file = h("button", { class: "btn sm" }, "Edit");
+    file.addEventListener("click", () => api().open_skill(s.name, "skill").catch(fail));
+    return h("li", { style: "grid-template-columns: 1fr auto" },
+      h("div", { class: "body" }, h("div", { class: "t" }, s.title), h("div", { class: "sub" }, `${s.name} · ${s.safety}${s.needs === "apps" ? " · uses your apps" : ""}`), h("div", { class: "sub" }, sub)),
+      h("div", { class: "acts", style: "opacity:1" }, run, note, file));
+  }));
+}
+let CLAUDE_SKILLS = [];
+// the Claude skills as buttons, grouped (yours, then each plugin's), filtered by a search; `home`: stay on Home, the strip shows the work
+function pressClaude(sk, home) { send("claude_skill", { id: sk.id }); bumpUse(sk.id); toast("Asked Nova to use it"); if (home) { homeWorking("Starting " + sk.name); renderDeckClaude(); } else go("chat"); }
+function uses() { try { return JSON.parse(localStorage.getItem("nova-claude-uses") || "{}"); } catch { return {}; } }
+function bumpUse(id) { try { const u = uses(); u[id] = (u[id] || 0) + 1; localStorage.setItem("nova-claude-uses", JSON.stringify(u)); } catch {} }
+function claudeList(into, query, home) {
+  const q = query.trim().toLowerCase();
+  const shown = CLAUDE_SKILLS.filter(s => !q || (s.name + " " + s.description).toLowerCase().includes(q));
+  const groups = {};
+  shown.forEach(s => (groups[s.source] ||= []).push(s));
+  into.replaceChildren(...(shown.length ? Object.entries(groups).flatMap(([source, list]) => [
+    h("h3", { class: "muted", style: home ? "" : "margin:18px 0 8px;font-size:12.5px;font-weight:600;letter-spacing:.04em" }, source === "you" ? "Yours" : `Plugin: ${source}`),
+    h("div", { class: "chips" }, list.map(s => {
+      const b = h("button", { class: "chip", title: s.description || s.name }, s.name.includes(":") ? s.name.split(":").slice(1).join(":") : s.name);
+      b.addEventListener("click", () => pressClaude(s, home));
+      return b;
+    }))]) : [h("p", { class: home ? "deck-empty" : "muted" }, CLAUDE_SKILLS.length ? "No match." : "No Claude skills are installed on this computer.")]));
+}
+let deckAllClaude = false;
+function renderDeckClaude() {
+  const box = $("#deckClaude"), q = $("#deckClaudeSearch").value.trim();
+  if (q || deckAllClaude) {  // the whole list: searched or opened with "All"
+    claudeList(box, q, true);
+    if (!q) box.append(h("button", { class: "cmd-more", onclick: () => { deckAllClaude = false; renderDeckClaude(); } }, "Show fewer"));
+    return;
+  }
+  const u = uses(), mine = CLAUDE_SKILLS.filter(s => s.source === "you");
+  const seen = new Set();  // eight different skills, not three versions of one
+  const top = [...(mine.length ? mine : CLAUDE_SKILLS)].sort((a, b) => (u[b.id] || 0) - (u[a.id] || 0) || a.name.localeCompare(b.name))
+    .filter(s => { const k = s.name.slice(0, 11).toLowerCase(); return seen.has(k) ? false : (seen.add(k), true); }).slice(0, 8);
+  box.replaceChildren(...(top.length ? [h("div", { class: "cmd-grid" }, top.map(s => {
+    const b = h("button", { class: "cmd", title: s.description || s.name }, s.name.includes(":") ? s.name.split(":").slice(1).join(":") : s.name);
+    b.addEventListener("click", () => pressClaude(s, true));
+    return b;
+  })), h("button", { class: "cmd-more", onclick: () => { deckAllClaude = true; renderDeckClaude(); } },
+    h("span", { html: '<svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>' }), `All ${CLAUDE_SKILLS.length} Claude skills`)] : [h("p", { class: "deck-empty" }, "No Claude skills are installed on this computer.")]));
+}
+const renderClaudeSkills = () => claudeList($("#claudeSkills"), $("#claudeSearch").value, false);
+$("#deckClaudeSearch").addEventListener("input", renderDeckClaude);
+async function loadClaudeSkills() { try { CLAUDE_SKILLS = await api().claude_skills(); } catch (e) { CLAUDE_SKILLS = []; } renderClaudeSkills(); renderDeckClaude(); }
+$("#claudeSearch").addEventListener("input", renderClaudeSkills);
+async function loadSkills() {
+  try { renderSkills(await api().skills_list()); } catch (e) { fail(e); }
+  await loadClaudeSkills();
+}
+$("#skillsFolder").addEventListener("click", () => api().open("skills").catch(fail));
+
 /* ---------- settings ---------- */
 function showTab(tab) {
   S.tab = tab;
@@ -1655,6 +2146,7 @@ function showTab(tab) {
   if (tab !== "microphone") { stopMic(); $("#setMicBtn").textContent = "Test microphone"; }
   const [title, sub] = SET_PAGES[tab] || [tab, ""]; $("#setTitle").textContent = title; $("#setSub").textContent = sub;
   if (tab === "microphone" || tab === "voice") loadDevices();
+  if (tab === "general") { loadNotes(); loadObsidian(); }
   if (tab === "ai") { loadEngines($("#setEngines"), $("#setLog")); loadFallback(); }
   if (tab === "browsers") loadBrowsers($("#setBrowsers"), $("#browserLog"), false);
   if (tab === "phone") loadPhone();
@@ -1861,7 +2353,7 @@ const SET_PAGES = { general: ["General", "How Nova starts and where it shows up.
   voice: ["Voice", "How Nova listens, and how it sounds."], microphone: ["Microphone", "Pick the microphone and check that Nova hears you."], dictation: ["Dictation", "How Nova turns speech into text in any app."], meetings: ["Meetings", "Record, transcribe and summarise calls."],
   ai: ["AI", "The AI that does the work, and the apps it can use."], routines: ["Routines", "Things Nova does on a schedule."], browsers: ["Browsers", "Which browsers Nova can use for you."], phone: ["Phone", "Use Nova from your phone."],
   privacy: ["Privacy & safety", "What Nova asks about, and what stays on this computer."], advanced: ["Advanced", "Files, updates and resets."] };
-const COLORS = ["#3380FF", "#9B5CFF", "#FF5C8A", "#FF6B3D", "#F5B800", "#22C55E", "#14B8A6", "#EDEDED"];
+const COLORS = ["NOVA", "#3380FF", "#9B5CFF", "#FF5C8A", "#FF6B3D", "#F5B800", "#22C55E", "#14B8A6", "#EDEDED"];
 const SPEEDS = [["Slow", 0.85], ["Normal", 1], ["Fast", 1.2], ["Faster", 1.4]];
 function radios(box, items, cur, pick, mk = label => label) {
   const paint = () => $$("button", box).forEach(b => b.setAttribute("aria-checked", b.dataset.v === String(cur())));
@@ -1869,7 +2361,7 @@ function radios(box, items, cur, pick, mk = label => label) {
   paint();
 }
 function paintCursorSpeed() {
-  radios($("#colorTiles"), COLORS.map(c => [c, c]), () => String(get("companion.color")).toUpperCase(), c => { set("companion.color", c); save(true); }, (_, c) => { const i = h("i"); i.style.color = c; return i; });
+  radios($("#colorTiles"), COLORS.map(c => [c, c === "NOVA" ? "Nova" : c]), () => String(get("companion.color")).toUpperCase(), c => { set("companion.color", c === "NOVA" ? "nova" : c); save(true); }, (_, c) => { const i = h("i"); if (c === "NOVA") { i.style.background = "linear-gradient(90deg, #7b6dff, #5a8cff, #3fd6e6, #e0479a)"; i.style.boxShadow = "none"; } else i.style.color = c; return i; });
   const near = () => SPEEDS.reduce((a, b) => Math.abs(b[1] - get("voice.tts_speed")) < Math.abs(a[1] - get("voice.tts_speed")) ? b : a)[1];
   radios($("#speedPills"), SPEEDS.map(([l, v]) => [v, l]), near, v => { set("voice.tts_speed", Number(v)); save(); });
 }
@@ -1986,7 +2478,7 @@ $("#fbSave").addEventListener("click", async () => {
   const btn = $("#fbSave"), input = $("#fbKey");
   btn.disabled = true; btn.textContent = "Checking…";
   try { await api().fallback_save(input.value); input.value = ""; toast("Backup brain ready"); loadFallback(); }
-  catch (e) { fail(e); }
+  catch (e) { failAt(input, e); }
   btn.disabled = false; btn.textContent = "Check and save";
 });
 
@@ -2020,7 +2512,7 @@ $("#sttSave").addEventListener("click", async () => {
   const btn = $("#sttSave"), input = $("#sttKey");
   btn.disabled = true; btn.textContent = "Checking…";
   try { await api().stt_key_save(get("voice.stt_engine"), input.value); input.value = ""; toast("Key saved"); loadSttExtras(); }
-  catch (e) { fail(e); }
+  catch (e) { failAt(input, e); }
   btn.disabled = false; btn.textContent = "Check and save";
 });
 $("#sttModelGet").addEventListener("click", async e => {
@@ -2044,7 +2536,7 @@ $("#calSave").addEventListener("click", async () => {
   const btn = $("#calSave"), input = $("#calKey");
   btn.disabled = true; btn.textContent = "Checking…";
   try { await api().calendar_save(input.value); input.value = ""; toast("Calendar connected"); loadCalendar(); }
-  catch (e) { fail(e); }
+  catch (e) { failAt(input, e); }
   btn.disabled = false; btn.textContent = "Check and save";
 });
 let addMtAction;
@@ -2655,6 +3147,8 @@ const handlers = {
   state(ev) {
     setTimeout(drawBrowsers);
     const wasBusy = S.state.phase && S.state.phase !== "idle";
+    if (S.page === "skills" && ev.jobs !== S.state.jobs) setTimeout(loadSkills);
+    if (S.page === "home" && (ev.jobs !== S.state.jobs || (S.state.phase && S.state.phase !== "idle" && ev.phase === "idle"))) setTimeout(loadDeck, 300);  // a request or job ended: its usage is in  // a run started or finished: its note is written
     S.state = ev; S.gone = false; if (ev.phase === "idle" && !ev.paused && S.bar !== "idle" && S.bar !== "paused") S.bar = "idle";
     if (ev.paused) S.bar = "paused";
     if (wasBusy && ev.phase === "idle") endWork();
@@ -2681,7 +3175,7 @@ const handlers = {
   meeting_answer(ev) { const box = $("#mtAnswer"); box.hidden = false; box.replaceChildren(ev.error ? h("p", {}, ev.error) : h("div", { html: md(ev.text) })); },
   meeting_done(ev) { if (ev.error) fail(ev.error); if (MT.id === ev.id) refreshMeeting(); },
   bar(ev) { S.bar = ev.state; if (ev.state !== "listening") S.levels.fill(0); renderLive(); },
-  level(ev) { S.levels.push(ev.value); S.levels.shift(); },
+  level(ev) { S.levels.push(ev.value); S.levels.shift(); Orb.level(Math.min(1, ev.value * 1.5)); },
   mic(ev) { micLevels.push(ev.value); micLevels.shift(); },
   heard(ev) {
     S.history.unshift(ev);
@@ -2691,16 +3185,16 @@ const handlers = {
   },
   step(ev) { step(ev.text); },
   // screen readers hear the reply through #say, not every step in the thread
-  reply(ev) { endWork(); novaMsg(ev.reply); $("#say").textContent = String(ev.reply || "").replace(/[`*#_]/g, ""); S.history.unshift(ev); renderHome(); },
-  note(ev) { if (S.work || ev.title !== "Cancelled") { endWork(ev.title === "Cancelled" ? "Stopped" : undefined); noteMsg(ev.text); } },
-  asking(ev) { askMsg(ev); if (S.page !== "chat") $("#chatBadge").hidden = false; },
-  approval(ev) { resolveAsk(ev.allowed, ev.timed_out); S.history.unshift(ev); },
+  reply(ev) { endWork(); novaMsg(ev.reply); homeReply(ev.reply); $("#say").textContent = String(ev.reply || "").replace(/[`*#_]/g, ""); S.history.unshift(ev); renderHome(); },
+  note(ev) { if (S.work || ev.title !== "Cancelled") { endWork(ev.title === "Cancelled" ? "Stopped" : undefined); noteMsg(ev.text); homeNote(ev.text); } },
+  asking(ev) { askMsg(ev); homeAsk(ev); if (S.page !== "chat") $("#chatBadge").hidden = false; },
+  approval(ev) { resolveAsk(ev.allowed, ev.timed_out); homeAnswered(ev); S.history.unshift(ev); },
   dictation(ev) { S.history.unshift(ev); renderHome(); },
   edit(ev) { S.history.unshift(ev); renderHome(); },
-  error(ev) { if (S.work) { endWork("Stopped"); noteMsg("Something went wrong: " + ev.error); } },
+  error(ev) { if (S.work) { endWork("Stopped"); noteMsg("Something went wrong: " + ev.error); homeNote("Something went wrong: " + ev.error); } },
   install(ev) { if (S.installLog) { S.installLog.textContent += ev.line + "\n"; S.installLog.scrollTop = 1e9; } },
   focus(ev) { if (ev.page === "welcome") openOnboarding(); else if (ev.page) go(ev.page); },
-  gone() { S.gone = true; S.bar = "idle"; endWork("Stopped"); renderLive(); },
+  gone() { S.gone = true; S.bar = "idle"; endWork("Stopped"); stripSet(""); renderLive(); },
 };
 window.nova = { recv(ev) { ev.t ??= Date.now() / 1000; try { walkEvent(ev); (handlers[ev.event] || (() => {}))(ev); } catch (e) { console.error(e); } } };
 
@@ -2709,7 +3203,7 @@ async function boot() {
   Object.assign(S, { cfg: b.config, defaults: b.defaults, platform: b.platform, autostart: b.autostart, claudeHook: b.claude_hook, defaultHotkey: b.default_hotkey, languages: b.languages, paths: b.paths, gone: !b.connected, version: b.version });
   if (S.platform === "mac") { macify(); $("#setMacPerms").hidden = false; macPerms($("#setMacPerms")); }
   $("#versionNote").textContent = `You have Nova ${b.version}. ` + $("#versionNote").textContent;
-  if (b.error) { $("#cfgError").hidden = false; $("#cfgError span").textContent = b.error; }
+  if (b.error) { $("#cfgError").hidden = false; $("#cfgError span").textContent = b.error; syncBanners(); }
   pill($("#livePill"), liveSource);
   requestAnimationFrame(drawPills);
   if (reduced) setInterval(() => drawPills(performance.now()), 250);

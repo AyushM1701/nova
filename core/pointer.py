@@ -1,4 +1,4 @@
-"""The companion: a small glowing blue marker that stays beside your mouse pointer, and is Nova's hand on the screen.
+"""The companion: Nova's mark (the five bars that make an N) on a small dark tile that stays beside your mouse pointer, and is Nova's hand on the screen.
 It shows what Nova is doing (listening, thinking, speaking, waiting for your OK, agents at work), flies to the thing on
 screen the AI is talking about ("where's the export button?") and shows its name, is the pen when the AI draws on the
 screen, then flies back to the mouse. Idea from Clicky: the AI gets a screenshot labelled with its pixel size and adds a
@@ -16,7 +16,11 @@ from core import system
 from core.bar import Layered, _font, dpi_scale
 
 SS = 3  # drawn 3x, then downscaled: smooth edges
-BLUE, AMBER, GREY = (51, 128, 255), (255, 186, 60), (150, 155, 175)  # the marker: Nova's colour, approval, paused
+BLUE, AMBER, GREY = (51, 128, 255), (255, 186, 60), (150, 155, 175)  # a chosen colour's old default, approval, paused
+NOVA = None  # the setting "nova": the mark in its own colours
+RAMP = ((0.0, (123, 109, 255)), (0.31, (90, 140, 255)), (0.62, (63, 214, 230)), (1.0, (224, 71, 154)))  # the mark's violet, blue, cyan, pink
+BARS = ((8.3, 11, 26), (14.9, 11.5, 13), (21.5, 17.5, 13), (28.1, 23.5, 13), (34.7, 11, 26))  # x, y, height in the 48 px mark: they spell an N
+TILE = 26  # design px: the tile the bars sit on
 EDGE, BG, TEXT = (255, 255, 255), (13, 15, 26, 236), (240, 242, 250)
 OFFSET = (14, 16)  # design px: where the marker's tip sits from the mouse pointer's tip, so it never covers it
 MARGIN = 14  # design px of glow room around the marker
@@ -52,7 +56,7 @@ def last_step(reply):
 class Pointer(Layered):
     """The companion window (see the module docstring)."""
 
-    def __init__(self, root, color=BLUE, enabled=True):
+    def __init__(self, root, color=NOVA, enabled=True):
         self.root = root
         self._init_surface(root, level=25)
         self.setup(dpi_scale(root), color, enabled)
@@ -60,12 +64,12 @@ class Pointer(Layered):
         self._present(Image.new("RGBA", (1, 1)), 0, 0)  # Windows rejects every later paint if hidden before its first
         self._hide()
 
-    def setup(self, logical, color=BLUE, enabled=True, mouse=None, clock=time.monotonic, cursor_visible=None):
+    def setup(self, logical, color=NOVA, enabled=True, mouse=None, clock=time.monotonic, cursor_visible=None):
         """Everything but the window: also what the tests build a companion from, with a fake mouse and clock."""
         self.logical = logical  # screen pixels per design pixel
         self.scale = logical * self.px  # image pixels per design pixel
         self.font = _font(int(13 * self.scale * SS))
-        self.color, self.enabled, self.suppressed = tuple(color), enabled, False
+        self.color, self.enabled, self.suppressed = (tuple(color) if color else NOVA), enabled, False
         self.mouse, self.clock = mouse or system.mouse_pos, clock
         self.cursor_visible = cursor_visible or system.cursor_visible  # False: the system hid the pointer (a full-screen video)
         self.state, self.badge, self.mode = "idle", 0, "follow"  # mode: follow, fly, hold, pen, home, gone
@@ -94,7 +98,7 @@ class Pointer(Layered):
         self.suppressed = bool(on)  # a game is in front: no companion
 
     def set_color(self, color):
-        self.color, self.cache = tuple(color), {}
+        self.color, self.cache = (tuple(color) if color else NOVA), {}
 
     def start(self):
         """Begin the animation loop."""
@@ -210,46 +214,63 @@ class Pointer(Layered):
             self.shown_at = (x, y)
 
     # ---------- drawing the marker ----------
+    def bar_colors(self, state):
+        """The colour of each of the five bars: the mark's own gradient, one chosen colour, amber (asking) or grey (paused)."""
+        if state == "approval":
+            return [AMBER] * 5
+        if state == "paused":
+            return [GREY] * 5
+        if self.color is NOVA:
+            def at(t):
+                (t0, c0), (t1, c1) = next(pair for pair in zip(RAMP, RAMP[1:]) if t <= pair[1][0])
+                k = (t - t0) / (t1 - t0)
+                return tuple(round(c0[i] + (c1[i] - c0[i]) * k) for i in range(3))
+            return [at((x + 2.5 - 8) / 32) for x, _, _ in BARS]
+        return [tuple(min(255, round(c + (255 - c) * lift)) for c in self.color) for lift in (0.0, 0.1, 0.2, 0.1, 0.0)]
+
     def glyph(self, state, frame, label="", badge=0):
-        """The marker as an image, its tip MARGIN design pixels in from the corner. States add a glow, rings, an orbit
-        or a badge."""
+        """The marker as an image, its top-left corner MARGIN design pixels in from the corner of the image. States move the
+        bars (listening: they rise and fall; speaking: they swell with the glow; thinking: a light runs along them) and
+        change their colour (asking: amber, paused: grey)."""
         s = self.scale * SS
-        color = AMBER if state == "approval" else GREY if state == "paused" else self.color
+        k, n = TILE / 48 * 1.12, ANIM.get(state, (1, 1.0))[0]  # the 48 px mark scaled to the tile, a touch larger so the bars read
+        tile = TILE * s
         pill = (self.font.getlength(label) + 22 * s) if label else 0
-        width, height = int((MARGIN * 2 + 24) * s + (pill + 6 * s if label else 0)), int((MARGIN * 2 + 24) * s)
+        width, height = int((MARGIN * 2 + TILE) * s + (pill + 6 * s if label else 0)), int((MARGIN * 2 + TILE) * s)
         ox = oy = MARGIN * s
-        tri = [(ox, oy), (ox + 18 * s, oy + 8 * s), (ox + 8 * s, oy + 18 * s)]
-        mid = (ox + 9 * s, oy + 9 * s)
-        n, _ = ANIM.get(state, (1, 1.0))
+        colors = self.bar_colors(state)
         wave = 0.5 - 0.5 * math.cos(6.283 * frame / n) if n > 1 else 0.0
+        glow_rgb = colors[2]
         glow = Image.new("RGBA", (width, height))
-        ImageDraw.Draw(glow).polygon(tri, fill=color + ((int(120 + 100 * wave) if state == "speaking" else 105),))
-        img = glow.filter(ImageFilter.GaussianBlur(4.5 * s))
+        ImageDraw.Draw(glow).rounded_rectangle((ox, oy, ox + tile, oy + tile), radius=7 * s,
+                                               fill=glow_rgb + ((int(110 + 100 * wave) if state == "speaking" else 90),))
+        img = glow.filter(ImageFilter.GaussianBlur(5 * s))
         d = ImageDraw.Draw(img)
-        if state == "listening":  # rings spreading out
-            for k in range(2):
-                t = (frame / n + k / 2) % 1
-                r = (7 + 17 * t) * s
-                d.ellipse((mid[0] - r, mid[1] - r, mid[0] + r, mid[1] + r), outline=color + (int(190 * (1 - t)),),
-                          width=int(1.8 * s))
-        d.polygon(tri, fill=color + (255,), outline=EDGE + (215,), width=max(1, int(1.3 * s)))
-        d.line(tri + [tri[0]], fill=color + (255,), width=int(3 * s), joint="curve")  # rounded corners
-        if state == "thinking":  # three dots circling
-            for k in range(3):
-                a = 6.283 * (frame / n + k / 3)
-                x, y = mid[0] + 17 * s * math.cos(a), mid[1] + 17 * s * math.sin(a)
-                d.ellipse((x - 2.3 * s, y - 2.3 * s, x + 2.3 * s, y + 2.3 * s), fill=EDGE + (230,))
+        d.rounded_rectangle((ox, oy, ox + tile, oy + tile), radius=7 * s, fill=(13, 15, 30, 248), outline=EDGE + (90,), width=max(1, int(1.2 * s)))
+        for i, ((bx, by, bh), color) in enumerate(zip(BARS, colors)):
+            scale, lift = 1.0, 0.0
+            if state == "listening":  # an equaliser: each bar on its own beat
+                scale = 0.55 + 0.45 * (0.5 - 0.5 * math.cos(6.283 * (frame / n + i * 0.19)))
+            elif state == "speaking":
+                scale = 0.8 + 0.2 * wave
+            elif state == "thinking":  # a light running along the bars
+                lift = max(0.0, math.cos(6.283 * (frame / n - i / 5))) * 0.55
+            h, cy = bh * k * scale * s, tile / 2 + (by + bh / 2 - 24) * k * s  # the mark's middle is the tile's middle
+            x0 = ox + tile / 2 + (bx - 24) * k * s  # the bar's left edge
+            lit = tuple(min(255, round(c + (255 - c) * lift)) for c in color)
+            d.rounded_rectangle((x0, oy + cy - h / 2, x0 + 5 * k * s, oy + cy + h / 2), radius=2.5 * k * s, fill=lit + (255,))
         if badge:  # agents at work
-            bx, by, r = ox + 24 * s, oy - 2 * s, 7 * s
+            bx, by, r = ox + tile - 1 * s, oy + 1 * s, 7 * s
             d.ellipse((bx - r, by - r, bx + r, by + r), fill=AMBER + (255,), outline=EDGE + (230,), width=max(1, int(s)))
             d.text((bx, by), str(min(badge, 9)), font=_font(int(10 * self.scale * SS)), fill=(30, 25, 10), anchor="mm")
         if label:
-            d.rounded_rectangle((ox + 22 * s, oy + 12 * s, width - MARGIN * s + 2 * s, oy + 34 * s), radius=11 * s, fill=BG)
-            d.text((ox + 33 * s, oy + 23 * s), label, font=self.font, fill=TEXT, anchor="lm")
+            mid = oy + tile / 2
+            d.rounded_rectangle((ox + tile + 5 * s, mid - 11 * s, width - MARGIN * s + 2 * s, mid + 11 * s), radius=11 * s, fill=BG)
+            d.text((ox + tile + 16 * s, mid), label, font=self.font, fill=TEXT, anchor="lm")
         return img.resize((max(1, img.width // SS), max(1, img.height // SS)), Image.LANCZOS)
 
 
-def rgb(text, default=BLUE):
-    """"#3380FF" as (51, 128, 255); `default` for anything that isn't a hex colour."""
+def rgb(text, default=NOVA):
+    """"#3380FF" as (51, 128, 255); "nova" (the mark in its own colours) and anything that isn't a hex colour as NOVA (None)."""
     m = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(text).strip())
     return tuple(int(m[1][i:i + 2], 16) for i in (0, 2, 4)) if m else default
