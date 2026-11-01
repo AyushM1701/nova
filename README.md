@@ -318,6 +318,7 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 | `companion.color` | `nova` | The colour of the whole Nova window (accent, surfaces, orb) and the marker: `nova` for its own violet, or a hex colour such as `#3380FF`. Settings → Colour & cursor. The phone page and browser panel keep their own colours |
 | `brain.circle_to_ask` | `true` | Circle something with the mouse while holding the talk key |
 | `mcp.servers` | `{}` | The apps the AI can use, set in Settings → AI → Apps: a name and an address, or an object with `url` + `headers` or `command` + `args` + `env` (secrets as `${VARIABLE}`) |
+| `habits.enabled` | `true` | When you correct Nova's answers the same way again and again ("shorter", "just do it") on two or more days, offer to remember it in Memory. Only Remember writes anything; Nova keeps a count and the last few words in `data/habits.json` |
 | `proactive.enabled` | `false` | Offer help with what you copy (errors, links, long texts) |
 | `proactive.max_per_day` | `4` | At most this many suggestion cards a day (2 without a local model) |
 | `proactive.use_local_model` | `true` | Let the dictation model on this computer vote on whether to interrupt |
@@ -373,6 +374,7 @@ core/whisper_cpp.py, cloud_stt.py, deepgram.py  the other speech engines you can
 core/meetings.py      meeting recording, transcripts, minutes, AI actions; diarize.py: speaker labels
 core/calendar_ics.py  your calendar, read-only, from its ICS address
 core/learn.py         learns dictionary words from the corrections you make after dictating
+core/corrections.py   notices "shorter" / "just do it" said again and again and offers to put it in the memory, with the why
 core/loopback.py      the computer's own audio (Windows loopback; helpers/mac_audio_tap.swift on macOS)
 core/wake.py          "Hey Nova" wake word
 core/cleanup.py       dictation cleanup: fillers, self-corrections, Hinglish, snippets, tone per app

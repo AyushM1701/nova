@@ -1,8 +1,9 @@
 """Suggestion cards and follow-up chips: what happens when something is copied (core/proactive.py decides), and when a chip
 on a sketch note is tapped. A mixin of the Nova class (nova.py); it uses the Nova window's state (self.cfg, self.card...)."""
+import threading
 import time
 
-from core import clipboard, proactive, system
+from core import clipboard, corrections, proactive, system
 from core.background import free
 from core.config import log
 from core.local_llm import LocalLLM
@@ -73,9 +74,40 @@ class SuggestMixin:
         """A suggestion card is on screen right now (not replaced by another card, not timed out)."""
         return bool(self.suggestion and getattr(self.card, "kind", "") == "suggest" and getattr(self.card, "visible", False))
 
+    # ---------- habits (core/corrections.py): "shorter", "just do it" said again and again becomes a line in the memory ----------
+    def noticed(self, text):
+        """A request is about to run. If it corrects the answer just given, count it; the third time, on another day, offer to
+        remember it, once Nova is idle again (shortcut: an offer that finds Nova busy for two minutes is dropped, and asked again in a week)."""
+        if not self.cfg["habits"]["enabled"] or time.time() - self.replied_at > corrections.FOLLOW_UP_S:
+            return
+        try:
+            offer = self.habits.see(text)
+        except Exception as e:
+            return log("error", error=f"habits: {e!r}")
+        if offer:
+            threading.Thread(target=self.offer_habit, args=(offer,), daemon=True).start()
+
+    def offer_habit(self, offer):
+        for _ in range(120):
+            if self.phase == "idle" and not self.pending:
+                break
+            time.sleep(1)
+        else:
+            return
+        self.ui(lambda: self.show_habit(offer))
+
+    def show_habit(self, offer):
+        if self.paused or self.suggesting() or self.phase != "idle":
+            return
+        self.suggestion = {"kind": "habit", "habit": offer["kind"]}
+        self.card.show(offer["title"], offer["body"], buttons=True, kind="suggest", labels=("Remember", "Not now"), hide_after=45)
+
     def answer_suggestion(self, ok):
         cand, self.suggestion = self.suggestion, None
         self.card.hide()
+        if cand.get("habit"):
+            self.habits.answered(cand["habit"], ok)
+            return self.card.show("Remembered", "Nova will answer that way from now on. You can change it in Memory.", hide_after=8) if ok else None
         if not ok:
             return self.limiter.dismissed(cand["kind"])
         self.limiter.accepted(cand["kind"])

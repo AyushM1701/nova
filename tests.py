@@ -748,7 +748,7 @@ assert stt_stub.shaky
 stt_stub.transcribe(None, server=types.SimpleNamespace(transcribe=lambda *a: "hello there"))
 assert not stt_stub.shaky, "a server's answer must not inherit the last local doubt"
 heard = []
-shaky_nova = types.SimpleNamespace(command=lambda t: False, asked=False, voice=True, stt=types.SimpleNamespace(shaky=True),
+shaky_nova = types.SimpleNamespace(noticed=lambda t: None, command=lambda t: False, asked=False, voice=True, stt=types.SimpleNamespace(shaky=True),
                                    cleaner=None, assist=heard.append, dictate=lambda t: None, ui=lambda fn: fn(),
                                    card=types.SimpleNamespace(show=lambda *a, **k: None), cfg={"dictation": {}})
 nova_mod.Nova.route(shaky_nova, "so the html", "assistant")
@@ -3093,7 +3093,7 @@ assert cards == ["Nova is busy"], cards
 # "make this formal" with text selected rewrites it in place from the shortcut too (assistant mode), instead of the
 # AI remote-controlling the app; with nothing selected it's an ordinary request
 edits, asked, pasted = [], [], []
-n = types.SimpleNamespace(cleaner=types.SimpleNamespace(name="Claude Code", clean=lambda p, t, m: "Hello, my name is Ayush."),
+n = types.SimpleNamespace(noticed=lambda t: None, cleaner=types.SimpleNamespace(name="Claude Code", clean=lambda p, t, m: "Hello, my name is Ayush."),
                           cfg={"dictation": {"claude_model": "haiku"}}, copy_selection=lambda: "hi my name ayush",
                           cancel=threading.Event(), paste=pasted.append, ui=lambda fn: fn(), command=lambda t: False,
                           assist=asked.append, dictate=lambda t: None, asked=False, voice=True, stt=None)
@@ -3546,7 +3546,7 @@ skills_mod.DIR, runs_mod.DIR, runs_mod.OUT, runs_mod.KEEP = real_dirs
 logged, real_nova_log = [], nova_mod.log
 nova_mod.log = lambda event, **fields: logged.append((event, fields))
 try:
-    routed = types.SimpleNamespace(command=lambda t: True, route_why="")
+    routed = types.SimpleNamespace(noticed=lambda t: None, command=lambda t: True, route_why="")
     nova_mod.Nova.route(routed, "volume up", "assistant")
     assert logged[-1] == ("route", {"tier": 1, "why": "command", "text": "volume up"}), logged[-1]
 
@@ -6182,6 +6182,56 @@ for case, (reviewed, wrong, days, met) in {"all three": (200, 20, 30, True), "to
     write_table(big / "t.csv", rows)
     assert route_review.review(big / "logs", big / "t.csv", now=1000.0 + days * DAY)["met"] is met, case
 assert route_review.review(rr / "empty", rr / "e.csv")["logged"] == 0  # no logs folder: nothing, and no crash
+
+# Nova learns how you like answers from corrections (core/corrections.py): counted, offered on the third time over two days,
+# and only a Remember writes a line (with its why) to the memory
+import tempfile  # noqa: E402
+from core import corrections as cor  # noqa: E402
+assert [cor.kind_of(t) for t in ("shorter", "Too long!", "just the answer", "make it shorter please", "more detail", "just do it",
+                                 "stop asking", "that's too formal", "what's the weather", "")] == \
+    ["shorter", "shorter", "shorter", "shorter", "longer", "just_do_it", "just_do_it", "plainer", None, None]
+assert cor.kind_of("write an email to the landlord and make it shorter than the last one, around two hundred words please") is None  # a request
+with tempfile.TemporaryDirectory() as tmp:
+    tmp = Path(tmp)
+    real_notes = cor.NOTES
+    cor.NOTES = tmp / "notes"
+    try:
+        day = 86400
+        t0 = time.mktime((2026, 11, 2, 12, 0, 0, 0, 0, -1))
+        h = cor.Habits(tmp / "habits.json")
+        assert h.see("what's the weather", t0) is None
+        assert h.see("shorter", t0) is None and h.see("shorter please", t0 + 5) is None
+        assert h.see("too long", t0 + 9) is None  # three, but all today: one bad exchange, not a habit
+        offer = h.see("shorter", t0 + day)  # a second day
+        assert offer and offer["kind"] == "shorter" and "4 times" in offer["body"] and "shorter" in offer["body"], offer
+        assert h.see("shorter", t0 + day + 5) is None  # asked once; not again at once
+        assert not (cor.NOTES / "memory.md").exists()  # nothing is written until the user says so
+        again = cor.Habits(tmp / "habits.json")  # it is kept between runs
+        assert again.s["shorter"]["n"] == 5 and again.s["shorter"]["quote"] == "shorter", again.s
+        h.answered("shorter", True, t0 + day + 9)
+        memory = (cor.NOTES / "memory.md").read_text(encoding="utf-8")
+        assert memory.startswith("Keep answers short") and "again and again" in memory and memory.endswith("\n"), memory  # the line carries its why
+        assert all(h.see("shorter", t0 + (3 + i) * day) is None for i in range(5))  # saved: never asked again
+        cor.remember(cor.KINDS["shorter"][1])  # and never written twice
+        assert (cor.NOTES / "memory.md").read_text(encoding="utf-8") == memory
+        (cor.NOTES / "memory.md").write_text("The user's name is Ayush.", encoding="utf-8")  # a memory with no final newline keeps its line
+        cor.remember(cor.KINDS["longer"][1])
+        assert (cor.NOTES / "memory.md").read_text(encoding="utf-8").startswith("The user's name is Ayush.\nGive the reasoning")
+        offers = [h.see("just do it", t0 + i * day) for i in range(3)]  # Not now: starts over, and waits a month
+        assert offers[:2] == [None, None] and offers[2]
+        h.answered("just_do_it", False, t0 + 3 * day)
+        assert h.s["just_do_it"]["n"] == 0
+        assert all(h.see("just do it", t0 + (4 + i) * day) is None for i in range(5))  # said again, but inside the month
+        assert h.see("just do it", t0 + 40 * day)  # after it, the next one is the offer again
+        (tmp / "habits.json").write_text("[1, 2", encoding="utf-8")  # a damaged file is a fresh start
+        assert cor.Habits(tmp / "habits.json").see("shorter", t0) is None
+    finally:
+        cor.NOTES = real_notes
+nova_src, suggest_src = Path("nova.py").read_text(encoding="utf-8"), Path("core/suggest.py").read_text(encoding="utf-8")
+assert 'if mode == "assistant":\n            self.noticed(text)' in nova_src and "self.replied_at = time.time()" in nova_src  # counted from real requests, after an answer
+assert json.loads(Path("config.default.json").read_text(encoding="utf-8"))["habits"] == {"enabled": True}
+assert 'data-bind="habits.enabled"' in Path("core/app.html").read_text(encoding="utf-8")
+assert 'if cand.get("habit"):' in suggest_src and "habit" not in suggest_src.split("def answer_suggestion")[1].split("self.limiter")[0].replace('cand.get("habit")', "").replace('cand["habit"]', "").replace("self.habits.answered", "")
 
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
 
