@@ -21,11 +21,12 @@ from pathlib import Path
 import webview
 
 from core import browser as web
-from core import (calendar_ics, clipboard, cloud_stt, deepgram, diagnostics, fallback, meetings, models, phone,
-                  stats, system, tts, update, vault, walkthrough)
+from core import (calendar_ics, claude_skills, obsidian, claude_usage, clipboard, cloud_stt, deepgram, diagnostics, fallback, jobs, meetings, models, phone,
+                  runs, skills, stats, system, tts, update, usage, vault, walkthrough)
 from core.brain import MCP_JOBS, find_cli, too_broad
 from core.local_llm import LocalLLM
-from core.config import (CONFIG, DATA, LOGS, NOTES, ROOT, defaults, load_config, log, read_history, save_config,
+from core.config import (CONFIG, DATA, DEFAULT_NOTES, LOGS, NOTES, NOTES_PROBLEM, ROOT, copy_notes, defaults, load_config, log,
+                         notes_dir, notes_folder_problem, read_history, save_config,
                          update_config)
 
 HTML = Path(__file__).with_name("app.html")
@@ -483,6 +484,103 @@ class Api:
         except OSError:
             return []
 
+    # ---------- where Nova keeps its notes (core/config.py notes_dir): optionally a folder inside an Obsidian vault ----------
+    def notes_info(self):
+        """For Settings: the folder in use, the default, whether another is chosen, why a chosen one was refused, and
+        whether the choice is waiting for Nova to restart (the folder is read once, at start-up)."""
+        want, problem = notes_dir(load_config()[0])
+        return {"path": str(NOTES), "default": str(DEFAULT_NOTES), "custom": want != DEFAULT_NOTES, "problem": problem or NOTES_PROBLEM,
+                "restart": os.path.realpath(want) != os.path.realpath(NOTES)}
+
+    def choose_notes_folder(self):
+        """Ask for a folder; returns {"path", "empty"} or None if cancelled. A folder that can't be Nova's notes is refused with why."""
+        picked = self._window.create_file_dialog(webview.FileDialog.FOLDER)
+        if not picked:
+            return None
+        path = Path(picked[0]).resolve()
+        why = notes_folder_problem(path)
+        if why:
+            raise ValueError(why)
+        return {"path": str(path), "empty": not any(path.iterdir())}
+
+    def set_notes_folder(self, path, copy=False):
+        """Use `path` for the notes from the next start; `copy`: first copy the current notes in (nothing is overwritten or deleted)."""
+        why = notes_folder_problem(path)
+        if why:
+            raise ValueError(why)
+        copied = copy_notes(NOTES, path) if copy else 0
+        update_config({"notes.folder": str(Path(path).resolve())})
+        return {"copied": copied}
+
+    def obsidian_info(self):
+        """For Settings: whether Obsidian is on this computer, whether Nova can install it with the package manager (else the
+        download page is the way), and the vault Nova would make."""
+        found = obsidian.installed()
+        vault = obsidian.default_vault()
+        return {"found": str(found) if found else "", "can_install": bool(obsidian.install_command()), "vault": str(vault),
+                "vault_exists": (vault / ".obsidian").exists()}
+
+    def install_obsidian(self):
+        """Install Obsidian with winget or Homebrew (progress arrives as {event: 'install'} lines), or open its download page."""
+        cmd = obsidian.install_command()
+        if not cmd:
+            system.open_url(obsidian.DOWNLOAD)
+            return {"found": "", "opened_download": True}
+        if self._run(cmd) != 0:
+            raise RuntimeError("The install didn't finish. The last lines above say why. You can also download Obsidian from obsidian.md.")
+        system.refresh_path()
+        found = obsidian.installed()
+        return {"found": str(found) if found else "", "opened_download": False}
+
+    def setup_obsidian_vault(self):
+        """Make the vault, add it to Obsidian's list when Obsidian is closed, copy the current notes into its Nova folder and
+        use that folder from the next start. Nothing existing is overwritten."""
+        made = obsidian.setup_vault()
+        why = notes_folder_problem(made["notes"])
+        if why:
+            raise ValueError(why)
+        made["copied"] = copy_notes(NOTES, made["notes"])
+        update_config({"notes.folder": made["notes"]})
+        return made
+
+    def open_obsidian_vault(self):
+        system.open_url(obsidian.open_uri(obsidian.default_vault()))
+        return True
+
+    def use_default_notes(self):
+        update_config({"notes.folder": ""})
+        return True
+
+    # ---------- skills (core/skills.py): written once, run by name; a run leaves a note (core/runs.py) ----------
+    def skills_list(self):
+        """Every usable skill with its newest run note, for the Skills page."""
+        return [{k: s[k] for k in ("name", "title", "say", "safety", "needs")} | {"last": runs.latest(s["name"])}
+                for s in skills.all_skills()]
+
+    def deck(self):
+        """The Home deck: what the AI's tool reported using (core/usage.py), the skills with how their last run went, and
+        the background jobs running now."""
+        running = [{"label": r.get("label") or r["prompt"][:60], "started": r["started"], "skill": r.get("skill", "")}
+                   for r in jobs.all_records() if r["status"] == "running" and r.get("kind") == "background"]
+        return {"usage": usage.summary(), "claude": claude_usage.current(), "running": running,
+                "skills": [{"name": s["name"], "title": s["title"], "status": (runs.latest(s["name"]) or {}).get("status", "")}
+                           for s in skills.all_skills()]}
+
+    def claude_skills(self):
+        """The skills and commands installed for Claude Code on this computer, for the Skills page's buttons."""
+        return [{k: s[k] for k in ("id", "name", "description", "source")} for s in claude_skills.all_skills()]
+
+    def open_skill(self, name, what="note"):
+        """Open a skill's file or its newest run note in the user's editor. `name` must be a skill that exists."""
+        if name not in {s["name"] for s in skills.all_skills()}:
+            raise ValueError("That skill isn't there any more.")
+        last = runs.latest(name)
+        path = skills.DIR / f"{name}.md" if what == "skill" else last and Path(last["path"])
+        if not path:
+            raise RuntimeError("This skill hasn't run yet.")
+        system.open_path(path)
+        return True
+
     def clear_history(self):
         for f in LOGS.glob("nova-*.jsonl"):
             f.unlink(missing_ok=True)
@@ -648,7 +746,9 @@ class Api:
                 LOGS.mkdir(parents=True, exist_ok=True)
                 path.write_text("No crashes recorded.\n", encoding="utf-8")
             return system.edit_file(path)
-        system.open_path({"logs": LOGS, "notes": NOTES, "folder": ROOT}[what])
+        if what == "skills":
+            skills.DIR.mkdir(parents=True, exist_ok=True)
+        system.open_path({"logs": LOGS, "notes": NOTES, "folder": ROOT, "skills": skills.DIR}[what])
         return True
 
     def safety_status(self):

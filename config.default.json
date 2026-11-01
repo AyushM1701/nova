@@ -99,6 +99,12 @@
     ]
   },
   "routines": {},
+  "skills": {
+    "past_runs": 3
+  },
+  "notes": {
+    "folder": ""
+  },
   "schedules": [],
   "browser": {
     "default": "opera-gx",
@@ -116,8 +122,8 @@
     "confirm_timeout_s": 30
   },
   "companion": {
-    "enabled": true,
-    "color": "#3380FF"
+    "enabled": false,
+    "color": "nova"
   },
   "proactive": {
     "enabled": false,

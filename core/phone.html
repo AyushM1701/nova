@@ -171,9 +171,11 @@ textarea:focus { outline: none; border-color: var(--accent); }
 @keyframes nv-talk { from { transform: scaleY(1.12); } to { transform: scaleY(.5); } }
 @keyframes nv-breathe { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .mark * { animation: none !important; transition: none !important; } }
+button, input, textarea, select { touch-action: manipulation; }
 </style>
 </head>
 <body>
+<h1 class="sr">Nova</h1>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><linearGradient id="nv-tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#131528"/><stop offset="1" stop-color="#080a12"/></linearGradient><linearGradient id="nv-ink" gradientUnits="userSpaceOnUse" x1="8" y1="24" x2="40" y2="24"><stop offset="0.00" stop-color="#7b6dff"/><stop offset="0.31" stop-color="#5a8cff"/><stop offset="0.62" stop-color="#3fd6e6"/><stop offset="1.00" stop-color="#e0479a"/></linearGradient><filter id="nv-blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.4"/></filter></defs></svg>
 <header>
   <svg class="logo mark" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="11" fill="url(#nv-tile)"/><g class="nv-glow"><rect x="8.3" y="11" width="5" height="26" rx="2.5" style="--i:0;--d:0.42s;--l:var(--nv-l0,.5)"/><rect x="14.9" y="11.5" width="5" height="13" rx="2.5" style="--i:1;--d:0.34s;--l:var(--nv-l1,.5)"/><rect x="21.5" y="17.5" width="5" height="13" rx="2.5" style="--i:2;--d:0.5s;--l:var(--nv-l2,.5)"/><rect x="28.1" y="23.5" width="5" height="13" rx="2.5" style="--i:3;--d:0.38s;--l:var(--nv-l3,.5)"/><rect x="34.7" y="11" width="5" height="26" rx="2.5" style="--i:4;--d:0.46s;--l:var(--nv-l4,.5)"/></g><g class="nv-bars"><rect x="8.3" y="11" width="5" height="26" rx="2.5" style="--i:0;--d:0.42s;--l:var(--nv-l0,.5)"/><rect x="14.9" y="11.5" width="5" height="13" rx="2.5" style="--i:1;--d:0.34s;--l:var(--nv-l1,.5)"/><rect x="21.5" y="17.5" width="5" height="13" rx="2.5" style="--i:2;--d:0.5s;--l:var(--nv-l2,.5)"/><rect x="28.1" y="23.5" width="5" height="13" rx="2.5" style="--i:3;--d:0.38s;--l:var(--nv-l3,.5)"/><rect x="34.7" y="11" width="5" height="26" rx="2.5" style="--i:4;--d:0.46s;--l:var(--nv-l4,.5)"/></g></svg>

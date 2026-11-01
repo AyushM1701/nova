@@ -161,9 +161,12 @@ def save_upload(data_url, name="", folder=DROP, keep=30):
 
 
 def page(path):
-    """An HTML page (this phone page, or the Nova window) with the shared reply formatter, core/md.js, put in."""
-    md = Path(__file__).with_name("md.js").read_text(encoding="utf-8")
-    return path.read_text(encoding="utf-8").replace("<!-- md.js -->", f"<script>{md}</script>", 1)
+    """An HTML page (this phone page, or the Nova window) with the shared reply formatter, core/md.js, put in (and, in the Nova window, the orb, core/orb.js)."""
+    html = path.read_text(encoding="utf-8")
+    for name in ("md", "orb"):  # the orb's marker is only in the Nova window's page, not the phone's
+        script = Path(__file__).with_name(f"{name}.js").read_text(encoding="utf-8")
+        html = html.replace(f"<!-- {name}.js -->", f"<script>{script}</script>", 1)
+    return html
 
 
 def links(tailscale_only=False):

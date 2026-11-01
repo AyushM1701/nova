@@ -8,6 +8,7 @@ import re
 import time
 import uuid
 
+from core import usage
 from core.config import DATA, WORKSPACE, log
 
 DIR = DATA / "jobs"
@@ -52,6 +53,7 @@ def update(rec, **fields):
 
 def finish(rec, status, **fields):
     update(rec, status=status, finished=time.time(), **fields)
+    usage.add(fields.get("usage"), kind=rec.get("kind", "request"), engine=rec.get("engine", ""))  # for the Home deck
 
 
 def load(job_id):

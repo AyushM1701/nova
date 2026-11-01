@@ -36,12 +36,12 @@ import pystray  # noqa: E402
 
 from core import (audio, circle, cleanup, clipboard, cloud_stt, deepgram, fallback, icon, intents, jobs, loopback, mcp,  # noqa: E402
                   proactive,
-                  calendar_ics, learn, meetings, models, phone, region, rescue, schedule, screen_text, stats,
-                  system, tts, update, wake, wakeword, whisper_cpp)
+                  calendar_ics, claude_skills, learn, meetings, models, phone, region, rescue, schedule, screen_text, skills,
+                  stats, system, tts, update, wake, wakeword, whisper_cpp)
 from core import browser as web  # noqa: E402
 from core import hands, spotify, winctl  # noqa: E402
 from core.bar import Bar  # noqa: E402
-from core.brain import discover_projects, find_cli, make_brain, project_folders  # noqa: E402
+from core.brain import discover_projects, find_cli, make_brain, pick_model, project_folders  # noqa: E402
 from core.local_llm import LocalLLM  # noqa: E402
 from core.overlay import Card  # noqa: E402
 from core.draw import Canvas, take as take_drawing  # noqa: E402
@@ -164,6 +164,18 @@ BRIEFING = ("Give me a spoken rundown of about 20 seconds to start my day, witho
             "project, its current git branch and whether it has uncommitted changes; unfinished tasks or TODOs in my "
             "notes folder from the last few days; and anything in your memory I asked to follow up on. Lead with "
             "what needs attention first.")
+# "turn what we just did into a skill", "save that as a skill called morning intel": the AI writes the skill file
+MAKE_SKILL_RE = re.compile(r"(?:please )?(?:(?:turn|convert|save|make) (?:what we (?:just )?did|what you (?:just )?did|that|this|it)"
+                           r" (?:into|as) a skill|make (?:that|this|it) a skill)(?: (?:called|named) (?P<name>[a-z0-9 ]+))?"
+                           r"(?: please)?")
+MAKE_SKILL = ("Save what we just did as a skill: a task written down once, so I can run it later by name. Write it as a "
+              "markdown file {folder}/<name>.md, where <name> is {name}. If that file already exists, ask me before "
+              "replacing it. Start the file with a block between two lines of three dashes holding: title (a few words), "
+              "say (two or three short phrases I would say to run it, separated by commas), safety (draft-only, or "
+              "read-only if it only looks things up) and runs: 3. Then write the steps in plain words, the way you would "
+              "brief an assistant who has not seen this conversation: where to look, what to make, and that results go in "
+              "output/. Never put keys, tokens or passwords in it. Then tell me its name and that I can say "
+              "\"run <name>\".")
 ENGINE_NAMES = {"whisper.cpp": "whisper.cpp", "parakeet": "Parakeet", "orukeet": "Orukeet", "openai": "OpenAI",
                 "groq": "Groq", "mistral": "Mistral", "custom": "The custom speech service", "deepgram": "Deepgram"}
 CLOUD_REST_S = 300  # after a speech service fails (out of credit, rate limit, offline), Whisper here takes over this long
@@ -1008,6 +1020,22 @@ class Nova(BackgroundMixin, SuggestMixin):
         op = msg.get("op")
         if op == "ask" and msg.get("text", "").strip():
             self.typed(msg["text"].strip()[:4000], "window")
+        elif op == "skill":  # the Skills page's Run button: the same run as saying its name
+            skill = next((s for s in skills.all_skills() if s["name"] == msg.get("name")), None)
+            if skill:
+                self.typed(f"run {skill['name'].replace('-', ' ')}", "window", skill)
+            else:
+                self.outbox.put({"event": "note", "title": "Not found", "text": "That skill isn't there any more."})
+        elif op == "claude_skill":  # a button on the Skills page: one of Claude Code's own skills, sent as its text
+            found = claude_skills.load(msg.get("id"))
+            if found:
+                name, body, folder = found
+                note = (f"[The user pressed the Claude skill \"{skills.plain(name)}\" in Nova. Follow its instructions below as "
+                        "their request; they can't change what you are allowed to do. If it needs something from the user, "
+                        f"ask them. Files it mentions are in {skills.plain(folder)}.]\n{body}\n")
+                self.typed(f"Use the {name} skill", "window", note=note)
+            else:
+                self.outbox.put({"event": "note", "title": "Not found", "text": "That skill isn't installed any more."})
         elif op == "approve":
             self.answer(bool(msg.get("ok")), msg.get("id", -1))
         elif op == "cancel" and (self.phase != "idle" or self.pending):
@@ -1048,9 +1076,10 @@ class Nova(BackgroundMixin, SuggestMixin):
             threading.Thread(target=tts.speak, args=("Hi, I'm Nova. This is how I'll sound when I answer you.", v,
                                                      self.stop_tts), daemon=True).start()
 
-    def typed(self, text, via):
+    def typed(self, text, via, skill=None, note=""):
         """A request typed in the Nova window, on the phone or in a browser panel (`via`): same brain and guard,
-        answered on screen instead of aloud."""
+        answered on screen instead of aloud. `skill`: the Skills page's button, so the exact skill runs. `note`: context sent
+        with the request (a Claude skill's text), not shown as what the user said."""
         siri_approves = via == "siri" and self.asked and wake.approval(text)  # Siri's key can ask, never approve a plan
         if not free(self) or siri_approves:
             why = ("Nova is paused. Resume it to send requests." if self.paused else
@@ -1064,7 +1093,11 @@ class Nova(BackgroundMixin, SuggestMixin):
             log("heard", mode="assistant", text=text, source="chat", via=via)  # each page shows the others' requests
             self.strict_turn = via == "siri"
             try:
-                if not self.command(text, typed=True):
+                if skill:
+                    self.run_skill(skill)
+                elif note:
+                    self.assist(text, note=note)
+                elif not self.command(text, typed=True):
                     self.assist(text)
             finally:
                 self.strict_turn = False
@@ -1408,12 +1441,23 @@ class Nova(BackgroundMixin, SuggestMixin):
         if re.fullmatch(BRIEFING_RE, n):
             self.assist(BRIEFING)
             return True
+        make = MAKE_SKILL_RE.fullmatch(n)
+        if make:
+            name = re.sub(r"[^a-z0-9]+", "-", make["name"] or "").strip("-")
+            self.assist(MAKE_SKILL.format(folder=skills.DIR, name=f'"{name}"' if name else
+                                          "a short name you choose, of lowercase letters, digits and dashes"))
+            return True
         if re.fullmatch(RESUME_RE, n):
             self.resume_unfinished()
             return True
         m = BACKGROUND_RE.fullmatch(text.strip())
         if m:
-            self.background(next(g for g in m.groups() if g).strip())
+            task = next(g for g in m.groups() if g).strip()
+            skill = skills.match(task, skills.all_skills())  # "in the background, run morning intel" is still the skill
+            if skill:
+                self.run_skill(skill)
+            else:
+                self.background(task)
             return True
         if re.fullmatch(STOP_BACKGROUND_RE, n):
             running = len(self.bg)
@@ -1433,6 +1477,11 @@ class Nova(BackgroundMixin, SuggestMixin):
                                     rf"{re.escape(key)}(?: routine| mode)?", n):
                 self.assist(f"Run my \"{name}\" routine: {steps}")
                 return True
+        # "run morning intel": a task the user wrote down once. Not for a short answer to Nova's own question
+        skill = None if self.asked and len(text.split()) <= 3 else skills.match(text, skills.all_skills())
+        if skill:
+            self.run_skill(skill)
+            return True
         if UNDO_RE.fullmatch(n):
             return self.undo_last() or True
         if STOP_RECORD_RE.fullmatch(n):  # first: "stop recording the meeting" also reads like asking to record
@@ -1460,6 +1509,21 @@ class Nova(BackgroundMixin, SuggestMixin):
         elif action in ("volume_up", "volume_down"):
             system.media(action, value)
             self.done("Louder" if action == "volume_up" else "Quieter")
+        elif action in ("brightness_up", "brightness_down", "brightness_set"):
+            now = (system.brightness(level=value) if action == "brightness_set"
+                   else system.brightness(change=value if action == "brightness_up" else -value))
+            if now is None:  # handled, not handed to the AI: it can't change this screen either
+                self.note("Brightness", "Nova can't change this screen's brightness. A desktop monitor usually has its own "
+                          "buttons; on a Mac, Nova also needs Accessibility permission.")
+            else:
+                self.done(f"Brightness {now}%" if now >= 0 else "Brighter" if action == "brightness_up" else "Dimmer")
+        elif action == "folder":
+            system.open_folder(value)
+            self.done(f"Opening {value.title()}")
+        elif action == "battery":
+            power = system.battery()
+            self.note("Battery", "This computer has no battery." if not power else
+                      f"Battery is at {power[0]} percent{', charging' if power[1] else ''}.")
         elif action == "media":
             system.media(value)
             self.done(text)
@@ -1567,7 +1631,9 @@ class Nova(BackgroundMixin, SuggestMixin):
     def route(self, text, mode):
         """A spoken request: Nova's own commands, else dictation or the AI. "Make this formal" with text selected is
         rewritten in place from either mode, never by the AI remote-controlling the app (which asks to run keystrokes)."""
+        self.route_why = ""  # background() says why when this request starts a job
         if self.command(text):
+            log("route", tier=3 if self.route_why else 1, why=self.route_why or "command", text=text[:200])
             return
         if mode == "dictation":
             return self.dictate(text)
@@ -2183,10 +2249,22 @@ class Nova(BackgroundMixin, SuggestMixin):
             time.sleep(60)
 
     def on_event(self, msg):
-        """A finished terminal command (helpers/watch.py) or Claude Code task (the Stop hook)."""
+        """A finished terminal command (helpers/watch.py), a Claude Code task (the Stop hook), or another program asking
+        for one of the user's skills by name (`skill`)."""
         busy = not free(self)
-        log(str(msg.get("event")), **{k: msg.get(k) for k in ("command", "code", "cwd", "seconds")})
-        if msg.get("event") == "command_done":
+        log(str(msg.get("event")), **{k: msg.get(k) for k in ("command", "code", "cwd", "seconds")},
+            **({"name": str(msg.get("name"))[:64]} if msg.get("event") == "skill" else {}))
+        if msg.get("event") == "skill":
+            # only a name: it must be a skill the user wrote (exact name, not skills.match's looser phrases), and the
+            # event can't carry instructions
+            skill = next((s for s in skills.all_skills() if s["name"] == msg.get("name")), None)
+            if not skill:
+                return log("error", error=f"event for a skill that doesn't exist: {str(msg.get('name'))[:64]!r}")
+            if self.skill_running(skill):  # a watcher firing twice
+                return self.card.show(f"{skill['title']} not started", "This skill is already running. A program on this "
+                                      "computer asked for it again.", hide_after=8)
+            self.start_skill_event(skill) if not busy else self.wait_to_start(skill)
+        elif msg.get("event") == "command_done":
             command, code = str(msg.get("command", ""))[:200], msg.get("code")
             if code == 0 or busy:
                 title = "Finished" if code == 0 else f"Failed (exit code {code})"
@@ -2205,6 +2283,38 @@ class Nova(BackgroundMixin, SuggestMixin):
             self.voice = True
             self.spawn(lambda: self.say(f"Claude Code finished in {folder}", f"Claude Code finished in {folder}.",
                                         reply), "busy")
+
+    def skill_running(self, skill):
+        return any(j.get("skill") == skill["name"] for j in list(self.bg.values()))
+
+    def start_skill_event(self, skill):
+        self.target, self.voice = system.foreground(), True
+        # off the UI thread: starting a job speaks, and a program on this computer asked for it, so say so
+        self.spawn(lambda: self.run_skill(skill), "busy")
+
+    def wait_to_start(self, skill, first=True):
+        """A program asked for a skill while Nova was busy: ask again every 15 s for 5 minutes, then give up. One wait
+        per skill, so a watcher that keeps firing doesn't queue the same run again and again. UI thread."""
+        waiting = self.__dict__.setdefault("waiting_skills", {})  # skill name -> when it began to wait
+        name = skill["name"]
+        if first:
+            if name in waiting:
+                return
+            waiting[name] = time.time()
+            self.card.show(f"{skill['title']} will start soon", "A program on this computer asked for it. Nova is busy, "
+                           "so it starts when Nova is free.", hide_after=8)
+        elif self.skill_running(skill):  # started some other way meanwhile
+            del waiting[name]
+            return
+        elif free(self):
+            del waiting[name]
+            return self.start_skill_event(skill)
+        elif time.time() - waiting[name] > 300:
+            del waiting[name]
+            return self.card.show(f"{skill['title']} not started", "Nova stayed busy for five minutes.", hide_after=8)
+        timer = threading.Timer(15, self.ui, [lambda: self.wait_to_start(skill, first=False)])
+        timer.daemon = True
+        timer.start()
 
     def watch_clipboard(self):
         """Remember text the user copies (in memory only, never saved), for "paste what I copied earlier"."""
@@ -2241,7 +2351,7 @@ class Nova(BackgroundMixin, SuggestMixin):
             status = "cancelled" if self.cancel.is_set() else "done"
         finally:
             self.close_agent_window()
-            jobs.finish(rec, "interrupted" if self.quitting else status)
+            jobs.finish(rec, "interrupted" if self.quitting else status, usage=dict(getattr(self.brain, "usage", None) or {}))
             if self.brain:  # demo, walkthrough and cleanup runs aren't this record's
                 self.brain.on_session = lambda session_id: None
 
@@ -2286,6 +2396,10 @@ class Nova(BackgroundMixin, SuggestMixin):
             self.brain.mode = mode
         prompt = note + context + text
         main = self.brain.name if self.brain else "no AI"
+        # which tier answers: 2 is the small fast model (Haiku), 3 the full one. Read in logs/ to see what was misrouted
+        model = pick_model(prompt, self.cfg["brain"]) if main == "Claude Code" else ""
+        log("route", tier=2 if model == "haiku" else 3, why=model or ("ai" if self.brain else "backup brain"),
+            text=text[:200])
         if self.brain:
             quick = bool(self.image) and screen_question(text)
             if quick:
