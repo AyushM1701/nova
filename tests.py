@@ -493,11 +493,13 @@ if shutil.which("node"):
       for (const c of ["#3380FF", "#9B5CFF", "#FF5C8A", "#FF6B3D", "#F5B800", "#22C55E", "#14B8A6", "#EDEDED", "#000000", "#ffffff", "#FF0000"]) {
         const t = themeTokens(c), sf = t["--surface"], rs = t["--raised"];
         out.rows[c] = { fill: cr(t["--accent"], t["--accent-ink"]), hover: cr(t["--accent-hover"], t["--accent-ink"]), link: Math.min(cr(t["--accent-text"], sf), cr(t["--accent-text"], rs)),
-          text: cr(t["--text"], sf), muted: Math.min(cr(t["--muted"], sf), cr(t["--muted"], rs)), faint: cr(t["--faint"], sf), bg: [t["--bg"], t["--side"], t["--surface"], t["--raised"], t["--sunk"]].every(x => /^#[0-9a-f]{6}$/.test(x)) };
+          text: cr(t["--text"], sf), muted: Math.min(cr(t["--muted"], sf), cr(t["--muted"], rs)), faint: cr(t["--faint"], sf), danger: cr(t["--danger"], sf), dangerName: t["--danger"], bg: [t["--bg"], t["--side"], t["--surface"], t["--raised"], t["--sunk"]].every(x => /^#[0-9a-f]{6}$/.test(x)) };
       }
       console.log(JSON.stringify(out));"""], capture_output=True, text=True, check=True, timeout=60).stdout)
     assert theme["nova"] is None and theme["bad"] is None, theme  # Nova's own violet, or a value that isn't a colour: the stylesheet stays
     for colour, r in theme["rows"].items():
+        assert r["danger"] >= 4.5, (colour, r)  # the danger colour reads on the panels, and
+        assert (r["dangerName"] != "#ff7a7a") == (colour in ("#FF5C8A", "#FF6B3D", "#FF0000")), (colour, r)  # a red, pink or orange pick gets a paler one
         assert r["bg"] and r["fill"] >= 4.5 and r["hover"] >= 4.5 and r["link"] >= 4.5 and r["text"] >= 12 and r["muted"] >= 6 and r["faint"] >= 4.5, (colour, r)
 
 # the browser extension reconnects by itself: right away, backing off to 5 s, re-reading nova.json each time
@@ -6205,7 +6207,9 @@ assert "transition: all" not in p3 and "cubic-bezier(.3, 1.5" not in p3 and "tra
 css_durations = set(re.findall(r"transition:[^;}]*?((?:\d*\.\d+|\d+)m?s)", p3))
 assert css_durations <= {".15s", ".25s", ".45s", "1s", ".12s", ".7s", ".5s", ".6s"}, css_durations  # a short list, not eight
 assert "text-wrap: pretty" in p3 and 'class="row flat"' in p3 and "Show ${Math.min(50, total - limit)} more" in p3
-assert "width: 42px; height: 24px" in p3 and ".word button { width: 24px; height: 24px" in p3  # switches and chip buttons are at least 24 px
+assert "width: 42px; height: 24px" in p3 and ".word button { position: relative; width: 24px; height: 24px" in p3  # switches and chip buttons are at least 24 px
+assert ".switch::before { content: \"\"; position: absolute; inset: -4px -2px; }" in p3 and ".word button::after { content: \"\"; position: absolute; inset: -4px; }" in p3  # ...and 32 px to hit
+assert ".btn.sm { height: 32px;" in p3 and ".chip { min-height: 32px;" in p3 and ".seg button { min-height: 32px;" in p3
 assert ".deck-row .s { display: block; margin-top: 1px; font: 400 12px" in p3 and "gap: 8px; } .dock nav button:not" in p3
 phone_html = Path("core/phone.html").read_text(encoding="utf-8")
 assert '<h1 class="sr">Nova</h1>' in phone_html and "touch-action: manipulation" in phone_html
@@ -6324,6 +6328,24 @@ assert json.loads(Path("config.default.json").read_text(encoding="utf-8"))["habi
 assert 'data-bind="habits.enabled"' in Path("core/app.html").read_text(encoding="utf-8")
 assert 'if cand.get("habit"):' in suggest_src and "habit" not in suggest_src.split("def answer_suggestion")[1].split("self.limiter")[0].replace('cand.get("habit")', "").replace('cand["habit"]', "").replace("self.habits.answered", "")
 
+# the audit's polish (docs/audits/2026-11-01-ui-wiring-audit.md)
+polish = Path("core/app.html").read_text(encoding="utf-8")
+for what in ("Type a word or name first.", "Type something for Nova to remember first.", "Type a question about your meetings first."):
+    assert f'failAt($("#' in polish and what in polish  # empty forms say what to do
+assert polish.count("pairLabels(container)") >= 6 and ":has(" not in polish.split("</style>")[0] and "#skillList { margin-top: 14px; }" in polish  # no :has: older WebKit
+assert 'id="startNova"' in polish and "api().start_nova()" in polish and "def start_nova" in Path("core/app.py").read_text(encoding="utf-8")
+assert ".feed .acts { display: flex; gap: 2px; opacity: .5;" in polish  # row actions are faint at rest, not hidden
+assert re.search(r"SINGLE_INSTANCE_PORT = (\d+)", Path("core/app.py").read_text(encoding="utf-8"))[1] == re.search(r"SINGLE_INSTANCE_PORT = (\d+)", Path("nova.py").read_text(encoding="utf-8"))[1]
+# every setting in config.default.json that README documents as config-file only now also has a control (data-bind) in the window
+for key in ("triple_tap_mode", "overlay.sketch", "overlay.sketch_images", "voice.stt_model", "voice.stt_accurate_model", "voice.deepgram_model",
+            "dictation.claude_model", "dictation.codex_model", "meetings.codex_model", "brain.fallback_model", "brain.max_turns", "brain.max_background",
+            "proactive.max_per_day", "proactive.use_local_model", "skills.past_runs", "browser.agent_window"):
+    assert f'data-bind="{key}"' in polish, key
+    node = json.loads(Path("config.default.json").read_text(encoding="utf-8"))
+    for part in key.split("."):
+        node = node[part]  # the key exists in the defaults
+assert 'id="projExclude"' in polish and 'set("projects.exclude"' in polish
+assert 'send("undo")' in polish and 'op == "undo"' in Path("nova.py").read_text(encoding="utf-8") and "Undo a dictation" in polish and "Sketch the answer" in polish
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
 
 from core.cleanup import fix_vocabulary  # noqa: E402

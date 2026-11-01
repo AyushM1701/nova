@@ -1050,6 +1050,8 @@ class Nova(BackgroundMixin, SuggestMixin):
             self.toggle_pause()
         elif op == "enroll_voice":
             self.enroll_voice()
+        elif op == "undo":  # Settings, Dictation: the same as the tray menu's Undo last dictation
+            self.undo_last(anywhere=True)
         elif op == "reset" and self.brain:
             self.brain.reset()
             self.outbox.put({"event": "note", "title": "New conversation", "text": "Okay, starting fresh."})

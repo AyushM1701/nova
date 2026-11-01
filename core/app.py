@@ -45,6 +45,9 @@ LANGUAGES = {"auto": "Detect automatically", "en": "English", "hi": "Hindi", "bn
 CTRL = os.environ.pop("NOVA_CTRL", None), os.environ.pop("NOVA_CTRL_KEY", None)
 
 
+SINGLE_INSTANCE_PORT = 47821  # the same number as in nova.py (and helpers/notify.py)
+
+
 class Api:
     """Everything the page can call as `pywebview.api.<name>(...)`. Underscored names stay private."""
 
@@ -656,6 +659,32 @@ class Api:
         from core import clone
         clone.remove()
         return True
+
+    def start_nova(self):
+        """The window opened without Nova, or Nova quit: start it, wait until it answers, have it open its own window, and
+        close this one (which can't be connected to a Nova started after it). Opening nova.py again is what the Start menu does."""
+        import socket
+        if os.name == "nt":
+            pythonw = Path(sys.executable).with_name("pythonw.exe")
+            cmd, flags = [str(pythonw if pythonw.exists() else sys.executable), str(ROOT / "nova.py")], 0x00000008 | 0x08000000  # detached, no console
+        elif system.IS_MAC and system.MAC_APP.exists():
+            cmd, flags = ["open", "-a", str(system.MAC_APP)], 0
+        else:
+            cmd, flags = [sys.executable, str(ROOT / "nova.py")], 0
+        subprocess.Popen(cmd, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         creationflags=flags, start_new_session=os.name != "nt")
+        for _ in range(40):  # Nova answers "show" with "nova" once it is up (the same call a second launch makes)
+            time.sleep(0.5)
+            try:
+                with socket.create_connection(("127.0.0.1", SINGLE_INSTANCE_PORT), timeout=1) as s:  # nova.py's single-instance port
+                    s.sendall(b"show")
+                    s.shutdown(socket.SHUT_WR)
+                    if s.recv(4) == b"nova":
+                        threading.Timer(1.5, self._window.destroy).start()  # Nova opens its own window; this one has no link to it
+                        return True
+            except OSError:
+                continue
+        raise RuntimeError("Nova didn't start. Open it from the Start menu or Applications.")
 
     def audio_devices(self):
         """Names of the microphones and speakers, for the pickers."""

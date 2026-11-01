@@ -54,3 +54,17 @@ The click-through ran in Nova's real window over the Chrome DevTools protocol wi
 is recorded and answered with `true`. The first runs were wrong in two ways worth knowing about if it is repeated: a stub that returned `true` for
 `memory(null)` (a read) made Home say "undefined things remembered", and the "Take the walkthrough" button leaves an overlay up that must be closed
 before the next control is hit-tested.
+
+## Status: all of the above fixed (branch `ui-polish`)
+
+| # | Fix |
+|---|---|
+| 1 | Voice picker under its text (row 412 px to 207 px at 820 wide) |
+| 2 | Empty Add / Ask say "Type a word or name first." and so on, and put the cursor back in the field |
+| 3 | Meetings label has room; `#skillList` is clear of the header rule; the column labels over the Dictionary, Snippets, Routines, Tones, Apps and Nickname lists show only once a row exists |
+| 4 | The "Nova isn't running" banner has a Start Nova button: it starts Nova, waits for it to answer, has it open its own window and closes the old one |
+| 5 | Row actions show at half strength at rest, full on hover or focus |
+| 6 | Click targets: small buttons 28 to 32 px, chips and segmented buttons 32 px, the 24 px cross on a dictionary word and the switches get a 32 px hit area; the 24 px minimum still holds |
+| 7 | Red, pink and orange colour picks give a paler danger colour, and lettering on a danger fill is near-black (white was 2.4:1 on it even in the default theme) |
+| 8 | "Undo last dictation" button in Settings, Dictation (and "undo that" in What Nova can do); "Sketch the answer" and "A photo on the note" in Settings, Colour & cursor |
+| 9 | All 14 config-only settings now have a control: Whisper models (Voice), Deepgram model (Voice), tidy models (Dictation), Codex minutes model (Meetings), backup Gemini model, steps per request, background jobs, folders Nova skips and the suggestion limits (AI), past notes a skill reads (Routines), the AI's own browser window (Browsers), what "Hey Nova" and three taps start (Shortcuts), and the sketch pair |

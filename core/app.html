@@ -43,7 +43,7 @@
   --text: #e8eaff; --muted: #a3a9d2; --faint: #8a90bd;
   --accent: #6d5ff7; --accent-hover: #5e4ff0; --accent-ink: #ffffff; --accent-soft: rgba(123, 109, 255, .16); --accent-text: #b9b1ff;
   --amber: #ffba3c; --amber-soft: rgba(255, 186, 60, .10); --amber-line: rgba(255, 186, 60, .42);
-  --ok: #3ecf8e; --danger: #ff7a7a; --danger-soft: rgba(255, 122, 122, .10);
+  --ok: #3ecf8e; --danger: #ff7a7a; --danger-soft: rgba(255, 122, 122, .10); --danger-ink: #1a0b0b;  /* lettering on a danger fill: white is 2.4:1 on it */
   --pill: #1a1d30; --pill-ink: #ffffff;
   --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 12px 32px rgba(0, 0, 0, .4);
   --focus: 0 0 0 2px var(--accent-text);  /* 9.5:1 on the panel (WCAG 1.4.11) */
@@ -181,7 +181,7 @@ main { overflow-y: auto; min-width: 0; position: relative; }
 .cmd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .cmd { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-width: 0; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--sunk); color: var(--text); font-size: 12.5px; font-weight: 500; line-height: 1.3; text-align: left; overflow: hidden; word-break: break-word; overflow-wrap: anywhere; }
 .cmd:hover { background: var(--accent-soft); border-color: var(--line-strong); }
-.cmd-more { display: flex; align-items: center; gap: 6px; margin-top: 8px; padding: 4px 2px; border: 0; background: none; color: var(--muted); font-size: 12.5px; }
+.cmd-more { display: flex; align-items: center; gap: 6px; margin-top: 8px; min-height: 32px; padding: 4px 2px; border: 0; background: none; color: var(--muted); font-size: 12.5px; }
 .cmd-more:hover { color: var(--text); }
 .cmd-more svg { width: 14px; height: 14px; }
 .hero { padding: 0 0 10px; margin: 0 0 10px; border-bottom: 1px solid var(--line); }
@@ -251,6 +251,7 @@ p, li { margin: 0; text-wrap: pretty; }
 .small { font-size: 12.5px; }
 .head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
 .head .grow { flex: 1; }
+#skillList { margin-top: 14px; }  /* clear of the header: the Open folder button sat on the list's first rule */
 
 /* ---------- controls ---------- */
 .btn {
@@ -266,8 +267,8 @@ p, li { margin: 0; text-wrap: pretty; }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.ghost:hover { background: var(--raised); color: var(--text); }
 .btn.danger { color: var(--danger); }
-.btn.danger.armed { background: var(--danger); color: var(--accent-ink); border-color: transparent; }
-.btn.sm { height: 28px; padding: 0 10px; font-size: 13px; border-radius: 8px; }
+.btn.danger.armed { background: var(--danger); color: var(--danger-ink); border-color: transparent; }
+.btn.sm { height: 32px; padding: 0 10px; font-size: 13px; border-radius: 8px; }
 .btn.lg { height: 42px; padding: 0 20px; font-size: 15px; border-radius: 12px; }
 .icon-btn { width: 32px; height: 32px; padding: 0; border-radius: 8px; border: 0; background: none; color: var(--muted); display: inline-grid; place-items: center; }
 .icon-btn:hover { background: var(--raised); color: var(--text); }
@@ -280,11 +281,12 @@ p, li { margin: 0; text-wrap: pretty; }
 select.input { padding-right: 30px; appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
 .input.short { width: 92px; }
 .seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--sunk); border: 1px solid var(--line); gap: 2px; }
-.seg button { border: 0; background: none; padding: 5px 12px; border-radius: 8px; color: var(--muted); font-weight: 550; font-size: 13px; }
+.seg button { min-height: 32px; border: 0; background: none; padding: 5px 12px; border-radius: 8px; color: var(--muted); font-weight: 550; font-size: 13px; }
 .seg button[aria-checked="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
 .seg.full { display: flex; } .seg.full button { flex: 1; }
 #modeSeg svg { display: block; width: 16px; height: 16px; }
 .switch { position: relative; width: 42px; height: 24px; border-radius: 999px; border: 0; background: var(--line-strong); flex: none; transition: background .15s; padding: 0; }
+.switch::before { content: ""; position: absolute; inset: -4px -2px; }  /* a 32 px tall target round the 24 px switch */
 .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--accent-ink); box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .15s cubic-bezier(.16, 1, .3, 1); }
 .switch[aria-checked="true"] { background: var(--accent); }
 .switch[aria-checked="true"]::after { transform: translateX(18px); }
@@ -346,7 +348,7 @@ input[type=range] { accent-color: var(--accent); width: 180px; height: 24px; }
 .feed .body .sub { color: var(--faint); font-size: 12.5px; margin-top: 2px; word-break: break-word; overflow-wrap: anywhere; }
 .feed .body .code { margin-top: 5px; color: var(--faint); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .feed .body.open .code { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; color: var(--muted); }
-.feed .acts { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
+.feed .acts { display: flex; gap: 2px; opacity: .5; transition: opacity .15s; }  /* faint at rest so they can be found, full on hover or focus */
 .feed li:hover .acts, .feed li:focus-within .acts { opacity: 1; }
 .day { color: var(--muted); font-size: 12.5px; font-weight: 600; margin: 28px 0 6px; }
 .badge.rec { background: #e5484d; }
@@ -447,7 +449,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .round.live-mic { background: var(--pill); color: var(--pill-ink); }
 .composer-hint { max-width: 720px; margin: 8px auto 0; color: var(--faint); font-size: 12px; text-align: center; }
 .suggest { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 18px; }
-.chip { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 999px; padding: 6px 13px; color: var(--text); font-size: 13px; }
+.chip { min-height: 32px; border: 1px solid var(--line-strong); background: var(--surface); border-radius: 999px; padding: 6px 13px; color: var(--text); font-size: 13px; }
 .chip:hover { border-color: var(--accent); color: var(--accent-text); }
 .chat-empty { margin: 9vh auto 0; text-align: center; max-width: 480px; }
 .chat-empty canvas { width: 152px; height: 52px; margin-bottom: 18px; }
@@ -456,7 +458,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 /* ---------- dictionary ---------- */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .word { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line-strong); }
-.word button { width: 24px; height: 24px; border-radius: 50%; border: 0; background: none; color: var(--faint); display: grid; place-items: center; padding: 0; }
+.word button { position: relative; width: 24px; height: 24px; border-radius: 50%; border: 0; background: none; color: var(--faint); display: grid; place-items: center; padding: 0; }
+.word button::after { content: ""; position: absolute; inset: -4px; }  /* a 32 px target round the 24 px cross */
 .word button:hover { background: var(--raised); color: var(--danger); }
 .word button svg { width: 14px; height: 14px; }
 .add { display: flex; gap: 8px; margin-top: 16px; max-width: 460px; }
@@ -590,7 +593,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 
 .toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 16px); opacity: 0; pointer-events: none; background: var(--pill); color: var(--pill-ink); padding: 8px 16px; border-radius: 999px; font-size: 13px; font-weight: 550; box-shadow: var(--shadow); transition: opacity .15s, transform .15s cubic-bezier(.16, 1, .3, 1); z-index: 40; display: flex; gap: 8px; align-items: center; }
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
-.toast.bad { background: var(--danger); }
+.toast.bad { background: var(--danger); color: var(--danger-ink); }
 .banner { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--amber-line); background: var(--amber-soft); margin-bottom: 20px; font-size: 13.5px; }
 .banner svg { color: var(--amber); }
 
@@ -714,7 +717,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
     <!-- HOME -->
     <section class="hud" id="page-home" hidden>
       <div class="hud-banners">
-        <div class="banner" id="gone" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17v.01"/></svg><span>Nova isn't running, so voice, chat and live status are off. Start Nova from the Start menu or Applications.</span></div>
+        <div class="banner" id="gone" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17v.01"/></svg><span>Nova isn't running, so voice, chat and live status are off. Start Nova from the Start menu or Applications, or press Start Nova.</span><button class="btn sm primary" id="startNova">Start Nova</button></div>
         <div class="banner" id="updateBanner" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span class="grow" style="flex:1"></span><button class="btn sm primary" id="updateBtn">Update</button></div>
         <div class="banner" id="cfgError" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17v.01"/></svg><span></span></div>
       </div>
@@ -825,7 +828,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <button class="btn primary" id="mtRecord"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/></svg><span>Record</span></button></div>
         <div class="banner live-rec" id="mtLive" hidden><i class="rec-dot"></i><span class="grow" id="mtLiveText"></span><button class="btn sm" id="mtLiveOpen">Take notes</button><button class="btn sm danger" id="mtStop">Stop</button></div>
         <div id="mtUpcoming"></div>
-        <label class="flabel" for="mtQuestion" style="margin-top:0">Ask your meetings</label>
+        <label class="flabel" for="mtQuestion" style="margin-top:22px">Ask your meetings</label>
         <form class="mt-ask" id="mtAsk"><input class="input" id="mtQuestion" placeholder="Ask your meetings, like “what did we decide about pricing?”" aria-label="Ask your meetings"><button class="btn primary" type="submit">Ask</button></form>
         <div class="answer md" id="mtAnswer" hidden></div>
         <div class="toolbar">
@@ -961,6 +964,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
             <select class="input" data-bind="hold_key_2_mode" aria-label="Second hold key mode"><option value="current">Current mode</option><option value="assistant">Assistant</option><option value="dictation">Dictation</option></select></div></div>
         <div class="row"><div class="what"><h2>Listen for “Hey Nova”</h2><p>Runs on this computer. Nothing is kept unless it hears “Hey Nova”.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="wake_word" aria-label="Listen for Hey Nova"></button></div></div>
+        <div class="row"><div class="what"><h2>What “Hey Nova” and three taps start</h2><p>Assistant (the default) answers you. Dictation types what you say instead; Current mode follows the Mode switch.</p></div>
+          <div class="how"><select class="input" data-bind="triple_tap_mode" aria-label="What Hey Nova and three taps start"><option value="current">Current mode</option><option value="assistant">Assistant</option><option value="dictation">Dictation</option></select></div></div>
         <div class="row"><div class="what"><h2>How easily “Hey Nova” wakes Nova</h2><p>High (the default) hears a soft or distant voice best. If Nova wakes when you didn't call it, try Normal; Low needs you to say it clearly. The listening runs on this computer.</p></div>
           <div class="how"><div class="seg" role="radiogroup" data-bind="wake_sensitivity" data-options="low:Low,normal:Normal,high:High"></div></div></div>
         <div class="row"><div class="what"><h2>Teach Nova your “Hey Nova”</h2><p id="enrollNote">If Nova often misses your “Hey Nova”, say it 8 times here. Nova also listens with a detector trained on Indian English, which wakes only for your voice; the voiceprint stays on this computer.</p><p class="small" id="enrollStatus" style="margin-top:8px" hidden></p></div>
@@ -978,6 +983,10 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><button class="switch" role="switch" data-bind="companion.enabled" aria-label="Follow the mouse pointer"></button></div></div>
         <div class="row"><div class="what"><h2>Circle to ask</h2><p>Hold the shortcut and draw a circle around something on screen: Nova asks about exactly that.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="brain.circle_to_ask" aria-label="Circle to ask"></button></div></div>
+        <div class="row"><div class="what"><h2>Sketch the answer</h2><p>Ask a spoken question with a short factual answer (“who won today’s Grand Prix?”) and a paper note draws the answer on screen while Nova says it.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="overlay.sketch" aria-label="Sketch the answer"></button></div></div>
+        <div class="row"><div class="what"><h2>A photo on the note</h2><p>Lets a note show one photo: the lead image of the Wikipedia page the AI names. Only the page name is looked up, never your question.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="overlay.sketch_images" aria-label="A photo on the note"></button></div></div>
       </div>
 
       <div data-panel="microphone" class="rows" hidden>
@@ -999,6 +1008,10 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           </select></div></div>
         <div class="row" data-stt="parakeet orukeet"><div class="what"><h2>Model</h2><p id="sttModelNote">Fast and accurate in 25 European languages. Hindi and other languages use Whisper automatically.</p><div class="log mono" id="sttModelLog" hidden></div></div>
           <div class="how"><span class="muted small" id="sttModelState"></span><button class="btn sm primary" id="sttModelGet" hidden>Download</button></div></div>
+        <div class="row" data-stt="local"><div class="what"><h2>Everyday Whisper model</h2><p>Used for most speech. Smaller is faster; larger is more accurate. A change loads on the next request.</p></div>
+          <div class="how"><select class="input" data-bind="voice.stt_model" aria-label="Everyday Whisper model"><option value="tiny">tiny</option><option value="base">base</option><option value="small">small</option><option value="medium">medium</option><option value="large-v3-turbo">large-v3-turbo</option><option value="large-v3">large-v3</option></select></div></div>
+        <div class="row" data-stt="local"><div class="what"><h2>Careful Whisper model</h2><p>Used when Nova needs a second, more careful listen, for example for Hindi.</p></div>
+          <div class="how"><select class="input" data-bind="voice.stt_accurate_model" aria-label="Careful Whisper model"><option value="tiny">tiny</option><option value="base">base</option><option value="small">small</option><option value="medium">medium</option><option value="large-v3-turbo">large-v3-turbo</option><option value="large-v3">large-v3</option></select></div></div>
         <div class="row" data-stt="whisper.cpp"><div class="what"><h2>whisper-server program</h2><p>Full path to whisper-server from a whisper.cpp release (whisper-server.exe on Windows).</p></div>
           <div class="how"><input class="input" data-bind="voice.whisper_cpp_server" placeholder="C:\whisper.cpp\whisper-server.exe" aria-label="whisper-server program"></div></div>
         <div class="row" data-stt="whisper.cpp"><div class="what"><h2>whisper.cpp model</h2><p>Full path to a ggml model file, for example ggml-large-v3-turbo.bin.</p></div>
@@ -1007,6 +1020,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><input class="input" data-bind="voice.custom_stt_url" placeholder="http://localhost:8000/v1/audio/transcriptions" aria-label="Server address"></div></div>
         <div class="row" data-stt="openai groq mistral custom"><div class="what"><h2>Model name</h2><p>Leave empty for the service's recommended model.</p></div>
           <div class="how"><input class="input" data-bind="voice.cloud_stt_model" placeholder="Default" aria-label="Model name"></div></div>
+        <div class="row" data-stt="deepgram"><div class="what"><h2>Model name</h2><p>Deepgram's model. Leave it as nova-3 unless Deepgram tells you otherwise.</p></div>
+          <div class="how"><input class="input" data-bind="voice.deepgram_model" placeholder="nova-3" aria-label="Deepgram model"></div></div>
         <div class="row" data-stt="openai groq mistral deepgram custom" style="display:block"><div class="what"><h2 id="sttKeyTitle">API key</h2><p>Stored on this computer only, where the AI can't read it. Deepgram and the others are paid services; most give sign-up credit.</p></div>
           <div class="add" style="max-width:none">
             <input class="input" id="sttKey" type="password" autocomplete="off" placeholder="Paste an API key" aria-label="API key">
@@ -1064,6 +1079,10 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><div class="seg" role="radiogroup" data-bind="dictation.cleanup_engine" data-options="ai:Claude Code / Codex,local:A model on this computer"></div></div></div>
         <div class="row"><div class="what"><h2>Local model</h2><p>Its address (OpenAI-compatible) and model name. Used when “A model on this computer” is chosen.</p></div>
           <div class="how"><input class="input" data-bind="dictation.local_url" aria-label="Local model address" style="width:220px"><input class="input" data-bind="dictation.local_model" aria-label="Model name" style="width:130px"><button class="btn sm" id="testLocal">Test</button></div></div>
+        <div class="row"><div class="what"><h2>Models that tidy dictations</h2><p>For “Claude Code / Codex”, for example “haiku” or “sonnet” for Claude. Leave Codex empty for its default.</p></div>
+          <div class="how"><input class="input" data-bind="dictation.claude_model" placeholder="haiku" aria-label="Claude model for tidying" style="width:130px"><input class="input" data-bind="dictation.codex_model" placeholder="Codex default" aria-label="Codex model for tidying" style="width:150px"></div></div>
+        <div class="row"><div class="what"><h2>Undo the last dictation</h2><p>Takes back what Nova typed last, in the app it went into (for a few minutes after typing). You can also say “undo that”.</p></div>
+          <div class="how"><button class="btn sm" id="undoDictation">Undo last dictation</button></div></div>
         <div class="row"><div class="what"><h2>Translate into</h2><p>Speak any language and Nova types it in this one. English is translated on this computer by Whisper; other languages need Claude Code or Codex.</p></div>
           <div class="how"><select class="input" data-bind="dictation.translate_to" aria-label="Translate into"><option value="">Off: type what I say</option><option>English</option><option value="Hindi, written in Roman letters (Hinglish)">Hindi (Roman letters)</option><option>Spanish</option><option>French</option><option>German</option><option>Portuguese</option><option>Italian</option><option>Dutch</option><option>Japanese</option><option>Chinese</option><option>Korean</option><option>Arabic</option><option>Russian</option></select></div></div>
         <div class="row"><div class="what"><h2>Learn from my corrections</h2><p>When you fix a misheard name or term right after dictating, Nova adds it to your dictionary. It reads that text field for a minute after pasting, only in memory, and never password fields.</p></div>
@@ -1083,6 +1102,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><input class="input" data-bind="meetings.folder" aria-label="Default folder"></div></div>
         <div class="row"><div class="what"><h2>Model for minutes</h2><p>For Claude Code, for example “sonnet” or “opus”. Leave empty for the default.</p></div>
           <div class="how"><input class="input" data-bind="meetings.claude_model" placeholder="Default" aria-label="Model for minutes"></div></div>
+        <div class="row"><div class="what"><h2>Codex model for minutes</h2><p>The same, when Codex is your AI. Leave empty for its default.</p></div>
+          <div class="how"><input class="input" data-bind="meetings.codex_model" placeholder="Default" aria-label="Codex model for minutes"></div></div>
         <div class="row" style="display:block"><div class="what"><h2>Calendar</h2><p>Paste your calendar's secret iCal (ICS) address. Google Calendar: Settings, your calendar, “Secret address in iCal format”. Outlook: Settings, Calendar, Shared calendars, Publish, ICS link. Nova names recordings after the meeting and reminds you when one starts. Read-only; stored where the AI can't read it.</p></div>
           <div class="add" style="max-width:none">
             <input class="input" id="calKey" type="password" autocomplete="off" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" aria-label="Calendar address">
@@ -1109,6 +1130,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
             <button class="btn" id="fbGet">Get a free key</button>
           </div>
           <p class="muted small" id="fbStatus" style="margin-top:10px"></p></div>
+        <div class="row"><div class="what"><h2>Backup model</h2><p>The Gemini model the backup brain uses.</p></div>
+          <div class="how"><input class="input" data-bind="brain.fallback_model" placeholder="gemini-flash-latest" aria-label="Backup Gemini model"></div></div>
         <div class="row"><div class="what"><h2>Claude model</h2><p>Leave empty for Claude Code's default. For example “sonnet” or “opus”.</p></div>
           <div class="how"><input class="input" data-bind="brain.claude_model" placeholder="Default" aria-label="Claude model"></div></div>
         <div class="row"><div class="what"><h2>Codex model</h2><p>Leave empty for Codex's default.</p></div>
@@ -1119,6 +1142,10 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><input class="input short num" type="number" min="0" max="120" data-bind="brain.followup_window_min" aria-label="Minutes"><span class="muted">minutes</span></div></div>
         <div class="row"><div class="what"><h2>Pick the model for each request</h2><p>Quick actions like “open Spotify” use the fast Haiku model; everything else uses the model above. Say “use opus to…” or “with sonnet” to choose for one request.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="brain.auto_model" aria-label="Pick the model for each request"></button></div></div>
+        <div class="row"><div class="what"><h2>Steps per request</h2><p>The most steps (tool uses) the AI may take on one request before it stops. Higher lets it finish bigger jobs; lower stops runaways sooner.</p></div>
+          <div class="how"><input class="input short num" type="number" min="1" max="100" data-bind="brain.max_turns" aria-label="Steps per request"><span class="muted">steps</span></div></div>
+        <div class="row"><div class="what"><h2>Background jobs at once</h2><p>How many “in the background” requests run at the same time.</p></div>
+          <div class="how"><input class="input short num" type="number" min="1" max="8" data-bind="brain.max_background" aria-label="Background jobs at once"><span class="muted">jobs</span></div></div>
         <div class="row"><div class="what"><h2>Tell me when Claude Code finishes</h2><p>For tasks you start yourself in a terminal: Nova says when Claude is done, so you can work elsewhere meanwhile. This adds a small hook to your Claude Code settings; turning it off removes it.</p></div>
           <div class="how"><button class="switch" role="switch" id="claudeHook" aria-label="Tell me when Claude Code finishes"></button></div></div>
         <div class="row"><div class="what"><h2>Your notes in Claude Code and Codex</h2><p>Lets them search and read your Nova notes, meetings and memory, and add dictionary words, in any session you start. Only the notes folder: never settings, keys or logs. Runs on this computer.</p></div>
@@ -1135,10 +1162,17 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
             <button class="btn primary sm" id="appsSignin">Sign in</button></div></div>
         <div class="row"><div class="what"><h2>Suggestions</h2><p>When you copy an error message, a link or a long text, a small card offers to explain or summarise it. Nothing goes to the AI until you press Do it. At most a few a day, and if you chose a model on this computer for dictation, it decides whether the moment is right.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="proactive.enabled" aria-label="Suggest help"></button></div></div>
+        <div class="row"><div class="what"><h2>Most suggestions a day</h2><p>With a model on this computer, up to this many; without one, at most two.</p></div>
+          <div class="how"><input class="input short num" type="number" min="1" max="20" data-bind="proactive.max_per_day" aria-label="Most suggestions a day"><span class="muted">a day</span></div></div>
+        <div class="row"><div class="what"><h2>Let a model on this computer decide</h2><p>Before a card appears, your local model (Settings, Dictation) votes yes or no, so fewer unneeded cards show. Needs “A model on this computer” chosen there.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="proactive.use_local_model" aria-label="Let a model on this computer decide"></button></div></div>
         <div class="row" style="display:block"><div class="what"><h2>Project nicknames</h2><p>Say “my site” and Nova knows you mean the folder “portfolio”. Nova already knows every project you've opened in Claude Code or Codex.</p></div>
           <div class="pair-head"><span>When you say</span><span></span><span>Project folder</span><span></span></div>
           <div class="pairs" id="aliases"></div>
           <button class="btn sm" id="addAlias" style="margin-top:12px"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add nickname</button></div>
+        <div class="row" style="display:block"><div class="what"><h2>Folders Nova skips</h2><p>When Nova looks for your projects it leaves out any whose path contains one of these.</p></div>
+          <textarea class="input" id="projExclude" rows="4" spellcheck="false" aria-label="Folders Nova skips" aria-describedby="projExcludeNote" style="margin-top:10px;width:100%;font-family:var(--mono);font-size:12.5px"></textarea>
+          <p class="muted small" id="projExcludeNote" style="margin-top:6px">One per line: a folder name or part of a path. Projects whose path contains one of these are left out.</p></div>
         <div class="row" style="display:block"><div class="what"><h2>Folders Nova can edit freely</h2><p>Nova creates and edits files in these folders, and the projects inside them, without asking. It still asks before deleting files, installing anything or pushing code. Nova already does this for your Claude Code and Codex projects and the folders they're in.</p></div>
           <ul class="feed" id="folders" style="margin-top:14px"></ul>
           <button class="btn sm" id="addFolder" style="margin-top:12px"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add folder</button></div>
@@ -1147,6 +1181,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
       <div data-panel="browsers" class="rows" hidden>
         <div class="row" style="display:block"><div class="what"><h2>Your browsers</h2><p>Nova can read pages, open tabs, click and type in the browsers you turn on here, inside your own profile with your logins. It asks before clicks and keys that look like submitting, buying, posting or sending (it judges by the button, so a page can disguise one), and never types passwords, card numbers or one-time codes. Say “in Brave” to use another browser for one request.</p></div>
           <div class="engines" id="setBrowsers"></div><div class="log mono" id="browserLog" hidden></div></div>
+        <div class="row"><div class="what"><h2>Keep the AI's pages in their own window</h2><p>Pages the AI opens go to a window of their own, not among the tabs you are using. Not for Safari.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="browser.agent_window" aria-label="Keep the AI's pages in their own window"></button></div></div>
       </div>
 
       <div data-panel="phone" class="rows" hidden>
@@ -1171,6 +1207,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="pair-head"><span>When you say</span><span></span><span>Nova does</span><span></span></div>
           <div class="pairs" id="routines"></div>
           <button class="btn sm" id="addRoutine" style="margin-top:12px"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add routine</button></div>
+        <div class="row"><div class="what"><h2>Past notes a skill reads</h2><p>How many of its last run notes a skill reads before it starts, so it can do better. The skill’s own file can say otherwise.</p></div>
+          <div class="how"><input class="input short num" type="number" min="0" max="10" data-bind="skills.past_runs" aria-label="Past notes a skill reads"><span class="muted">notes</span></div></div>
         <div class="row" style="display:block"><div class="what"><h2>Scheduled</h2><p>Say “every weekday at 9, run start my day” and Nova runs it at that time while it's on. If the computer was asleep, it runs once when it wakes within the hour.</p></div>
           <ul id="schedules" style="margin-top:10px;list-style:none;padding:0"></ul></div>
         <div class="row" style="display:block"><div class="what"><h2>Watch a long command</h2><p>Run it through Nova and keep working; Nova tells you when it finishes, and if it fails, why, and offers to fix it.</p></div>
@@ -1709,6 +1747,8 @@ const CAN = [["Rewrite what you selected", "Select text, press the shortcut and 
   ["Your real browser", "Nova works inside your own browser, with your logins, and asks before buttons that look like sending or buying.", "settings:browsers"],
   ["Phone and Siri", "Ask, and Allow or Deny, from your phone. Or “Hey Siri, ask Nova”.", "settings:phone"],
   ["Backup brain", "A free Gemini key takes over when Claude Code or Codex reaches its limit.", "settings:ai"],
+  ["Undo a dictation", "Say “undo that” right after Nova types the wrong thing, or press the button in Settings, Dictation.", "settings:dictation"],
+  ["Sketch the answer", "Ask a short factual question and a paper note draws the answer on screen while Nova says it.", "settings:cursor"],
   ["Change Nova by asking", "“Use Ctrl+Shift+N as my shortcut” or “keep replies up for 10 seconds”.", "settings:general"]];
 function renderHome() {
   $("#canDo").replaceChildren(...CAN.map(([what, line, where]) => h("li", {}, h("button", { class: "phrase", "data-go": where },
@@ -1902,13 +1942,14 @@ function renderWords() {
 $("#wordForm").addEventListener("submit", async e => {
   e.preventDefault();
   const v = $("#wordInput").value.trim();
-  if (!v) return;
+  if (!v) { $("#wordInput").focus(); return failAt($("#wordInput"), "Type a word or name first."); }
   $("#wordInput").value = "";
   await fresh("dictation.dictionary");
   const words = get("dictation.dictionary") || [];
   if (words.some(w => w.toLowerCase() === v.toLowerCase())) { renderWords(); toast(`“${v}” is already there`); return; }
   words.push(v); set("dictation.dictionary", words); renderWords(); save();
 });
+const pairLabels = c => { const head = c.previousElementSibling; if (head && head.classList.contains("pair-head")) head.hidden = !c.children.length; };  // no column labels over an empty list
 function pairsEditor(container, path, leftPh, rightPh) {
   const obj = get(path) || {};
   const rows = Object.entries(obj);
@@ -1926,11 +1967,12 @@ function pairsEditor(container, path, leftPh, rightPh) {
     const rm = h("button", { class: "icon-btn", "aria-label": "Remove", html: I.x });
     const el = h("div", { class: "pair" }, h("input", { class: "input", value: a, placeholder: leftPh, "aria-label": leftPh, onchange: commit }),
       h("span", { class: "arrow", html: I.arrow }), h("input", { class: "input", value: b, placeholder: rightPh, "aria-label": rightPh, onchange: commit }), rm);
-    rm.addEventListener("click", () => { el.remove(); commit(); });
+    rm.addEventListener("click", () => { el.remove(); commit(); pairLabels(container); });
     return el;
   };
   container.replaceChildren(...rows.map(([a, b]) => row(a, b)));
-  return () => { const r = row(); container.append(r); $("input", r).focus(); };
+  pairLabels(container);
+  return () => { const r = row(); container.append(r); pairLabels(container); $("input", r).focus(); };
 }
 let addRepl, addSnip, addTone, addAlias, addRoutine, addApp;
 function appsEditor(container) {  // name -> address, for the apps given as a plain address; the others stay as they are in config.json
@@ -1949,11 +1991,12 @@ function appsEditor(container) {  // name -> address, for the apps given as a pl
     const rm = h("button", { class: "icon-btn", "aria-label": "Remove", html: I.x });
     const el = h("div", { class: "pair" }, h("input", { class: "input", value: a, placeholder: "linear", "aria-label": "Name", onchange: commit }),
       h("span", { class: "arrow", html: I.arrow }), h("input", { class: "input", value: b, placeholder: "https://mcp.example.com/mcp", "aria-label": "MCP address", onchange: commit }), rm);
-    rm.addEventListener("click", () => { el.remove(); commit(); });
+    rm.addEventListener("click", () => { el.remove(); commit(); pairLabels(container); });
     return el;
   };
   container.replaceChildren(...strings().map(([a, b]) => row(a, b)));
-  return (a, b) => { const r = row(a, b); container.append(r); if (a) commit(); else $("input", r).focus(); };
+  pairLabels(container);
+  return (a, b) => { const r = row(a, b); container.append(r); pairLabels(container); if (a) commit(); else $("input", r).focus(); };
 }
 const DAY_SETS = { "day": "0123456", "weekday": "01234", "weekend": "56" }, DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 function renderSchedules() {  // added by voice (core/schedule.py), removed here
@@ -2020,7 +2063,8 @@ async function loadMemory() { try { memLines = await api().memory(null); } catch
 async function saveMemory(msg, change) { try { memLines = await api().memory(null); change(); memLines = await api().memory(memLines); renderMemory(); toast(msg); } catch (e) { fail(e); } }
 $("#memForm").addEventListener("submit", e => {
   e.preventDefault();
-  const v = $("#memInput").value.trim(); if (!v) return;
+  const v = $("#memInput").value.trim();
+  if (!v) { $("#memInput").focus(); return failAt($("#memInput"), "Type something for Nova to remember first."); }
   $("#memInput").value = ""; saveMemory("Nova will remember that", () => memLines.push(`- ${new Date().toISOString().slice(0, 10)}: ${v}`));
 });
 armed($("#memClear"), "Click again to forget all", () => saveMemory("Memory cleared", () => { memLines = []; }));
@@ -2201,6 +2245,7 @@ function bindSettings() {
       $$("button", el).forEach(b => b.onclick = () => { set(path, b.dataset.v); paint(); showValue(path); save(); });
       paint(); showValue(path);
     } else {
+      if (el.tagName === "SELECT" && get(path) && ![...el.options].some(o => o.value === String(get(path)))) el.append(h("option", { value: get(path) }, get(path)));  // a value set in config.json stays visible
       el.value = get(path) ?? "";
       const num = el.type === "number" || el.type === "range";
       el.oninput = () => {
@@ -2219,6 +2264,7 @@ function bindSettings() {
   $("#cfgPath").textContent = S.paths.config;
   $("#autostart").setAttribute("aria-checked", !!S.autostart);
   const lang = $("#langSel"); lang.replaceChildren(...Object.entries(S.languages).map(([v, l]) => h("option", { value: v }, l))); lang.value = get("voice.language");
+  exclude.value = (get("projects.exclude") || []).join("\n");
   renderWords();
   addRepl = pairsEditor($("#repls"), "dictation.replacements", "wisper", "Wispr");
   // shortcut: the pairs editor is single-line, so multi-line snippets need config.json; a textarea if users ask
@@ -2357,6 +2403,14 @@ $("#cloneDel").addEventListener("click", async e => {
   try { await api().clone_remove(); toast("Your voice was deleted"); } catch (err) { fail(err); }
   paintClone(); loadVoices();
 });
+$("#undoDictation").addEventListener("click", () => { send("undo"); toast("Asked Nova to undo it"); });
+/* folders skipped when looking for projects: one per line */
+const exclude = $("#projExclude");
+exclude.addEventListener("change", () => { set("projects.exclude", exclude.value.split("\n").map(x => x.trim()).filter(Boolean)); save(); });
+$("#startNova").addEventListener("click", async e => {
+  const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Starting…";
+  try { await api().start_nova(); } catch (err) { fail(err); btn.disabled = false; btn.textContent = "Start Nova"; }  // on success this window closes and Nova opens its own
+});
 $$("[data-open]").forEach(b => b.addEventListener("click", () => api().open(b.dataset.open).catch(fail)));
 $("#diagBtn").addEventListener("click", async e => {
   const btn = e.currentTarget; btn.disabled = true;
@@ -2458,6 +2512,8 @@ function themeTokens(hex) {
     "--accent": hx(hue, fs, fl), "--accent-hover": hover, "--accent-ink": onWhite ? ink : INK,
     "--accent-soft": `hsla(${hue},${Math.round(100 * fs)}%,60%,.16)`, "--accent-text": hx(hue, ts, tl),
     "--pill": hx(hue, .36 * k, .14),
+    // a red, pink or orange pick would make a destructive button the accent's cousin: pale salmon instead (the trash icon and outline stay)
+    "--danger": sat && (hue <= 24 || hue >= 336) ? hx(6, 1, .86) : "#ff7a7a", "--danger-soft": sat && (hue <= 24 || hue >= 336) ? "rgba(255, 196, 184, .10)" : "rgba(255, 122, 122, .10)",
   };
 }
 /* theme:end */
@@ -2748,7 +2804,8 @@ $("#mtSearch").addEventListener("input", () => { clearTimeout(searchTimer); sear
 $("#mtFolder").addEventListener("change", loadMeetings);
 $("#mtAsk").addEventListener("submit", e => {
   e.preventDefault();
-  const q = $("#mtQuestion").value.trim(); if (!q) return;
+  const q = $("#mtQuestion").value.trim();
+  if (!q) { $("#mtQuestion").focus(); return failAt($("#mtQuestion"), "Type a question about your meetings first."); }
   const box = $("#mtAnswer"); box.hidden = false; box.replaceChildren(h("p", { class: "muted" }, `Reading ${$("#mtFolder").value ? "the meetings in " + $("#mtFolder").value : "your meetings"}…`));
   send("meeting_chat", { question: q, folder: $("#mtFolder").value });
 });
