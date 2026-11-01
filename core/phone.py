@@ -131,10 +131,22 @@ def _tailscale_ips():
                 return out
         except (OSError, subprocess.TimeoutExpired):
             pass
-    try:
-        return [info[4][0] for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)]
-    except OSError:
-        return []
+    return _name_ips()
+
+
+def _name_ips(wait=3):
+    """What this computer's name resolves to, or [] if that takes longer than `wait` seconds: the lookup has no timeout of its
+    own and took 35 s on a macOS 27 Mac whose name nothing answered for, which kept Phone from listening that long."""
+    found = []
+    def lookup():
+        try:
+            found.extend(info[4][0] for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET))
+        except OSError:
+            pass
+    t = threading.Thread(target=lookup, daemon=True)
+    t.start()
+    t.join(wait)
+    return list(found)
 
 
 def save_upload(data_url, name="", folder=DROP, keep=30):

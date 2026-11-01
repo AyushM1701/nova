@@ -362,6 +362,7 @@ assert siri_msgs == [{"op": "ask", "text": "what time is it", "siri": True}], si
 # the phone page says "Connection: close", so a reload on Safari's pooled socket doesn't hit one Nova already closed
 import http.client  # noqa: E402
 import shutil  # noqa: E402
+import socket  # noqa: E402
 import subprocess  # noqa: E402
 import time  # noqa: E402
 phone_mod.PORT = 47899
@@ -374,6 +375,15 @@ for _ in range(600):  # up to 30 s: finding the network (route, arp, this comput
     time.sleep(0.05)
 assert siri.server, f"Phone never started listening: hosts={siri.hosts!r} error={siri.error!r}"
 print(f"phone server up after {time.time() - started:.1f}s")
+# a computer name nothing answers for must not hold Phone up: the lookup is given up after a few seconds
+real_getaddrinfo = socket.getaddrinfo
+socket.getaddrinfo = lambda *a, **k: time.sleep(6) or []
+try:
+    started = time.time()
+    assert phone_mod._name_ips(wait=0.3) == [] and time.time() - started < 3
+finally:
+    socket.getaddrinfo = real_getaddrinfo
+assert isinstance(phone_mod._name_ips(), list)
 pooled = http.client.HTTPConnection("127.0.0.1", 47899, timeout=5)
 for _ in range(2):  # the second request goes down the same socket, like a browser's reload
     pooled.request("GET", "/")
@@ -4661,6 +4671,7 @@ jobs.DIR, jobs.KEEP, jobs.PRUNE_EVERY = old_dir, old_keep, old_every
 # Settings → AI → Apps → Sign in starts Claude Code on the apps-only server file; the window's script still parses; moving
 # a layered window repaints nothing
 import shutil  # noqa: E402
+import socket  # noqa: E402
 import core.app as app_mod  # noqa: E402
 api = object.__new__(app_mod.Api)
 sign_dir, started_files = Path(tempfile.mkdtemp(prefix="nova-signin-")), []
