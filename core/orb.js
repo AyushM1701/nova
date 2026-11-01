@@ -4,6 +4,7 @@
 // standalone version this came from.
 //
 //   Orb.mount(canvas, { hue })   the canvas to draw on (it fills its CSS size); nothing runs until resume()
+//   Orb.setHue(hue)              the colour, 0-360 (the window's colour picker)
 //   Orb.set(state)               idle | listening | thinking | speaking | approval | paused | gone
 //   Orb.level(v)                 0..1, the microphone while listening; a real level while speaking, if one is ever fed
 //   Orb.pause() / Orb.resume()   the animation loop only runs between these: the page calls them as the orb shows or hides
@@ -142,6 +143,7 @@ const Orb = (() => {
       reduced = !!(mq && mq.matches);
       if (mq && mq.addEventListener) mq.addEventListener("change", e => { reduced = e.matches; });
     },
+    setHue(h) { hue = h; if (cv) makeSprite(); },
     set(s) { if (s === "working") s = "thinking"; if (STATES[s]) state = s; },
     level(v) { ext = Math.max(0, Math.min(1, +v || 0)); extAt = now(); },
     pause() { if (raf) cancelAnimationFrame(raf); raf = 0; },

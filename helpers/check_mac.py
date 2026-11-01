@@ -28,6 +28,25 @@ from core import hands_mac  # noqa: E402
 assert hands_mac._apps(), "NSWorkspace lists no apps"  # the call hands_mac makes first, which needs no permission
 print("ok: Mac-only modules load")
 
+# macOS 27 freezes Tk apps that open a dialog from a menu command (python/cpython#158053; fixed by a newer Tk, which the
+# python.org 3.13.17 installer carries even though its Tk may still report 8.6.18). Nova's bar and card have no Tk menu, so this
+# only reports what is installed
+import platform  # noqa: E402
+import tkinter  # noqa: E402
+root = tkinter.Tk()
+root.withdraw()
+tk_level = root.tk.call("info", "patchlevel")
+root.destroy()
+print(f"ok: Tk {tk_level} on macOS {platform.mac_ver()[0]}, Python {platform.python_version()}")
+
+# how long Phone takes to find where to listen (it took 35 s on the macOS 27 runner and 0.1 s on macOS 15 and 26)
+from core import phone  # noqa: E402
+for name, call in (("route + arp", phone.router), ("this computer's addresses", phone.addresses), ("Tailscale / name lookup", phone._tailscale_ips),
+                   ("where to listen", phone.hosts)):
+    started = time.time()
+    call()
+    print(f"timing: {name}: {time.time() - started:.1f}s")
+
 # the pynput patch is in place: a listener macOS switches off is switched back on
 import pynput._util.darwin as pk_util  # noqa: E402
 from pynput import keyboard  # noqa: E402

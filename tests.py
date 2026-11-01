@@ -362,15 +362,28 @@ assert siri_msgs == [{"op": "ask", "text": "what time is it", "siri": True}], si
 # the phone page says "Connection: close", so a reload on Safari's pooled socket doesn't hit one Nova already closed
 import http.client  # noqa: E402
 import shutil  # noqa: E402
+import socket  # noqa: E402
 import subprocess  # noqa: E402
 import time  # noqa: E402
 phone_mod.PORT = 47899
 phone_mod.NETWORK = phone_mod.TOKEN.with_name("phone-network")  # not this computer's real one
 siri.enable(True)
-for _ in range(40):
+started = time.time()
+for _ in range(600):  # up to 30 s: finding the network (route, arp, this computer's name) was too slow for 2 s on the macOS 27 runner
     if siri.server:
         break
     time.sleep(0.05)
+assert siri.server, f"Phone never started listening: hosts={siri.hosts!r} error={siri.error!r}"
+print(f"phone server up after {time.time() - started:.1f}s")
+# a computer name nothing answers for must not hold Phone up: the lookup is given up after a few seconds
+real_getaddrinfo = socket.getaddrinfo
+socket.getaddrinfo = lambda *a, **k: time.sleep(6) or []
+try:
+    started = time.time()
+    assert phone_mod._name_ips(wait=0.3) == [] and time.time() - started < 3
+finally:
+    socket.getaddrinfo = real_getaddrinfo
+assert isinstance(phone_mod._name_ips(), list)
 pooled = http.client.HTTPConnection("127.0.0.1", 47899, timeout=5)
 for _ in range(2):  # the second request goes down the same socket, like a browser's reload
     pooled.request("GET", "/")
@@ -465,6 +478,29 @@ if shutil.which("node"):
     assert orb_check["working_is_thinking"] and orb_check["unknown_ignored"], orb_check
     assert orb_check["paused_frames"] == 0 and not orb_check["paused_running"] and orb_check["paused_stays"] and orb_check["resumed"], orb_check
     assert orb_check["reduced_flag"] and orb_check["reduced_yaw"] == 0 and orb_check["reduced_speaking_yaw"] == 0, orb_check  # no rotation
+
+# the colour picker themes the whole window: every tile gives a palette that stays readable (WCAG AA), whatever colour it is
+app_src = Path("core/app.html").read_text(encoding="utf-8")
+assert app_src.count('applyTheme(get("companion.color"))') == 2  # at boot, and when a tile is picked
+assert "setHue(h)" in Path("core/orb.js").read_text(encoding="utf-8")
+if shutil.which("node"):
+    theme = json.loads(subprocess.run(["node", "-e", r"""
+      const src = require("fs").readFileSync("core/app.html", "utf8");
+      const themeTokens = new Function(src.slice(src.indexOf("/* theme:start"), src.indexOf("/* theme:end */")) + "; return themeTokens;")();
+      const lum = h => { const a = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(v => v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4); return .2126 * a[0] + .7152 * a[1] + .0722 * a[2]; };
+      const cr = (a, b) => (Math.max(lum(a), lum(b)) + .05) / (Math.min(lum(a), lum(b)) + .05);
+      const out = { nova: themeTokens("nova"), bad: themeTokens("#12345"), rows: {} };
+      for (const c of ["#3380FF", "#9B5CFF", "#FF5C8A", "#FF6B3D", "#F5B800", "#22C55E", "#14B8A6", "#EDEDED", "#000000", "#ffffff", "#FF0000"]) {
+        const t = themeTokens(c), sf = t["--surface"], rs = t["--raised"];
+        out.rows[c] = { fill: cr(t["--accent"], t["--accent-ink"]), hover: cr(t["--accent-hover"], t["--accent-ink"]), link: Math.min(cr(t["--accent-text"], sf), cr(t["--accent-text"], rs)),
+          text: cr(t["--text"], sf), muted: Math.min(cr(t["--muted"], sf), cr(t["--muted"], rs)), faint: cr(t["--faint"], sf), danger: cr(t["--danger"], sf), dangerName: t["--danger"], bg: [t["--bg"], t["--side"], t["--surface"], t["--raised"], t["--sunk"]].every(x => /^#[0-9a-f]{6}$/.test(x)) };
+      }
+      console.log(JSON.stringify(out));"""], capture_output=True, text=True, check=True, timeout=60).stdout)
+    assert theme["nova"] is None and theme["bad"] is None, theme  # Nova's own violet, or a value that isn't a colour: the stylesheet stays
+    for colour, r in theme["rows"].items():
+        assert r["danger"] >= 4.5, (colour, r)  # the danger colour reads on the panels, and
+        assert (r["dangerName"] != "#ff7a7a") == (colour in ("#FF5C8A", "#FF6B3D", "#FF0000")), (colour, r)  # a red, pink or orange pick gets a paler one
+        assert r["bg"] and r["fill"] >= 4.5 and r["hover"] >= 4.5 and r["link"] >= 4.5 and r["text"] >= 12 and r["muted"] >= 6 and r["faint"] >= 4.5, (colour, r)
 
 # the browser extension reconnects by itself: right away, backing off to 5 s, re-reading nova.json each time
 if shutil.which("node"):
@@ -727,7 +763,7 @@ assert stt_stub.shaky
 stt_stub.transcribe(None, server=types.SimpleNamespace(transcribe=lambda *a: "hello there"))
 assert not stt_stub.shaky, "a server's answer must not inherit the last local doubt"
 heard = []
-shaky_nova = types.SimpleNamespace(command=lambda t: False, asked=False, voice=True, stt=types.SimpleNamespace(shaky=True),
+shaky_nova = types.SimpleNamespace(noticed=lambda t: None, command=lambda t: False, asked=False, voice=True, stt=types.SimpleNamespace(shaky=True),
                                    cleaner=None, assist=heard.append, dictate=lambda t: None, ui=lambda fn: fn(),
                                    card=types.SimpleNamespace(show=lambda *a, **k: None), cfg={"dictation": {}})
 nova_mod.Nova.route(shaky_nova, "so the html", "assistant")
@@ -2465,9 +2501,88 @@ for memory, cores, want in ((4, 8, False), (16, 2, False), (16, 8, True)):
     system.memory_gb, real_cores = (lambda m=memory: m), os.cpu_count
     os.cpu_count = lambda c=cores: c
     assert tts_mod.capable("kokoro") == want and tts_mod.capable("piper") and tts_mod.capable("kitten"), (memory, cores)
+    assert tts_mod.capable("pocket") == (want and tts_mod.pocket_supported()), (memory, cores)  # Pocket needs the same room as Kokoro
     os.cpu_count = real_cores
 system.memory_gb = real_memory
 assert system.memory_gb() > 1  # reads this computer's real memory
+
+# Your voice (core/clone.py, Pocket in core/tts.py): recorded in the window, copied by Pocket, never loaded from a file
+import tempfile  # noqa: E402
+import numpy as np  # noqa: E402
+import wave  # noqa: E402
+from core import clone as clone_mod  # noqa: E402
+with tempfile.TemporaryDirectory() as tmp:
+    real_dir, real_ref = clone_mod.DIR, clone_mod.REFERENCE
+    clone_mod.DIR, clone_mod.REFERENCE = Path(tmp), Path(tmp) / "yours.wav"
+    try:
+        rate = 24000
+        tone = lambda secs, amp=0.3: (amp * np.sin(2 * np.pi * 180 * np.arange(int(secs * rate)) / rate)).astype(np.float32)
+        quiet = np.zeros(rate, dtype=np.float32)
+        for bad, words in ((np.zeros(rate * 12, dtype=np.float32), "couldn't hear"), (tone(12, 0.001), "couldn't hear"),
+                           (np.concatenate([quiet, tone(3), quiet]), "only 3 seconds")):
+            try:
+                clone_mod.save(bad, rate)
+                raise AssertionError("saved a recording that should be refused")
+            except ValueError as e:
+                assert words in str(e), e
+        assert not clone_mod.exists() and clone_mod.reference() is None
+        kept = clone_mod.save(np.concatenate([quiet, tone(20), quiet]), rate)  # the silence around the speech is cut
+        assert 19.5 <= kept <= 20.5 and clone_mod.exists() and not list(Path(tmp).glob("*.tmp")), kept
+        with wave.open(str(clone_mod.REFERENCE)) as w:
+            assert (w.getnchannels(), w.getsampwidth(), w.getframerate()) == (1, 2, rate)
+        x, got_rate = clone_mod.reference()
+        assert got_rate == rate and len(x) == clone_mod.USE_S * rate and x.dtype == np.float32  # the model hears the first 15 s
+        assert clone_mod.save(tone(90), rate) == clone_mod.MAX_S  # a long take is cut to a minute
+        # Pocket speaks with it: the settings it is given carry the recording and the speed
+        g = tts_mod._your_voice(1.2)
+        assert g.reference_sample_rate == rate and len(g.reference_audio) == clone_mod.USE_S * rate and abs(g.speed - 1.2) < 1e-6
+        clone_mod.remove()
+        assert not clone_mod.exists() and clone_mod.reference() is None
+        clone_mod.remove()  # nothing to delete is fine
+    finally:
+        clone_mod.DIR, clone_mod.REFERENCE = real_dir, real_ref
+# it is the voice Nova speaks with only when everything is in place; until then Piper talks, never silence
+real_installed, real_models_installed, real_exists, real_supported = tts_mod.installed, models.installed, clone_mod.exists, tts_mod.pocket_supported
+try:
+    tts_mod.installed = real_installed
+    for model, recorded, supported, want in ((True, True, True, True), (False, True, True, False), (True, False, True, False), (True, True, False, False)):
+        models.installed, clone_mod.exists, tts_mod.pocket_supported = (lambda name, m=model: m or name != "pocket"), (lambda r=recorded: r), (lambda s=supported: s)
+        assert tts_mod.installed("pocket") == want, (model, recorded, supported)
+        assert supported or not tts_mod.capable("pocket")  # a speech library too old for it never offers it
+    for have, want in (({"piper", "pocket"}, "pocket"), ({"piper"}, "piper"), ({"kitten"}, "kitten")):
+        tts_mod.installed = lambda engine, have=have: engine in have
+        assert tts_mod.pick({"tts_engine": "pocket"}) == want, have
+finally:
+    tts_mod.installed, models.installed, clone_mod.exists, tts_mod.pocket_supported = real_installed, real_models_installed, real_exists, real_supported
+# a reply in Hindi script goes to a voice that has Hindi (Kokoro, else Piper); English and Roman Hinglish stay in your voice
+spoken = []
+real_neural, real_pick = tts_mod._speak_neural, tts_mod.pick
+tts_mod._speak_neural = lambda text, engine, sid, speed, stop: spoken.append(engine)
+tts_mod.pick = lambda v: "pocket"
+try:
+    for have, text, want in (({"pocket", "piper", "kokoro"}, "नमस्ते, आज मौसम कैसा है?", "kokoro"), ({"pocket", "piper"}, "नमस्ते", "piper"),
+                             ({"pocket", "piper", "kokoro"}, "Hello there", "pocket"), ({"pocket", "piper"}, "aaj mausam kaisa hai", "pocket")):
+        tts_mod.installed = lambda engine, have=have: engine in have
+        spoken.clear()
+        tts_mod.speak(text, {"tts_engine": "pocket"}, threading.Event())
+        assert spoken == [want], (text, spoken)
+finally:
+    tts_mod._speak_neural, tts_mod.pick, tts_mod.installed = real_neural, real_pick, real_installed
+real_tts_class, tts_mod._models = sherpa_onnx.OfflineTts, {}
+sherpa_onnx.OfflineTts = lambda config: object()
+try:
+    assert tts_mod.load("pocket") is not None  # the model's files are named as the downloaded folder has them
+finally:
+    sherpa_onnx.OfflineTts, tts_mod._models = real_tts_class, {}
+assert models.DOWNLOADS["pocket"][1].endswith("sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2") and models.path("pocket").name == "sherpa-onnx-pocket-tts-int8-2026-01-26"
+# the window can record the voice and delete it, but has no way to load a file or take a path (nothing can copy someone else's voice)
+import inspect  # noqa: E402
+api_src = inspect.getsource(app_mod.Api)
+assert all(not [a for a in inspect.signature(getattr(app_mod.Api, m)).parameters if a != "self"] for m in ("clone_record", "clone_save", "clone_cancel", "clone_remove", "clone_status"))
+assert "clone_import" not in api_src and "clone_load" not in api_src
+page_src = Path("core/app.html").read_text(encoding="utf-8")
+assert 'pocket:Your voice' in page_src and page_src.split('data-engine="pocket"')[1].split('data-engine="system"')[0].count('type="file"') == 0
+assert "sherpa-onnx>=1.12.40" in Path("requirements.txt").read_text(encoding="utf-8")
 
 # the pointer: a POINT: line in screenshot pixels lands on the right screen spot, and never shows in the reply
 from core.pointer import take as take_point  # noqa: E402
@@ -3072,7 +3187,7 @@ assert cards == ["Nova is busy"], cards
 # "make this formal" with text selected rewrites it in place from the shortcut too (assistant mode), instead of the
 # AI remote-controlling the app; with nothing selected it's an ordinary request
 edits, asked, pasted = [], [], []
-n = types.SimpleNamespace(cleaner=types.SimpleNamespace(name="Claude Code", clean=lambda p, t, m: "Hello, my name is Ayush."),
+n = types.SimpleNamespace(noticed=lambda t: None, cleaner=types.SimpleNamespace(name="Claude Code", clean=lambda p, t, m: "Hello, my name is Ayush."),
                           cfg={"dictation": {"claude_model": "haiku"}}, copy_selection=lambda: "hi my name ayush",
                           cancel=threading.Event(), paste=pasted.append, ui=lambda fn: fn(), command=lambda t: False,
                           assist=asked.append, dictate=lambda t: None, asked=False, voice=True, stt=None)
@@ -3525,7 +3640,7 @@ skills_mod.DIR, runs_mod.DIR, runs_mod.OUT, runs_mod.KEEP = real_dirs
 logged, real_nova_log = [], nova_mod.log
 nova_mod.log = lambda event, **fields: logged.append((event, fields))
 try:
-    routed = types.SimpleNamespace(command=lambda t: True, route_why="")
+    routed = types.SimpleNamespace(noticed=lambda t: None, command=lambda t: True, route_why="")
     nova_mod.Nova.route(routed, "volume up", "assistant")
     assert logged[-1] == ("route", {"tier": 1, "why": "command", "text": "volume up"}), logged[-1]
 
@@ -4658,6 +4773,7 @@ jobs.DIR, jobs.KEEP, jobs.PRUNE_EVERY = old_dir, old_keep, old_every
 # Settings → AI → Apps → Sign in starts Claude Code on the apps-only server file; the window's script still parses; moving
 # a layered window repaints nothing
 import shutil  # noqa: E402
+import socket  # noqa: E402
 import core.app as app_mod  # noqa: E402
 api = object.__new__(app_mod.Api)
 sign_dir, started_files = Path(tempfile.mkdtemp(prefix="nova-signin-")), []
@@ -6093,7 +6209,9 @@ assert "transition: all" not in p3 and "cubic-bezier(.3, 1.5" not in p3 and "tra
 css_durations = set(re.findall(r"transition:[^;}]*?((?:\d*\.\d+|\d+)m?s)", p3))
 assert css_durations <= {".15s", ".25s", ".45s", "1s", ".12s", ".7s", ".5s", ".6s"}, css_durations  # a short list, not eight
 assert "text-wrap: pretty" in p3 and 'class="row flat"' in p3 and "Show ${Math.min(50, total - limit)} more" in p3
-assert "width: 42px; height: 24px" in p3 and ".word button { width: 24px; height: 24px" in p3  # switches and chip buttons are at least 24 px
+assert "width: 42px; height: 24px" in p3 and ".word button { position: relative; width: 24px; height: 24px" in p3  # switches and chip buttons are at least 24 px
+assert ".switch::before { content: \"\"; position: absolute; inset: -4px -2px; }" in p3 and ".word button::after { content: \"\"; position: absolute; inset: -4px; }" in p3  # ...and 32 px to hit
+assert ".btn.sm { height: 32px;" in p3 and ".chip { min-height: 32px;" in p3 and ".seg button { min-height: 32px;" in p3
 assert ".deck-row .s { display: block; margin-top: 1px; font: 400 12px" in p3 and "gap: 8px; } .dock nav button:not" in p3
 phone_html = Path("core/phone.html").read_text(encoding="utf-8")
 assert '<h1 class="sr">Nova</h1>' in phone_html and "touch-action: manipulation" in phone_html
@@ -6162,6 +6280,74 @@ for case, (reviewed, wrong, days, met) in {"all three": (200, 20, 30, True), "to
     assert route_review.review(big / "logs", big / "t.csv", now=1000.0 + days * DAY)["met"] is met, case
 assert route_review.review(rr / "empty", rr / "e.csv")["logged"] == 0  # no logs folder: nothing, and no crash
 
+# Nova learns how you like answers from corrections (core/corrections.py): counted, offered on the third time over two days,
+# and only a Remember writes a line (with its why) to the memory
+import tempfile  # noqa: E402
+from core import corrections as cor  # noqa: E402
+assert [cor.kind_of(t) for t in ("shorter", "Too long!", "just the answer", "make it shorter please", "more detail", "just do it",
+                                 "stop asking", "that's too formal", "what's the weather", "")] == \
+    ["shorter", "shorter", "shorter", "shorter", "longer", "just_do_it", "just_do_it", "plainer", None, None]
+assert cor.kind_of("write an email to the landlord and make it shorter than the last one, around two hundred words please") is None  # a request
+with tempfile.TemporaryDirectory() as tmp:
+    tmp = Path(tmp)
+    real_notes = cor.NOTES
+    cor.NOTES = tmp / "notes"
+    try:
+        day = 86400
+        t0 = time.mktime((2026, 11, 2, 12, 0, 0, 0, 0, -1))
+        h = cor.Habits(tmp / "habits.json")
+        assert h.see("what's the weather", t0) is None
+        assert h.see("shorter", t0) is None and h.see("shorter please", t0 + 5) is None
+        assert h.see("too long", t0 + 9) is None  # three, but all today: one bad exchange, not a habit
+        offer = h.see("shorter", t0 + day)  # a second day
+        assert offer and offer["kind"] == "shorter" and "4 times" in offer["body"] and "shorter" in offer["body"], offer
+        assert h.see("shorter", t0 + day + 5) is None  # asked once; not again at once
+        assert not (cor.NOTES / "memory.md").exists()  # nothing is written until the user says so
+        again = cor.Habits(tmp / "habits.json")  # it is kept between runs
+        assert again.s["shorter"]["n"] == 5 and again.s["shorter"]["quote"] == "shorter", again.s
+        h.answered("shorter", True, t0 + day + 9)
+        memory = (cor.NOTES / "memory.md").read_text(encoding="utf-8")
+        assert memory.startswith("Keep answers short") and "again and again" in memory and memory.endswith("\n"), memory  # the line carries its why
+        assert all(h.see("shorter", t0 + (3 + i) * day) is None for i in range(5))  # saved: never asked again
+        cor.remember(cor.KINDS["shorter"][1])  # and never written twice
+        assert (cor.NOTES / "memory.md").read_text(encoding="utf-8") == memory
+        (cor.NOTES / "memory.md").write_text("The user's name is Ayush.", encoding="utf-8")  # a memory with no final newline keeps its line
+        cor.remember(cor.KINDS["longer"][1])
+        assert (cor.NOTES / "memory.md").read_text(encoding="utf-8").startswith("The user's name is Ayush.\nGive the reasoning")
+        offers = [h.see("just do it", t0 + i * day) for i in range(3)]  # Not now: starts over, and waits a month
+        assert offers[:2] == [None, None] and offers[2]
+        h.answered("just_do_it", False, t0 + 3 * day)
+        assert h.s["just_do_it"]["n"] == 0
+        assert all(h.see("just do it", t0 + (4 + i) * day) is None for i in range(5))  # said again, but inside the month
+        assert h.see("just do it", t0 + 40 * day)  # after it, the next one is the offer again
+        (tmp / "habits.json").write_text("[1, 2", encoding="utf-8")  # a damaged file is a fresh start
+        assert cor.Habits(tmp / "habits.json").see("shorter", t0) is None
+    finally:
+        cor.NOTES = real_notes
+nova_src, suggest_src = Path("nova.py").read_text(encoding="utf-8"), Path("core/suggest.py").read_text(encoding="utf-8")
+assert 'if mode == "assistant":\n            self.noticed(text)' in nova_src and "self.replied_at = time.time()" in nova_src  # counted from real requests, after an answer
+assert json.loads(Path("config.default.json").read_text(encoding="utf-8"))["habits"] == {"enabled": True}
+assert 'data-bind="habits.enabled"' in Path("core/app.html").read_text(encoding="utf-8")
+assert 'if cand.get("habit"):' in suggest_src and "habit" not in suggest_src.split("def answer_suggestion")[1].split("self.limiter")[0].replace('cand.get("habit")', "").replace('cand["habit"]', "").replace("self.habits.answered", "")
+
+# the audit's polish (docs/audits/2026-11-01-ui-wiring-audit.md)
+polish = Path("core/app.html").read_text(encoding="utf-8")
+for what in ("Type a word or name first.", "Type something for Nova to remember first.", "Type a question about your meetings first."):
+    assert f'failAt($("#' in polish and what in polish  # empty forms say what to do
+assert polish.count("pairLabels(container)") >= 6 and ":has(" not in polish.split("</style>")[0] and "#skillList { margin-top: 14px; }" in polish  # no :has: older WebKit
+assert 'id="startNova"' in polish and "api().start_nova()" in polish and "def start_nova" in Path("core/app.py").read_text(encoding="utf-8")
+assert ".feed .acts { display: flex; gap: 2px; opacity: .5;" in polish  # row actions are faint at rest, not hidden
+assert re.search(r"SINGLE_INSTANCE_PORT = (\d+)", Path("core/app.py").read_text(encoding="utf-8"))[1] == re.search(r"SINGLE_INSTANCE_PORT = (\d+)", Path("nova.py").read_text(encoding="utf-8"))[1]
+# every setting in config.default.json that README documents as config-file only now also has a control (data-bind) in the window
+for key in ("triple_tap_mode", "overlay.sketch", "overlay.sketch_images", "voice.stt_model", "voice.stt_accurate_model", "voice.deepgram_model",
+            "dictation.claude_model", "dictation.codex_model", "meetings.codex_model", "brain.fallback_model", "brain.max_turns", "brain.max_background",
+            "proactive.max_per_day", "proactive.use_local_model", "skills.past_runs", "browser.agent_window"):
+    assert f'data-bind="{key}"' in polish, key
+    node = json.loads(Path("config.default.json").read_text(encoding="utf-8"))
+    for part in key.split("."):
+        node = node[part]  # the key exists in the defaults
+assert 'id="projExclude"' in polish and 'set("projects.exclude"' in polish
+assert 'send("undo")' in polish and 'op == "undo"' in Path("nova.py").read_text(encoding="utf-8") and "Undo a dictation" in polish and "Sketch the answer" in polish
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
 
 from core.cleanup import fix_vocabulary  # noqa: E402

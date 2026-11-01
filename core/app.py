@@ -45,11 +45,14 @@ LANGUAGES = {"auto": "Detect automatically", "en": "English", "hi": "Hindi", "bn
 CTRL = os.environ.pop("NOVA_CTRL", None), os.environ.pop("NOVA_CTRL_KEY", None)
 
 
+SINGLE_INSTANCE_PORT = 47821  # the same number as in nova.py (and helpers/notify.py)
+
+
 class Api:
     """Everything the page can call as `pywebview.api.<name>(...)`. Underscored names stay private."""
 
     def __init__(self):
-        self._window, self._conn, self._mic, self._level = None, None, None, 0.0
+        self._window, self._conn, self._mic, self._level, self._take = None, None, None, 0.0, None
         self._send_lock = threading.Lock()
 
     # ---------- link to Nova ----------
@@ -72,6 +75,9 @@ class Api:
         try:
             while True:
                 event = self._conn.recv()
+                if event.get("event") == "probe" and os.environ.get("NOVA_PROBE"):  # helpers/mac_screenshots.py: what did the page draw?
+                    Path(event["path"]).write_text(str(self._window.evaluate_js(PROBE_JS)), encoding="utf-8")
+                    continue
                 if event.get("event") == "focus":
                     self._focus()
                 self._push(event)
@@ -621,13 +627,73 @@ class Api:
             raise RuntimeError("The download didn't finish. Check your internet connection and try again.")
         return tts.installed(engine)
 
+    # ---------- your voice (core/clone.py): recorded here, from the microphone, never loaded from a file ----------
+    def clone_status(self):
+        """What Settings shows for Your voice: is the engine downloaded, is there a recording, and what to read."""
+        from core import clone, models
+        return {"model": models.installed("pocket"), "voice": clone.exists(), "supported": tts.pocket_supported(),
+                "passage": clone.PASSAGE, "min": clone.MIN_S, "max": clone.MAX_S}
+
+    def clone_record(self):
+        """Start recording the passage; levels arrive as {event: 'mic'}."""
+        self.mic_stop()
+        self._take = []
+        return self.mic_start(24000, self._take)
+
+    def clone_save(self):
+        """Stop and keep the recording as your voice. Returns the seconds kept, or says what to fix."""
+        import numpy as np
+        from core import clone
+        take, self._take = getattr(self, "_take", None), None
+        self.mic_stop()
+        if not take:
+            raise ValueError("Nothing was recorded. Try again.")
+        return clone.save(np.concatenate(take), 24000)
+
+    def clone_cancel(self):
+        self._take = None
+        return self.mic_stop()
+
+    def clone_remove(self):
+        """Delete your voice. Nova speaks with Piper again if it was the chosen voice."""
+        from core import clone
+        clone.remove()
+        return True
+
+    def start_nova(self):
+        """The window opened without Nova, or Nova quit: start it, wait until it answers, have it open its own window, and
+        close this one (which can't be connected to a Nova started after it). Opening nova.py again is what the Start menu does."""
+        import socket
+        if os.name == "nt":
+            pythonw = Path(sys.executable).with_name("pythonw.exe")
+            cmd, flags = [str(pythonw if pythonw.exists() else sys.executable), str(ROOT / "nova.py")], 0x00000008 | 0x08000000  # detached, no console
+        elif system.IS_MAC and system.MAC_APP.exists():
+            cmd, flags = ["open", "-a", str(system.MAC_APP)], 0
+        else:
+            cmd, flags = [sys.executable, str(ROOT / "nova.py")], 0
+        subprocess.Popen(cmd, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         creationflags=flags, start_new_session=os.name != "nt")
+        for _ in range(40):  # Nova answers "show" with "nova" once it is up (the same call a second launch makes)
+            time.sleep(0.5)
+            try:
+                with socket.create_connection(("127.0.0.1", SINGLE_INSTANCE_PORT), timeout=1) as s:  # nova.py's single-instance port
+                    s.sendall(b"show")
+                    s.shutdown(socket.SHUT_WR)
+                    if s.recv(4) == b"nova":
+                        threading.Timer(1.5, self._window.destroy).start()  # Nova opens its own window; this one has no link to it
+                        return True
+            except OSError:
+                continue
+        raise RuntimeError("Nova didn't start. Open it from the Start menu or Applications.")
+
     def audio_devices(self):
         """Names of the microphones and speakers, for the pickers."""
         from core import audio
         return audio.devices()
 
-    def mic_start(self):
-        """Start the microphone test; levels arrive as {event: 'mic'}. Returns the device name."""
+    def mic_start(self, rate=16000, keep=None):
+        """Start the microphone test; levels arrive as {event: 'mic'}. Returns the device name. `keep`: a list that gets
+        each block heard, for recording your voice (clone_record)."""
         import numpy as np
         import sounddevice as sd
         from core import audio
@@ -635,7 +701,9 @@ class Api:
             audio.apply_devices(load_config()[0]["voice"])
             def callback(data, *_):
                 self._level = max(self._level * 0.6, audio.level(float(np.sqrt(np.mean(data ** 2)))))
-            self._mic = sd.InputStream(samplerate=16000, channels=1, dtype="float32", blocksize=480,
+                if keep is not None:
+                    keep.append(data[:, 0].copy())
+            self._mic = sd.InputStream(samplerate=rate, channels=1, dtype="float32", blocksize=rate * 3 // 100,
                                        callback=callback)
             self._mic.start()
             threading.Thread(target=self._meter, daemon=True).start()
@@ -804,6 +872,13 @@ def window_bg():
     except Exception:  # no setting saved means the system default, which is light
         dark = False
     return "#0d0f1a" if dark else "#f5f6fb"
+
+
+PROBE_JS = """JSON.stringify({text: document.body.innerText.length, booted: typeof S !== "undefined" && !!S.cfg,
+  page: typeof S !== "undefined" ? S.page : null, size: [innerWidth, innerHeight], dpr: devicePixelRatio,
+  bg: getComputedStyle(document.body).backgroundColor, ua: navigator.userAgent, vars: getComputedStyle(document.documentElement).getPropertyValue("--accent"),
+  home: (document.querySelector("#page-home") || {}).clientHeight, dock: (document.querySelector(".dock") || {}).clientHeight,
+  colorMix: CSS.supports("background", "color-mix(in srgb, red 50%, blue)")})"""
 
 
 def main():
