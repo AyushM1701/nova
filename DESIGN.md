@@ -142,6 +142,8 @@ The Nova window is a deck, not a menu. Nova's state, Claude's real numbers, your
 
 Density is high but calm. Data is mono, anything you read is the system sans. Panels are boxed on purpose (1px hairline, 12px corners); the reference's frameless look was considered and not adopted, because boxes keep each vital scannable at a glance and in a 820x580 window.
 
+The violet is the default, not a fixed rule: Settings → Colour & cursor re-derives the accent, its hover and wash, the navy surfaces, hairlines and text tints, and the orb's hue from one picked colour (`themeTokens` in `core/app.html`; a grey pick gives neutral surfaces). Every pick keeps the contrast targets below (checked for each tile in `tests.py`): lettering on the accent at 4.5:1 or better (near-black when white can't reach it, as on yellow), accent text 7:1 on the panels. Read "violet" in this file as "the chosen colour".
+
 Nova's brand violet is #7b6dff (tray icon, bar, reply card, orb). In this window the working accent is #6d5ff7 for fills and #b9b1ff for violet text and marks, so white button text and small violet text both stay legible on the navy ground.
 
 **Key Characteristics:**

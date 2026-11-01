@@ -315,7 +315,7 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 | `skills.past_runs` | `3` | Past run notes a skill reads first, unless its file says `runs:` |
 | `notes.folder` | `""` (inside Nova's folder) | The folder for memory, skills, run notes and meeting notes. Choose it in Settings → General; it applies after Nova restarts |
 | `companion.enabled` | `false` | Keep the marker beside your mouse pointer all the time (off: it shows only when pointing, walking you through a step or drawing) |
-| `companion.color` | `nova` | The marker's colour: `nova` for its own, or a hex colour such as `#3380FF` |
+| `companion.color` | `nova` | The colour of the whole Nova window (accent, surfaces, orb) and the marker: `nova` for its own violet, or a hex colour such as `#3380FF`. Settings → Colour & cursor. The phone page and browser panel keep their own colours |
 | `brain.circle_to_ask` | `true` | Circle something with the mouse while holding the talk key |
 | `mcp.servers` | `{}` | The apps the AI can use, set in Settings → AI → Apps: a name and an address, or an object with `url` + `headers` or `command` + `args` + `env` (secrets as `${VARIABLE}`) |
 | `proactive.enabled` | `false` | Offer help with what you copy (errors, links, long texts) |

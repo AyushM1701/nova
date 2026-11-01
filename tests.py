@@ -466,6 +466,27 @@ if shutil.which("node"):
     assert orb_check["paused_frames"] == 0 and not orb_check["paused_running"] and orb_check["paused_stays"] and orb_check["resumed"], orb_check
     assert orb_check["reduced_flag"] and orb_check["reduced_yaw"] == 0 and orb_check["reduced_speaking_yaw"] == 0, orb_check  # no rotation
 
+# the colour picker themes the whole window: every tile gives a palette that stays readable (WCAG AA), whatever colour it is
+app_src = Path("core/app.html").read_text(encoding="utf-8")
+assert app_src.count('applyTheme(get("companion.color"))') == 2  # at boot, and when a tile is picked
+assert "setHue(h)" in Path("core/orb.js").read_text(encoding="utf-8")
+if shutil.which("node"):
+    theme = json.loads(subprocess.run(["node", "-e", r"""
+      const src = require("fs").readFileSync("core/app.html", "utf8");
+      const themeTokens = new Function(src.slice(src.indexOf("/* theme:start"), src.indexOf("/* theme:end */")) + "; return themeTokens;")();
+      const lum = h => { const a = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(v => v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4); return .2126 * a[0] + .7152 * a[1] + .0722 * a[2]; };
+      const cr = (a, b) => (Math.max(lum(a), lum(b)) + .05) / (Math.min(lum(a), lum(b)) + .05);
+      const out = { nova: themeTokens("nova"), bad: themeTokens("#12345"), rows: {} };
+      for (const c of ["#3380FF", "#9B5CFF", "#FF5C8A", "#FF6B3D", "#F5B800", "#22C55E", "#14B8A6", "#EDEDED", "#000000", "#ffffff", "#FF0000"]) {
+        const t = themeTokens(c), sf = t["--surface"], rs = t["--raised"];
+        out.rows[c] = { fill: cr(t["--accent"], t["--accent-ink"]), hover: cr(t["--accent-hover"], t["--accent-ink"]), link: Math.min(cr(t["--accent-text"], sf), cr(t["--accent-text"], rs)),
+          text: cr(t["--text"], sf), muted: Math.min(cr(t["--muted"], sf), cr(t["--muted"], rs)), faint: cr(t["--faint"], sf), bg: [t["--bg"], t["--side"], t["--surface"], t["--raised"], t["--sunk"]].every(x => /^#[0-9a-f]{6}$/.test(x)) };
+      }
+      console.log(JSON.stringify(out));"""], capture_output=True, text=True, check=True, timeout=60).stdout)
+    assert theme["nova"] is None and theme["bad"] is None, theme  # Nova's own violet, or a value that isn't a colour: the stylesheet stays
+    for colour, r in theme["rows"].items():
+        assert r["bg"] and r["fill"] >= 4.5 and r["hover"] >= 4.5 and r["link"] >= 4.5 and r["text"] >= 12 and r["muted"] >= 6 and r["faint"] >= 4.5, (colour, r)
+
 # the browser extension reconnects by itself: right away, backing off to 5 s, re-reading nova.json each time
 if shutil.which("node"):
     harness = r"""
