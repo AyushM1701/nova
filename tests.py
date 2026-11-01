@@ -1468,17 +1468,26 @@ hold = object.__new__(system.HoldKey)  # the state machine alone, without a real
 hold.key, hold.on_start, hold.on_stop = "right ctrl", lambda: calls.append("start"), lambda: calls.append("stop")
 hold.on_cancel = lambda: calls.append("cancel")
 hold.held = hold.started = False
+
+
+def wait_for_start():  # the hold timer is a thread: a busy runner may start it late, so wait for it instead of a fixed pause
+    for _ in range(100):
+        if calls and calls[-1] == "start":
+            return
+        time.sleep(0.05)
+
+
 hold.timer, hold.lock, hold.delay = None, __import__("threading").Lock(), 0.2  # Settings' default is 1.5 s
 hold.event("Right Ctrl", True); hold.event("Right Ctrl", False); time.sleep(hold.delay + 0.1)  # noqa: E702
 assert calls == [], f"tap: {calls}"
 hold.event("right ctrl", True); hold.event("c", True); time.sleep(hold.delay + 0.1)  # noqa: E702
 hold.event("c", False); hold.event("right ctrl", False)  # noqa: E702
 assert calls == [], f"combo: {calls}"
-hold.event("right ctrl", True); time.sleep(hold.delay + 0.1)  # noqa: E702
+hold.event("right ctrl", True); wait_for_start()  # noqa: E702
 hold.event("right ctrl", True); hold.event("right ctrl", False)  # noqa: E702  (a held key repeats its key-down)
 assert calls == ["start", "stop"], f"hold: {calls}"
 calls.clear()  # Shift held a little long before a capital: listening started, then typing drops it, nothing sent
-hold.event("right ctrl", True); time.sleep(hold.delay + 0.1)  # noqa: E702
+hold.event("right ctrl", True); wait_for_start()  # noqa: E702
 hold.event("a", True); hold.event("a", False); hold.event("right ctrl", False)  # noqa: E702
 assert calls == ["start", "cancel"], f"typing: {calls}"
 
