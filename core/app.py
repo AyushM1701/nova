@@ -812,10 +812,13 @@ def main():
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Nova.Assistant")
     else:  # Nova's icon in the Dock while the window is open, instead of Python's rocket
         try:
-            from AppKit import NSApplication, NSImage
+            from AppKit import NSApplication, NSBundle, NSImage
+            info = NSBundle.mainBundle().infoDictionary()  # the menu bar says "Python" otherwise: this process is Python's
+            info["CFBundleName"] = info["CFBundleDisplayName"] = "Nova"
             png = DATA / "nova.png"
             if stale(png):
                 from core.icon import draw
+                DATA.mkdir(parents=True, exist_ok=True)  # the window can start before Nova has made it (a fresh checkout)
                 draw(512).save(png)
             NSApplication.sharedApplication().setApplicationIconImage_(NSImage.alloc().initWithContentsOfFile_(str(png)))
         except Exception as e:
