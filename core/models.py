@@ -19,6 +19,9 @@ SHERPA = "https://github.com/k2-fsa/sherpa-onnx/releases/download"
 DOWNLOADS = {
     "kokoro": ("Kokoro voice", f"{SHERPA}/tts-models/kokoro-multi-lang-v1_0.tar.bz2",
                DATA / "tts" / "kokoro-multi-lang-v1_0", "330 MB"),
+    # Kyutai's Pocket TTS (CC BY 4.0) as ONNX files: it copies a voice from a recording of it (core/clone.py)
+    "pocket": ("Your-voice engine", f"{SHERPA}/tts-models/sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2",
+               DATA / "tts" / "sherpa-onnx-pocket-tts-int8-2026-01-26", "98 MB"),
     "piper": ("Piper voice", f"{SHERPA}/tts-models/vits-piper-en_US-lessac-medium.tar.bz2",
               DATA / "tts" / "vits-piper-en_US-lessac-medium", "64 MB"),
     "kitten": ("Kitten voice", f"{SHERPA}/tts-models/kitten-nano-en-v0_2-fp16.tar.bz2",
@@ -51,7 +54,7 @@ def path(name):
 
 def installed(name):
     p = path(name)
-    return p.is_file() if p.suffix == ".onnx" else (p / "tokens.txt").exists() or (p / "model.onnx").exists()
+    return p.is_file() if p.suffix == ".onnx" else any((p / f).exists() for f in ("tokens.txt", "model.onnx", "lm_main.int8.onnx"))
 
 
 def download(name, say=print):

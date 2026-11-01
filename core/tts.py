@@ -5,6 +5,8 @@ before the whole reply is made:
 - Piper (en_US lessac, 64 MB): the default. Setup installs it. Whisper heard every word of it in a check.
 - Kitten (nano, 25 MB): the lightest and fastest, 8 voices. Setup installs it too.
 - Kokoro (330 MB): the most natural. Downloaded only when picked; until then Nova keeps talking with Piper.
+- Pocket (98 MB): speaks in a voice copied from a recording of you (core/clone.py). English only: a reply in Hindi script is
+  spoken by Kokoro or Piper instead. Until it is downloaded and you have recorded, Nova keeps talking with Piper.
 If none is downloaded or one fails, Nova falls back to the operating system's voice (Windows SAPI, macOS `say`).
 
 `python -m core.tts download [kokoro|piper|kitten]` fetches one into data/tts (core/models.py).
@@ -21,7 +23,7 @@ from pathlib import Path
 from core import pa
 from core.system import IS_MAC, NO_WINDOW
 
-ENGINES = ("piper", "kitten", "kokoro")  # the neural voices, as named in core/models.py and voice.tts_engine
+ENGINES = ("piper", "kitten", "kokoro", "pocket")  # the neural voices, as named in core/models.py and voice.tts_engine
 # speaker IDs in the model's voices.bin, in order (stable per the model's README)
 KOKORO_VOICES = ("af_alloy af_aoede af_bella af_heart af_jessica af_kore af_nicole af_nova af_river af_sarah af_sky "
                  "am_adam am_echo am_eric am_fenrir am_liam am_michael am_onyx am_puck am_santa bf_alice bf_emma "
@@ -44,8 +46,23 @@ SAPI = ("[Console]::InputEncoding = [Text.Encoding]::UTF8; Add-Type -AssemblyNam
 _models, _load_lock, _speak_lock = {}, threading.Lock(), threading.Lock()
 
 
+DEVANAGARI = re.compile("[ऀ-ॿ]")
+
+
+def pocket_supported():
+    """This copy of sherpa-onnx can run Pocket (it came in 1.12.40; setup installs a newer one)."""
+    try:
+        import sherpa_onnx
+    except ImportError:
+        return False
+    return hasattr(sherpa_onnx, "OfflineTtsPocketModelConfig") and hasattr(sherpa_onnx, "GenerationConfig")
+
+
 def installed(engine):
-    from core import models
+    """Is the voice ready to speak? Pocket also needs your recording."""
+    from core import clone, models
+    if engine == "pocket":
+        return models.installed("pocket") and clone.exists() and pocket_supported()
     return models.installed(engine)
 
 
@@ -65,7 +82,9 @@ def capable(engine):
     few CPU cores to speak faster than it talks (4x real time on 16 threads here). Piper and Kitten run anywhere.
     shortcut: a rule of thumb (8 GB, 4 threads), not a measurement; time a sentence if people report a slow Kokoro."""
     from core import system
-    return engine != "kokoro" or (system.memory_gb() >= 8 and (os.cpu_count() or 1) >= 4)
+    if engine == "pocket" and not pocket_supported():
+        return False
+    return engine not in ("kokoro", "pocket") or (system.memory_gb() >= 8 and (os.cpu_count() or 1) >= 4)
 
 
 def preview(engine, voice):
@@ -109,6 +128,11 @@ def load(engine):
                     model=str(d / "model.onnx"), voices=str(d / "voices.bin"), tokens=str(d / "tokens.txt"),
                     data_dir=str(d / "espeak-ng-data"), dict_dir=str(d / "dict"),
                     lexicon=f"{d / 'lexicon-us-en.txt'},{d / 'lexicon-zh.txt'}")}
+            elif engine == "pocket":
+                voice = {"pocket": sherpa_onnx.OfflineTtsPocketModelConfig(
+                    lm_flow=str(d / "lm_flow.int8.onnx"), lm_main=str(d / "lm_main.int8.onnx"), encoder=str(d / "encoder.onnx"),
+                    decoder=str(d / "decoder.int8.onnx"), text_conditioner=str(d / "text_conditioner.onnx"),
+                    vocab_json=str(d / "vocab.json"), token_scores_json=str(d / "token_scores.json"))}
             elif engine == "kitten":
                 voice = {"kitten": sherpa_onnx.OfflineTtsKittenModelConfig(
                     model=str(d / "model.fp16.onnx"), voices=str(d / "voices.bin"), tokens=str(d / "tokens.txt"),
@@ -128,6 +152,18 @@ def load(engine):
     return _models[engine]
 
 
+def _your_voice(speed):
+    """Pocket's settings for speaking in the voice recorded in Settings (the model listens to the recording each time; it keeps
+    what it learned of it, so the second sentence starts sooner than the first)."""
+    import sherpa_onnx
+    from core import clone
+    x, rate = clone.reference()
+    g = sherpa_onnx.GenerationConfig()
+    g.reference_audio, g.reference_sample_rate, g.speed, g.num_steps = x.tolist(), rate, speed, 5
+    g.extra = {"max_reference_audio_len": str(clone.USE_S)}
+    return g
+
+
 def _speak_neural(text, engine, sid, speed, stop):
     import numpy as np
     model = load(engine)
@@ -139,7 +175,10 @@ def _speak_neural(text, engine, sid, speed, stop):
 
     def generate():
         try:
-            model.generate(text, sid=sid, speed=speed, callback=on_audio)
+            if engine == "pocket":
+                model.generate(text, _your_voice(speed), callback=on_audio)
+            else:
+                model.generate(text, sid=sid, speed=speed, callback=on_audio)
         except Exception as e:  # reported below: a silent voice would just be a reply nobody hears
             failed.append(e)
         finally:
@@ -193,6 +232,8 @@ def speak(text, v, stop):
     if not text.strip():
         return
     engine = pick(v)
+    if engine == "pocket" and DEVANAGARI.search(text):  # it has no Hindi: the voice that has (Kokoro) or the default
+        engine = next((e for e in ("kokoro", "piper", "kitten") if installed(e)), None)
     if engine:
         try:
             return _speak_neural(text, engine, speaker(engine, v), float(v.get("tts_speed") or 1.0), stop)

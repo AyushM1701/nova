@@ -260,7 +260,7 @@ Type a request, or tap the **mic on the phone's keyboard** to dictate it. Replie
 - **While Nova is talking,** it listens for you interrupting. To tell you apart from a video or call, it compares what the microphone heard with what the computer played. Those few words are written to Nova's activity log (`logs/`), which stays on this computer and is deleted after 30 days.
 - **Your screen:** when a request is about it ("summarize this page", "what's on my whole screen?"), the AI gets a screenshot and the window's text, read through Windows UI Automation or macOS Accessibility, including what's scrolled out of view. Password fields are never read.
 - **Meetings** are recorded and transcribed on your computer. The recording is deleted once it's transcribed; the transcript and minutes are kept as notes in `workspace/notes/meetings/`. Minutes, AI actions and questions about meetings send the meeting's text to your chosen AI. A connected calendar is only read, from its secret ICS address.
-- **Spoken replies** use a neural voice run by sherpa-onnx on your own computer: Piper (the default) or Kitten (the lightest), both installed by setup, or Kokoro (the most natural, downloaded only if you pick it). Or your operating system's own voices (Windows SAPI, macOS `say`) if you prefer them or no voice is downloaded.
+- **Spoken replies** use a neural voice run by sherpa-onnx on your own computer: Piper (the default) or Kitten (the lightest), both installed by setup, or Kokoro (the most natural, downloaded only if you pick it). **Your voice** (Settings → Voice): record yourself reading a short passage in the Nova window and Nova answers in a copy of your voice, made on your computer by Kyutai's Pocket TTS (98 MB, downloaded when you ask). You can only record it there, from your microphone, so it is always your own voice; it stays in `data/voice` and you can delete it in Settings. English only: a reply in Hindi script is spoken by Kokoro or Piper. Or your operating system's own voices (Windows SAPI, macOS `say`) if you prefer them or no voice is downloaded.
 - **Each dictation's audio** is kept in `data/last-dictation.wav` until it's typed, then deleted, so Nova closing mid-dictation never loses it: the next start puts the words on your clipboard.
 - **Settings, logs, notes and history** live in the Nova folder (`config.json`, `logs/`, `workspace/notes/`). History is kept for 30 days and can be cleared on the History page. There is no Nova server, account or analytics. The daily update check only asks GitHub which Nova release is the latest (Settings → Advanced turns it off).
 - **With a local model** for dictation (Settings → Dictation), dictated text goes only to that model's address, normally on this computer.
@@ -305,7 +305,7 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 | `overlay.position` | `bottom` | `"top"` puts the bar at the top of the screen (from the notch on a MacBook) |
 | `overlay.sketch` | `true` | Draw a paper note on screen for spoken questions with a short factual answer |
 | `overlay.sketch_images` | `true` | Let a note show one photo: the lead image of the Wikipedia page the AI names |
-| `voice.tts_engine` | `piper` | `"piper"`, `"kitten"`, `"kokoro"` (downloads when picked) or `"system"` |
+| `voice.tts_engine` | `piper` | `"piper"`, `"kitten"`, `"kokoro"` (downloads when picked), `"pocket"` (your own voice: needs the download and a recording, else Piper speaks) or `"system"` |
 | `voice.kokoro_voice` / `voice.kitten_voice` / `voice.tts_speed` | `af_heart` / `expr-voice-2-f` / `1.0` | Kokoro voice, e.g. `"bm_george"` (British man); Kitten voice, `expr-voice-2-m` to `expr-voice-5-f`; speed 0.75 to 1.4 |
 | `voice.tts_voice` | system default | System voice name, e.g. `"Microsoft Zira Desktop"` or `"Rishi"` (Mac) |
 | `voice.language` | `auto` | Or `"en"`, `"hi"`… |
@@ -404,7 +404,8 @@ core/sketch.py        reads the `:::sketch` block of a reply (the facts for the 
 core/sketchpad.py     draws that note on screen with a pen, hand-drawn, with its photo and follow-up chips
 core/webimage.py      fetches a note's photo safely (public https only, size and time limits, decoded in memory)
 core/clipboard.py     keeps your clipboard intact around dictation
-core/tts.py           spoken replies: Piper, Kitten or Kokoro voices, or the system's
+core/clone.py         your recorded voice (made in the window, kept in data/voice), which the Pocket voice copies
+core/tts.py           spoken replies: Piper, Kitten, Kokoro or Pocket (your voice), or the system's
 guard/guard.py        safety hook for Claude Code and Codex
 core/browser.py       the browser bridge, its safety rules and the extension installer
 core/update.py        update check and installer (bump VERSION, then push tag v<VERSION>: .github/workflows/release.yml publishes it)
@@ -419,3 +420,5 @@ docs/video/build.py   makes the banner, the README video and GIF and the walkthr
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+The optional Your voice feature downloads [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) by Kyutai (CC BY 4.0), in the ONNX form from [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (exported by KevinAHM). Its terms forbid copying a voice without that person's consent; Nova only lets you record your own.

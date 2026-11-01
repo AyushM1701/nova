@@ -2469,6 +2469,83 @@ for memory, cores, want in ((4, 8, False), (16, 2, False), (16, 8, True)):
 system.memory_gb = real_memory
 assert system.memory_gb() > 1  # reads this computer's real memory
 
+# Your voice (core/clone.py, Pocket in core/tts.py): recorded in the window, copied by Pocket, never loaded from a file
+import tempfile  # noqa: E402
+import numpy as np  # noqa: E402
+import wave  # noqa: E402
+from core import clone as clone_mod  # noqa: E402
+with tempfile.TemporaryDirectory() as tmp:
+    real_dir, real_ref = clone_mod.DIR, clone_mod.REFERENCE
+    clone_mod.DIR, clone_mod.REFERENCE = Path(tmp), Path(tmp) / "yours.wav"
+    try:
+        rate = 24000
+        tone = lambda secs, amp=0.3: (amp * np.sin(2 * np.pi * 180 * np.arange(int(secs * rate)) / rate)).astype(np.float32)
+        quiet = np.zeros(rate, dtype=np.float32)
+        for bad, words in ((np.zeros(rate * 12, dtype=np.float32), "couldn't hear"), (tone(12, 0.001), "couldn't hear"),
+                           (np.concatenate([quiet, tone(3), quiet]), "only 3 seconds")):
+            try:
+                clone_mod.save(bad, rate)
+                raise AssertionError("saved a recording that should be refused")
+            except ValueError as e:
+                assert words in str(e), e
+        assert not clone_mod.exists() and clone_mod.reference() is None
+        kept = clone_mod.save(np.concatenate([quiet, tone(20), quiet]), rate)  # the silence around the speech is cut
+        assert 19.5 <= kept <= 20.5 and clone_mod.exists() and not list(Path(tmp).glob("*.tmp")), kept
+        with wave.open(str(clone_mod.REFERENCE)) as w:
+            assert (w.getnchannels(), w.getsampwidth(), w.getframerate()) == (1, 2, rate)
+        x, got_rate = clone_mod.reference()
+        assert got_rate == rate and len(x) == clone_mod.USE_S * rate and x.dtype == np.float32  # the model hears the first 15 s
+        assert clone_mod.save(tone(90), rate) == clone_mod.MAX_S  # a long take is cut to a minute
+        # Pocket speaks with it: the settings it is given carry the recording and the speed
+        g = tts_mod._your_voice(1.2)
+        assert g.reference_sample_rate == rate and len(g.reference_audio) == clone_mod.USE_S * rate and abs(g.speed - 1.2) < 1e-6
+        clone_mod.remove()
+        assert not clone_mod.exists() and clone_mod.reference() is None
+        clone_mod.remove()  # nothing to delete is fine
+    finally:
+        clone_mod.DIR, clone_mod.REFERENCE = real_dir, real_ref
+# it is the voice Nova speaks with only when everything is in place; until then Piper talks, never silence
+real_installed, real_models_installed, real_exists, real_supported = tts_mod.installed, models.installed, clone_mod.exists, tts_mod.pocket_supported
+try:
+    tts_mod.installed = real_installed
+    for model, recorded, supported, want in ((True, True, True, True), (False, True, True, False), (True, False, True, False), (True, True, False, False)):
+        models.installed, clone_mod.exists, tts_mod.pocket_supported = (lambda name, m=model: m or name != "pocket"), (lambda r=recorded: r), (lambda s=supported: s)
+        assert tts_mod.installed("pocket") == want and (tts_mod.capable("pocket") or not supported), (model, recorded, supported)
+    for have, want in (({"piper", "pocket"}, "pocket"), ({"piper"}, "piper"), ({"kitten"}, "kitten")):
+        tts_mod.installed = lambda engine, have=have: engine in have
+        assert tts_mod.pick({"tts_engine": "pocket"}) == want, have
+finally:
+    tts_mod.installed, models.installed, clone_mod.exists, tts_mod.pocket_supported = real_installed, real_models_installed, real_exists, real_supported
+# a reply in Hindi script goes to a voice that has Hindi (Kokoro, else Piper); English and Roman Hinglish stay in your voice
+spoken = []
+real_neural, real_pick = tts_mod._speak_neural, tts_mod.pick
+tts_mod._speak_neural = lambda text, engine, sid, speed, stop: spoken.append(engine)
+tts_mod.pick = lambda v: "pocket"
+try:
+    for have, text, want in (({"pocket", "piper", "kokoro"}, "नमस्ते, आज मौसम कैसा है?", "kokoro"), ({"pocket", "piper"}, "नमस्ते", "piper"),
+                             ({"pocket", "piper", "kokoro"}, "Hello there", "pocket"), ({"pocket", "piper"}, "aaj mausam kaisa hai", "pocket")):
+        tts_mod.installed = lambda engine, have=have: engine in have
+        spoken.clear()
+        tts_mod.speak(text, {"tts_engine": "pocket"}, threading.Event())
+        assert spoken == [want], (text, spoken)
+finally:
+    tts_mod._speak_neural, tts_mod.pick, tts_mod.installed = real_neural, real_pick, real_installed
+real_tts_class, tts_mod._models = sherpa_onnx.OfflineTts, {}
+sherpa_onnx.OfflineTts = lambda config: object()
+try:
+    assert tts_mod.load("pocket") is not None  # the model's files are named as the downloaded folder has them
+finally:
+    sherpa_onnx.OfflineTts, tts_mod._models = real_tts_class, {}
+assert models.DOWNLOADS["pocket"][1].endswith("sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2") and models.path("pocket").name == "sherpa-onnx-pocket-tts-int8-2026-01-26"
+# the window can record the voice and delete it, but has no way to load a file or take a path (nothing can copy someone else's voice)
+import inspect  # noqa: E402
+api_src = inspect.getsource(app_mod.Api)
+assert all(not [a for a in inspect.signature(getattr(app_mod.Api, m)).parameters if a != "self"] for m in ("clone_record", "clone_save", "clone_cancel", "clone_remove", "clone_status"))
+assert "clone_import" not in api_src and "clone_load" not in api_src
+page_src = Path("core/app.html").read_text(encoding="utf-8")
+assert 'pocket:Your voice' in page_src and page_src.split('data-engine="pocket"')[1].split('data-engine="system"')[0].count('type="file"') == 0
+assert "sherpa-onnx>=1.12.40" in Path("requirements.txt").read_text(encoding="utf-8")
+
 # the pointer: a POINT: line in screenshot pixels lands on the right screen spot, and never shows in the reply
 from core.pointer import take as take_point  # noqa: E402
 from PIL import Image, ImageGrab  # noqa: E402

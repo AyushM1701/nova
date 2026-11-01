@@ -1013,17 +1013,30 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
             <button class="btn" id="sttGet">Get a key</button>
           </div>
           <p class="muted small" id="sttStatus" style="margin-top:10px"></p></div>
-        <div class="row"><div class="what"><h2>Nova's voice</h2><p>All run on this computer. Piper (the default) and Kitten come with Nova; Kitten is the lightest. Kokoro is the most natural: picking it downloads it (330 MB) in the background, and Nova keeps talking with Piper until it's ready. System uses your computer's own voices.</p></div>
-          <div class="how"><div class="seg" role="radiogroup" data-bind="voice.tts_engine" data-options="piper:Piper,kitten:Kitten,kokoro:Kokoro,system:System"></div></div></div>
+        <div class="row"><div class="what"><h2>Nova's voice</h2><p>All run on this computer. Piper (the default) and Kitten come with Nova; Kitten is the lightest. Kokoro is the most natural: picking it downloads it (330 MB) in the background, and Nova keeps talking with Piper until it's ready. Your voice speaks in a copy of a recording of you. System uses your computer's own voices.</p></div>
+          <div class="how"><div class="seg" role="radiogroup" data-bind="voice.tts_engine" data-options="piper:Piper,kitten:Kitten,kokoro:Kokoro,pocket:Your voice,system:System"></div></div></div>
         <div class="row" data-engine="piper"><div class="what"><h2>Piper voice</h2><p>A clear American English voice.</p></div>
           <div class="how"><button class="btn sm" id="testPiper">Play</button></div></div>
         <div class="row" data-engine="kitten"><div class="what"><h2>Kitten voice</h2><p>Eight voices, four men and four women. Small and quick on any computer.</p></div>
           <div class="how"><select class="input" id="kittenSel" data-bind="voice.kitten_voice" aria-label="Kitten voice"></select><button class="btn sm" id="testKitten">Play</button></div></div>
         <div class="row" data-engine="kokoro"><div class="what"><h2>Kokoro voice</h2><p id="naturalNote">Heart is the most natural. For a butler-style voice, try one of the British men.</p><div class="log mono" id="voiceLog" hidden></div></div>
           <div class="how"><select class="input" id="naturalSel" data-bind="voice.kokoro_voice" aria-label="Kokoro voice"></select><button class="btn sm" id="testNatural">Play</button><button class="btn sm primary" id="getNatural" hidden>Download (330 MB)</button></div></div>
+        <div class="row" data-engine="pocket" style="display:block"><div class="what"><h2>Your voice</h2>
+          <p>Nova speaks in a copy of your own voice. Record yourself reading a short passage (about 30 seconds). The recording stays on this computer and you can delete it here at any time. Record only your own voice: the voice model's terms don't allow copying anyone else without their consent. It speaks English; a reply in Hindi script uses another voice.</p>
+          <p class="small" id="cloneState" style="margin-top:8px"></p><div class="log mono" id="cloneLog" hidden></div>
+          <blockquote class="small" id="clonePassage" style="margin:10px 0 0;padding:10px 12px;border-left:2px solid var(--accent-text);color:var(--text)" hidden></blockquote>
+          <canvas id="cloneMic" width="640" height="96" style="width:100%;height:40px;margin-top:10px" aria-label="Microphone level" hidden></canvas></div>
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px">
+            <button class="btn sm primary" id="cloneGet" hidden>Download the voice engine (98 MB)</button>
+            <button class="btn sm primary" id="cloneRec" hidden>Record my voice</button>
+            <button class="btn sm primary" id="cloneStop" hidden>Stop and save</button>
+            <button class="btn sm" id="cloneCancel" hidden>Cancel</button>
+            <span class="mono small" id="cloneTime" hidden></span>
+            <button class="btn sm" id="clonePlay" hidden>Play</button>
+            <button class="btn sm" id="cloneDel" hidden>Delete my voice</button></div></div>
         <div class="row" data-engine="system"><div class="what"><h2>System voice</h2><p>Windows and macOS let you add more voices in their speech settings.</p></div>
           <div class="how"><select class="input" id="voiceSel" data-bind="voice.tts_voice" aria-label="System voice"><option value="">System default</option></select><button class="btn sm" id="testVoice">Play</button></div></div>
-        <div class="row" data-engine="piper kitten kokoro"><div class="what"><h2>Speaking speed</h2><p>How fast Nova talks.</p></div>
+        <div class="row" data-engine="piper kitten kokoro pocket"><div class="what"><h2>Speaking speed</h2><p>How fast Nova talks.</p></div>
           <div class="how"><div class="pills" id="speedPills" role="radiogroup" aria-label="Speaking speed"></div></div></div>
         <div class="sec">Output device</div>
         <div class="row" style="display:block"><div class="devlist" id="outDevs" role="radiogroup" aria-label="Speaker"></div>
@@ -2168,6 +2181,7 @@ function showValue(path) {
     $$("[data-engine]").forEach(r => r.hidden = !r.dataset.engine.split(" ").includes(get(path)));
     // Kokoro downloads on select, in the background; until it's ready Nova keeps speaking with Piper
     if (get(path) === "kokoro" && S.voiceState && !S.voiceState.installed.kokoro && !$("#getNatural").disabled) $("#getNatural").click();
+    if (get(path) === "pocket") paintClone();  // never downloads by itself: it shows the size and a button
   }
   if (path === "voice.stt_engine") { $$("[data-stt]").forEach(r => r.hidden = !r.dataset.stt.split(" ").includes(get(path))); loadSttExtras(); }
 }
@@ -2259,6 +2273,8 @@ async function loadVoices() {
     // a computer too small to run Kokoro well doesn't offer it (unless it's already the choice)
     const kokoroBtn = $('[data-bind="voice.tts_engine"] button[data-v="kokoro"]');
     if (kokoroBtn) kokoroBtn.hidden = !vs.capable.kokoro && get("voice.tts_engine") !== "kokoro";
+    const pocketBtn = $('[data-bind="voice.tts_engine"] button[data-v="pocket"]');  // also needs a speech library new enough to copy a voice
+    if (pocketBtn) pocketBtn.hidden = !vs.capable.pocket && get("voice.tts_engine") !== "pocket";
     if (!ready) $("#naturalNote").textContent = "Not downloaded yet: Play gives a recorded sample. Until it's downloaded, Nova speaks with Piper.";
 
   } catch (e) { fail(e); }
@@ -2283,6 +2299,60 @@ $("#getNatural").addEventListener("click", async e => {
   try { await api().download_voice("kokoro"); toast("Kokoro is ready: Nova speaks with it now"); log.hidden = true; $("#naturalNote").textContent = "Heart is the most natural. For a butler-style voice, try one of the British men."; }
   catch (err) { fail(err); btn.disabled = false; btn.textContent = "Try again"; }
   loadVoices();
+});
+/* Your voice: download the engine, record the passage, keep it, play it, delete it */
+let cloneOn = false, cloneTimer = 0;
+async function paintClone() {
+  let c; try { c = await api().clone_status(); } catch (e) { return fail(e); }
+  S.clone = c;
+  $("#cloneGet").hidden = c.model || !c.supported;
+  $("#cloneRec").hidden = !c.model || cloneOn;
+  $("#cloneRec").textContent = c.voice ? "Record again" : "Record my voice";
+  for (const id of ["cloneStop", "cloneCancel", "cloneTime", "clonePassage", "cloneMic"]) $("#" + id).hidden = !cloneOn;
+  for (const id of ["clonePlay", "cloneDel"]) $("#" + id).hidden = !c.voice || cloneOn;
+  $("#clonePassage").textContent = c.passage;
+  $("#cloneState").textContent = cloneOn ? "Recording. Read the passage below out loud in your normal voice, then press Stop and save." :
+    !c.supported ? "Nova's speech library is too old for this. Update Nova (Settings → Advanced), then come back." :
+    !c.model ? "First download the voice engine. It runs on this computer; nothing is sent anywhere." :
+    !c.voice ? "Ready. Find a quiet place, press Record and read the passage." :
+    "Your voice is saved. Nova speaks with it while “Your voice” is chosen above.";
+}
+function stopCloneTimer() { clearInterval(cloneTimer); cloneOn = false; micOn = false; micLevels.fill(0); }
+pill($("#cloneMic"), micSource);
+$("#cloneGet").addEventListener("click", async e => {
+  const btn = e.currentTarget, log = $("#cloneLog");
+  btn.disabled = true; btn.textContent = "Downloading…"; log.hidden = false; log.textContent = ""; S.installLog = log;
+  try { await api().download_voice("pocket"); toast("The voice engine is ready. Now record your voice."); log.hidden = true; }
+  catch (err) { fail(err); }
+  btn.disabled = false; btn.textContent = "Download the voice engine (98 MB)"; paintClone();
+});
+$("#cloneRec").addEventListener("click", async () => {
+  try { await api().clone_record(); } catch (e) { return fail(e); }
+  micOn = cloneOn = true;
+  const t0 = Date.now();
+  cloneTimer = setInterval(() => {
+    const secs = (Date.now() - t0) / 1000;
+    $("#cloneTime").textContent = Math.floor(secs) + " s";
+    if (secs >= S.clone.max) $("#cloneStop").click();
+  }, 250);
+  paintClone();
+});
+$("#cloneStop").addEventListener("click", async () => {
+  stopCloneTimer();
+  try { toast(`Saved ${await api().clone_save()} seconds of your voice. Press Play to hear it.`); } catch (e) { fail(e); }
+  paintClone(); loadVoices();
+});
+$("#cloneCancel").addEventListener("click", async () => { stopCloneTimer(); await api().clone_cancel().catch(fail); paintClone(); });
+$("#clonePlay").addEventListener("click", () => api().test_voice(voiceTest("pocket")).catch(fail));
+$("#cloneDel").addEventListener("click", async e => {
+  const btn = e.currentTarget;
+  if (btn.dataset.sure !== "1") {  // two presses, so a slip doesn't delete it
+    btn.dataset.sure = "1"; btn.textContent = "Press again to delete";
+    return setTimeout(() => { btn.dataset.sure = ""; btn.textContent = "Delete my voice"; }, 4000);
+  }
+  btn.dataset.sure = ""; btn.textContent = "Delete my voice";
+  try { await api().clone_remove(); toast("Your voice was deleted"); } catch (err) { fail(err); }
+  paintClone(); loadVoices();
 });
 $$("[data-open]").forEach(b => b.addEventListener("click", () => api().open(b.dataset.open).catch(fail)));
 $("#diagBtn").addEventListener("click", async e => {
