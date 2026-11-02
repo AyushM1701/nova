@@ -27,6 +27,7 @@ import urllib.parse
 from pathlib import Path
 
 from core.config import NO_WINDOW, write_private
+from core.readguard import blocked_site, clean, hide_blocked, lan_host
 from guard.guard import PLAN, with_mode
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -70,6 +71,9 @@ SPOKEN = {k: v for k, v in {"opera gx": "opera-gx", "operagx": "opera-gx", "opra
           if v in BROWSERS}
 NAMES_RE = "|".join(sorted(map(re.escape, SPOKEN), key=len, reverse=True))
 
+# the tools that act on the page in a tab: the block list looks at the address of that page
+ACTS_ON_PAGE = ("click", "type", "select", "press", "read", "read_list", "scroll", "screenshot", "script", "download")
+
 # ---------- safety: what a browser action may do without asking ----------
 RISKY = re.compile(r"\b(?:buy|pay|purchase|order|checkout|check out|place order|book|reserve|subscribe|donate|"
                    r"post|publish|tweet|share|send|reply|comment|submit|delete|remove|transfer|withdraw|confirm|"
@@ -88,17 +92,17 @@ SCRIPT_URL = re.compile(r"^\s*(?:javascript|data|file|blob|vbscript):", re.I)  #
 MAX_SCRIPT = 600  # a longer script can't be read through on a card
 
 
-def classify(tool, args, element=None, mode="accept_edits", trusted=True):
+def classify(tool, args, element=None, mode="accept_edits", trusted=True, blocked=()):
     """('allow' | 'confirm' | 'block', why) for one browser action. `element` is what the extension reports
     about the real element on the page (not what the AI says it is). `mode` is the permission mode: Plan only
     reads, Manual also asks before typing or picking, Bypass never asks; blocked typing stays blocked.
     `trusted` False: the element report came from the page's own JavaScript (Safari), which the page could fake,
     so every click, type and pick asks."""
-    tier, why = _classify(tool, args, element)
+    tier, why = _classify(tool, args, element, blocked)
     # ...except a search: a page faking a search box could only get a search's text submitted to itself
     if not trusted and tier == "allow" and tool in ("click", "type", "select") and why != "searches":
         tier, why = "confirm", f"{why} in Safari, where Nova can't check the page element for itself"
-    if tier == "allow" and mode == "plan" and tool not in ("tabs", "navigate", "read", "inspect", "scroll", "screenshot"):
+    if tier == "allow" and mode == "plan" and tool not in ("tabs", "navigate", "read", "read_list", "inspect", "scroll", "screenshot"):
         return "block", PLAN
     if tier == "allow" and mode == "manual" and tool in ("type", "select"):
         return "confirm", f"{why} (Manual mode asks before every change)"
@@ -111,8 +115,15 @@ def _search_box(el):
         bool(SEARCH.search(f'{el.get("field", "")} {el.get("name", "")}'))
 
 
-def _classify(tool, args, element=None):
+def _classify(tool, args, element=None, blocked=()):
     el = element or {}
+    # the block list (Settings → Browsers): sites the AI may not open, follow a link to, or act on, in any mode
+    if blocked:
+        where = [args.get("url") if tool in ("tabs", "navigate") else None,
+                 el.get("href") if tool == "click" else None, el.get("url") if tool in ACTS_ON_PAGE else None]
+        site = next((s for s in (blocked_site(str(u), blocked) for u in where if u) if s), "")
+        if site:
+            return "block", f"touches {site}, which is on your block list (Settings → Browsers)"
     what = f'"{el.get("name") or el.get("field") or "an element"}" on {el.get("host") or "the page"}'
     if tool in ("tabs", "navigate"):
         url = str(args.get("url") or "")
@@ -122,10 +133,12 @@ def _classify(tool, args, element=None):
         # shortcut: a short query (a search) still passes; text in the address is how a page could be handed data
         if url and (parts.scheme not in ("http", "https") and url != "about:blank"):
             return "confirm", f"opens {url[:80]}, which isn't a web address"
+        if lan_host(url):
+            return "confirm", "opens an address on your own network (your router, a device, cloud metadata), not a public site"
         if len(parts.query) + len(parts.fragment) > 40 or len(url) > 300:
             return "confirm", "opens a web address that carries a lot of text, which is how data is handed to a site"
         return "allow", "reads or moves around"
-    if tool in ("read", "inspect", "scroll", "screenshot"):
+    if tool in ("read", "read_list", "inspect", "scroll", "screenshot"):
         return "allow", "reads or moves around"
     if tool == "type":
         field = f'{el.get("type", "")} {el.get("field", "")} {el.get("name", "")}'
@@ -141,6 +154,8 @@ def _classify(tool, args, element=None):
         if el.get("isSubmit") or el.get("formSecret") or PAY_HOST.search(el.get("host", "")) or \
                 RISKY.search(el.get("name", "")):
             return "confirm", f"clicks {what}, which may submit, buy, post or send something"
+        if lan_host(el.get("href", "")) and not lan_host(el.get("url", "")):
+            return "confirm", f"follows {what} to an address on your own network, not a public site"
         return "allow", "clicks"
     if tool == "select":
         return "allow", "picks from a dropdown"
@@ -638,7 +653,7 @@ class Bridge:
         raise RuntimeError(f"{BROWSERS[bid][0]} is open but the Nova extension isn't connected. Restart "
                            f"{BROWSERS[bid][0]} once from Nova's Settings → Browsers so the extension loads.")
 
-    def run_tool(self, bid, tool, args, ask, mode="accept_edits"):
+    def run_tool(self, bid, tool, args, ask, mode="accept_edits", blocked=()):
         """Run one browser tool for the AI, applying Nova's safety rules to the real page element."""
         self.ensure(bid)
         element = self.call(bid, "inspect", {"ref": args["ref"], "tab_id": args.get("tab_id")}) \
@@ -648,7 +663,12 @@ class Bridge:
                 element = self.call(bid, "inspect", {"ref": "", "tab_id": args.get("tab_id")})
             except RuntimeError:
                 element = None
-        verdict, why = classify(tool, args, element, mode, trusted=BROWSERS[bid][3] != "applescript")
+        if blocked and element is None and tool in ACTS_ON_PAGE:  # with no ref, the tab it acts on may be a blocked site
+            try:
+                element = self.call(bid, "inspect", {"ref": "", "tab_id": args.get("tab_id")})
+            except RuntimeError:
+                element = None
+        verdict, why = classify(tool, args, element, mode, trusted=BROWSERS[bid][3] != "applescript", blocked=blocked)
         if verdict == "block" and why == PLAN:
             raise PermissionError(PLAN)
         if verdict == "block":
@@ -665,9 +685,11 @@ class Bridge:
             if not ask({"tool": f"browser.{tool}", "reason": why, "summary": f"{BROWSERS[bid][0]}: {summary}\n{where}"}):
                 raise PermissionError(f"The user didn't allow this ({why}). Don't try another way; ask them.")
         result = self.call(bid, tool, args)
+        if tool in ("read", "read_list", "navigate", "tabs"):  # credentials a page shows, or an address carries, never reach the AI
+            result = hide_blocked(clean(result) if isinstance(result, str) else json.loads(clean(json.dumps(result))), blocked)
         if tool == "read":
             self.read_pages.add((bid, args.get("tab_id")))
-        elif tool not in ("screenshot", "scroll", "inspect") and args.get("action") != "list":
+        elif tool not in ("screenshot", "scroll", "inspect", "read_list") and args.get("action") != "list":
             # may show another page, in that tab or (a click opening a tab) another: every tab of it reads again
             self.read_pages = {page for page in self.read_pages if page[0] != bid}
         return result

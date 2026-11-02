@@ -31,6 +31,8 @@ from core.config import DATA, NO_WINDOW, WORKSPACE
 
 PORT = 47823
 SIRI_WAIT_S = 50
+HELLO_S = 10  # a connection has this long to send the pairing key
+MAX_UNPAIRED = 4  # connections that haven't sent it yet: a guest on the Wi-Fi can't hold dozens of 25 MB buffers
 DROP = WORKSPACE / "phone"  # what the phone sends: images and files, put on this computer's clipboard
 MAX_UPLOAD = 25 * 2 ** 20
 TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/heic": "heic", "image/heif": "heif", "image/gif": "gif",
@@ -198,6 +200,7 @@ class Phone:
     def __init__(self, on_msg):
         self.on_msg, self.clients, self.server, self.error = on_msg, set(), None, ""
         self.on, self.hosts, self.watching, self.tailscale_only = False, None, False, False
+        self.unpaired = 0
         self.lock = asyncio.Lock()
         self.waiters = []  # Siri requests waiting for Nova's answer
         self.loop = asyncio.new_event_loop()
@@ -302,7 +305,13 @@ class Phone:
 
     async def _client(self, ws):
         try:
-            hello = json.loads(await asyncio.wait_for(ws.recv(), 10))
+            if self.unpaired >= MAX_UNPAIRED:
+                return await ws.close(1013, "busy")
+            self.unpaired += 1  # one event loop runs all of this: no lock needed
+            try:
+                hello = json.loads(await asyncio.wait_for(ws.recv(), HELLO_S))
+            finally:
+                self.unpaired -= 1
             if not (isinstance(hello, dict) and secrets.compare_digest(str(hello.get("token", "")).encode(), token().encode())):
                 return await ws.close(4001, "not paired")
             self.clients.add(ws)

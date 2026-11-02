@@ -18,6 +18,11 @@ def free(app):
     so: ten spots each had their own copy of this test, and one of them was wrong (a routine started over a hold)."""
     return app.phase == "idle" and not app.pending and not app.paused
 
+
+def job_mode(mode, unattended):
+    """Bypass never reaches a run nobody is watching (a schedule, a program's event): it asks like Auto."""
+    return "auto" if unattended and mode == "bypass" else mode
+
 # "in the background, research X" / "background job: X" / "X, as a background task". The comma or colon is required:
 # "in the background of this photo, what is that?" and "background task manager shows high CPU" are questions.
 # Not a bare "... in the background" either: "start the server in the background" is a request about the server
@@ -61,7 +66,7 @@ class BackgroundMixin:
         skill_name = skill["name"] if skill else (resume or {}).get("skill")  # a resumed skill run still leaves its note
         jobs.update(rec, folder=str(folder), label=label, **({"skill": skill_name} if skill_name else {}))
         projects = discover_projects(self.cfg["projects"]["exclude"], ROOT)
-        env = dict(self.env, NOVA_JOB=rec["id"], NOVA_MODE=self.cfg["safety"]["mode"], NOVA_ROOTS=os.pathsep.join(
+        env = dict(self.env, NOVA_JOB=rec["id"], NOVA_MODE=job_mode(self.cfg["safety"]["mode"], self.unattended), NOVA_TAINT="", NOVA_TIMEOUT=str(max(self.cfg["safety"].get("job_wait_s", 0), self.cfg["safety"]["confirm_timeout_s"])), NOVA_ROOTS=os.pathsep.join(
             [*projects.values(), *project_folders(projects, self.cfg["projects"]["folders"]), str(folder)]))
         brain = make_brain(self.cfg, str(folder), env, self.settings, self.hook)
         brain.mode, brain.browser, brain.apps = env["NOVA_MODE"], False, sorted(self.apps)  # no browser: shared with the user
@@ -82,11 +87,15 @@ class BackgroundMixin:
         if skill["needs"] == "apps" and self.brain and self.brain.name == "Codex":  # Codex isn't given the apps
             return self.note(skill["title"], "This skill uses your connected apps, which only Claude Code can use. Switch "
                              "the AI in Settings → AI, or take the apps out of the skill.")
+        self.background(self.skill_prompt(skill), skill=skill)
+
+    def skill_prompt(self, skill):
+        """The skill with its earlier run notes: what a run, or a preview of it, is asked."""
         try:
             past = skill["runs"] if skill["runs"] is not None else int(self.cfg.get("skills", {}).get("past_runs", 3))
         except (TypeError, ValueError):  # a hand-edited setting that isn't a number
             past = 3
-        self.background(skills.prompt(skill, runs.recent(skill["name"], min(max(past, 0), skills.MAX_RUNS))), skill=skill)
+        return skills.prompt(skill, runs.recent(skill["name"], min(max(past, 0), skills.MAX_RUNS)))
 
     def run_background(self, rec, job, task, folder, projects):
         brain, status, shown, spoken = job["brain"], "failed", "", ""

@@ -579,6 +579,11 @@ assert diagnostics.scrub({"dictionary": ["Priya", "Acme"], "projects": {"aliases
                           "voice": {"language": "hi", "custom_stt_url": "https://me.test"}, "note": "C:\\Users\\me\\x"},
                          home="C:\\Users\\me") == {"dictionary": "[2 set]", "projects": {"aliases": "[1 set]"},
                                                     "voice": {"language": "hi", "custom_stt_url": "[set]"}, "note": "~\\x"}
+# the block list (your bank, your health portal), your schedules and your private servers never reach a public issue
+assert diagnostics.scrub({"browser": {"blocked_sites": ["mybank.com", "clinic.example"], "enabled": ["brave"]},
+                          "schedules": [{"run": "email my therapist", "at": "09:00"}],
+                          "mcp": {"servers": {"crm": {"url": "https://crm.internal/mcp"}}}}) == \
+    {"browser": {"blocked_sites": "[2 set]", "enabled": ["brave"]}, "schedules": "[1 set]", "mcp": {"servers": "[1 set]"}}
 with tempfile.TemporaryDirectory() as tmp:
     (Path(tmp) / "nova-2026-01-01.jsonl").write_text(json.dumps(
         {"t": 1, "event": "reply", "request": "email Priya my salary", "reply": "Sent.", "brain": "claude"}) + "\nnot json\n")
@@ -1029,6 +1034,39 @@ run_browser("script", {"code": "1"})                     # after a read, a scrip
 assert refused("script", {"code": "1", "tab_id": 9})     # ...but only in the tab that was read
 assert asked == ["browser.script"], asked
 assert refused("script", {"code": "2"})                  # ...and the next one needs a fresh read again
+# the block list through the whole bridge: when the active tab is a blocked site the tool never runs
+real_call, ran, bank = bridge.call, [], ["chase.com"]
+
+
+def tab_call(url, body="PAGE jwt eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4f"):
+    def call(bid, tool, args, timeout=60):
+        ran.append(tool)
+        return {"url": url, "tag": "body"} if tool == "inspect" else body
+    return call
+
+
+yes = lambda req: True  # noqa: E731
+bridge.call = tab_call("https://secure.chase.com/acct")
+for tool, args in (("read", {"mode": "text"}), ("read_list", {}), ("script", {"code": "1"}), ("screenshot", {})):
+    try:
+        bridge.run_tool("brave", tool, args, yes, "bypass", bank)
+        raise AssertionError(f"{tool} ran on a blocked site")
+    except PermissionError as e:
+        assert "block list" in str(e), str(e)
+assert ran == ["inspect"] * 4, ran  # only the look at the active tab ran
+ran.clear()
+bridge.call = tab_call("https://example.com/")
+out = bridge.run_tool("brave", "read", {"mode": "text"}, yes, "bypass", bank)
+assert "[hidden]" in out and "eyJhb" not in out and ran == ["inspect", "read"], (out, ran)  # an ordinary tab: read, token cut
+ran.clear()
+bridge.run_tool("brave", "read", {"mode": "text"}, yes, "bypass", [])
+assert ran == ["read"], "no block list: no extra look at the tab"
+bridge.call = lambda bid, tool, args, timeout=60: {"title": "x", "url": "https://chase.com/a"}  # a redirect landed on it
+assert "blocked" in bridge.run_tool("brave", "navigate", {"action": "go", "url": "https://example.com/r"}, yes, "bypass", bank)
+bridge.call = lambda bid, tool, args, timeout=60: [{"id": 1, "url": "https://example.com/"}, {"id": 2, "url": "https://chase.com/"}]
+assert [x["id"] for x in bridge.run_tool("brave", "tabs", {"action": "list"}, yes, "bypass", bank)] == [1]
+bridge.call = real_call
+bridge.read_pages = set()
 OPERA = r'"C:\Users\me\AppData\Local\Programs\Opera GX\opera.exe" -noautoupdate -- "%1"'
 EXT = r"C:\Users\me\AppData\Local\Nova\browser\opera-gx"
 assert with_flag(OPERA, EXT) == (r'"C:\Users\me\AppData\Local\Programs\Opera GX\opera.exe" '
@@ -3591,7 +3629,7 @@ try:
     n.paused = False
 finally:
     threading.Timer = real_timer
-# the mode is the user's, never the event's: an event can't ask for Bypass, and in Bypass it runs unattended like a schedule
+# the mode is the user's, never the event's: an event can't ask for Bypass, and an event's run never gets Bypass (nobody watches)
 n.cfg["safety"]["mode"] = "auto"
 n.on_event({"event": "skill", "name": "plain", "mode": "bypass", "safety": "bypass", "NOVA_MODE": "bypass"})
 wait_idle()
@@ -3599,7 +3637,42 @@ assert made[-1].mode == "auto" and made[-1].env["NOVA_MODE"] == "auto", (made[-1
 n.cfg["safety"]["mode"] = "bypass"
 n.on_event({"event": "skill", "name": "plain"})
 wait_idle()
-assert made[-1].mode == "bypass" and made[-1].env["NOVA_MODE"] == "bypass"
+assert made[-1].mode == "auto" and made[-1].env["NOVA_MODE"] == "auto", "Bypass drops to Auto for an event's run"
+# ...and so does a scheduled run of a skill, through the real command() → run_skill() → background() path
+import datetime as _dt_sched  # noqa: E402
+real_last = nova_mod.schedule.LAST
+nova_mod.schedule.LAST = Path(tempfile.mkdtemp(prefix="nova-sched-")) / "last.json"
+n.cfg["schedules"] = [{"days": list(range(7)), "at": _dt_sched.datetime.now().strftime("%H:%M"), "run": "run plain"}]
+before_sched = len(made)
+real_ui, n.ui = n.ui, lambda fn, *a: fn()
+try:
+    n.run_due_schedule()
+    for _ in range(100):  # the schedule's request runs on its own thread
+        if len(made) > before_sched:
+            break
+        time.sleep(0.05)
+    wait_idle()
+    assert len(made) == before_sched + 1, "the scheduled skill started"
+    assert made[-1].mode == "auto" and made[-1].env["NOVA_MODE"] == "auto", "Bypass drops to Auto for a scheduled run"
+    assert n.unattended is False, "the flag is cleared once the run is handed off"
+finally:
+    nova_mod.schedule.LAST, n.cfg["schedules"], n.ui = real_last, [], real_ui
+# the Skills page's Preview button asks for the skill in Plan mode: nothing changes, and it ends with a question
+previews = []
+n.typed = lambda *a, **k: previews.append((a, k))
+try:
+    n.on_app({"op": "skill_preview", "name": "plain"})
+finally:
+    del n.typed
+assert len(previews) == 1 and previews[0][1]["preview"] is True and previews[0][0][1] == "window", previews
+assert "PREVIEW" in previews[0][1]["note"] and "Just a body" in previews[0][1]["note"], previews[0][1]["note"]
+assert 'send("skill_preview"' in Path("core/app.html").read_text(encoding="utf-8")
+# a schedule shows what the skill's last run used: tokens read outside the cache plus tokens written
+assert runs_mod.tokens("1500 in (1000 cached), 200 out, $0.0100 API-equivalent (as reported by the CLI)") == 700
+assert runs_mod.tokens("") is None and runs_mod.tokens(None) is None and runs_mod.tokens("usage unknown") is None
+assert app_mod.Api.schedule_usage(None, "run plain") == "Last run used about 8 tokens", app_mod.Api.schedule_usage(None, "run plain")
+assert app_mod.Api.schedule_usage(None, "run nothing at all") == "" and app_mod.Api.schedule_usage(None, "start my day") == ""
+assert "schedule_usage(s.run)" in Path("core/app.html").read_text(encoding="utf-8")
 n.cfg["safety"]["mode"] = "plan"  # Plan mode only plans: a background job would stop and wait, so nothing starts
 before_plan = len(made)
 n.on_event({"event": "skill", "name": "plain"})
@@ -5434,6 +5507,11 @@ with tempfile.TemporaryDirectory() as folder:
         nova_mod.Nova.run_due_schedule(sched)
         queued[0]()
         assert len(spawned) == 1 and nova_mod.schedule.LAST.exists()
+        seen = []  # the scheduled request runs flagged unattended (Bypass drops to Auto), and the flag is cleared after
+        sched.unattended, sched.command = False, lambda *a, **k: seen.append(sched.unattended) or True
+        sched.unattended_run = lambda run: nova_mod.Nova.unattended_run(sched, run)
+        spawned[0][0]()
+        assert seen == [True] and sched.unattended is False, seen
     finally:
         nova_mod.schedule.LAST, nova_mod.log = real_sched
 
@@ -5607,6 +5685,73 @@ assert nova_mod.tightened("auto", True) == nova_mod.tightened("accept_edits", Tr
 assert nova_mod.tightened("plan", True) == "plan" and nova_mod.tightened("bypass", True) == "bypass"
 assert nova_mod.tightened("auto", False) == "auto" and nova_mod.tightened("auto", True, enabled=False) == "auto"
 assert config_mod.defaults()["safety"]["tainted_manual"] is True
+# once the AI has read a page, the browser and desktop tools ask about every change too; Bypass and the setting still win
+real_taint = nova_mod.TAINT
+nova_mod.TAINT = Path(tempfile.mkdtemp(prefix="nova-taint-")) / "taint"
+tainted_app = types.SimpleNamespace(env={"NOVA_MODE": "auto"}, cfg={"safety": {"tainted_manual": True}})
+try:
+    assert nova_mod.Nova.live_mode(tainted_app) == "auto"
+    nova_mod.TAINT.write_text("1")
+    assert nova_mod.Nova.live_mode(tainted_app) == "manual"
+    tainted_app.env["NOVA_MODE"] = "bypass"
+    assert nova_mod.Nova.live_mode(tainted_app) == "bypass"
+    tainted_app.env["NOVA_MODE"], tainted_app.cfg["safety"]["tainted_manual"] = "auto", False
+    assert nova_mod.Nova.live_mode(tainted_app) == "auto"
+finally:
+    nova_mod.TAINT = real_taint
+# a run nobody watches (a schedule, a program's event) never gets Bypass: it asks like Auto; every other mode is as chosen
+from core.background import job_mode  # noqa: E402
+assert job_mode("bypass", True) == "auto" and job_mode("bypass", False) == "bypass"
+assert [job_mode(m, True) for m in ("auto", "manual", "accept_edits", "plan")] == ["auto", "manual", "accept_edits", "plan"]
+# once the AI has read a web page, the guard asks about every change; Bypass and Plan stay as chosen
+from guard.guard import mode_now  # noqa: E402
+_taint = Path(tempfile.mkdtemp(prefix="nova-taint-")) / "taint"
+assert mode_now("auto", str(_taint)) == "auto" and mode_now("auto", "") == "auto"
+_taint.write_text("1")
+assert mode_now("auto", str(_taint)) == mode_now("accept_edits", str(_taint)) == "manual"
+assert mode_now("bypass", str(_taint)) == "bypass" and mode_now("plan", str(_taint)) == "plan" and mode_now("auto", "") == "auto"
+# what the AI reads of a page: credentials never reach it; documentation about keys and ordinary pages do
+from core.readguard import clean, lan_host, redact_url, secret_page  # noqa: E402
+assert redact_url("https://x.com/a?id=5&access_token=abc&sig=zz#frag") == "https://x.com/a?id=5#frag"
+assert redact_url("https://x.com/cb?code=1&state=2") == "https://x.com/cb" and redact_url("https://x.com/shop?code=SAVE10") == "https://x.com/shop?code=SAVE10"
+assert redact_url("https://u:p@x.com/#access_token=t") == "https://x.com/" and redact_url("https://x.com/a?b=1") == "https://x.com/a?b=1"
+assert secret_page("https://github.com/settings/tokens") and secret_page("https://dash.x.com/account/security")
+assert not secret_page("https://docs.stripe.com/api-keys") and not secret_page("https://github.com/settings/profile")
+page = clean("Keys\nhttps://dash.x.com/project/api-keys\n\nsk_live_123")
+assert "sk_live_123" not in page and "withheld" in page
+seen = clean("Hi\nhttps://x.com/\n\nlink https://x.com/a?token=abc&q=1 jwt eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4f")
+assert "token=abc" not in seen and "q=1" in seen and "[hidden]" in seen and "eyJhb" not in seen
+# an address on your own network asks first; localhost (dev servers) and public sites don't
+assert all(lan_host(u) for u in ("http://192.168.1.1/", "http://169.254.169.254/latest", "http://10.0.0.5:8080", "http://router/", "http://nas.local/"))
+assert not any(lan_host(u) for u in ("http://localhost:3000", "http://127.0.0.1:5173", "https://example.com", "https://8.8.8.8/"))
+assert browser_classify("navigate", {"url": "http://192.168.1.1/admin"})[0] == "confirm"
+assert browser_classify("navigate", {"url": "http://localhost:3000"})[0] == "allow"
+assert browser_classify("tabs", {"action": "open", "url": "http://169.254.169.254/"}, None, "bypass")[0] == "allow"
+assert browser_classify("click", {"ref": "1"}, {"name": "Router", "href": "http://192.168.1.1/", "url": "https://example.com/"})[0] == "confirm"
+assert browser_classify("click", {"ref": "1"}, {"name": "Wi-Fi", "href": "http://192.168.1.1/wifi", "url": "http://192.168.1.1/"})[0] == "allow"
+assert browser_classify("click", {"ref": "1"}, {"name": "Docs", "href": "https://example.com/docs", "url": "https://example.com/"})[0] == "allow"
+# the block list: sites the AI may not open, follow a link to, act on or see among your tabs, even in Bypass
+from core.readguard import blocked_site, hide_blocked  # noqa: E402
+bank = ["chase.com", "https://www.myhealth.example/portal", "*.irs.gov"]
+assert blocked_site("https://secure.chase.com/x", bank) == "chase.com" and blocked_site("https://www.irs.gov", bank) == "irs.gov"
+assert blocked_site("https://myhealth.example/a", bank) == "myhealth.example" and blocked_site("https://notchase.com", bank) == ""
+assert blocked_site("https://chase.com", []) == "" and blocked_site("not a url", bank) == ""
+for tool, args, el in (("navigate", {"url": "https://www.chase.com/"}, None), ("tabs", {"action": "open", "url": "https://chase.com"}, None),
+                       ("click", {"ref": "1"}, {"name": "Pay", "href": "https://chase.com/pay", "url": "https://example.com/"}),
+                       ("type", {"ref": "1", "text": "x"}, {"field": "q", "url": "https://secure.chase.com/"})):
+    assert browser_classify(tool, args, el, "bypass", blocked=bank)[0] == "block", (tool, args)
+assert browser_classify("navigate", {"url": "https://example.com/"}, None, "bypass", blocked=bank)[0] == "allow"
+tabs = [{"id": 1, "url": "https://example.com/", "title": "a"}, {"id": 2, "url": "https://chase.com/acct", "title": "b"}]
+for tool, args in (("script", {"code": "1"}), ("screenshot", {}), ("read", {"mode": "text"}), ("read_list", {}), ("download", {"url": "https://x.com/a"}), ("scroll", {})):
+    assert browser_classify(tool, args, {"url": "https://secure.chase.com/acct"}, "bypass", blocked=bank)[0] == "block", tool  # the open tab is a blocked site
+    assert browser_classify(tool, args, {"url": "https://example.com/"}, "bypass", blocked=bank)[0] != "block", tool
+assert hide_blocked(tabs, bank) == tabs[:1] and hide_blocked(tabs, []) == tabs
+assert "block list" in hide_blocked("Acct\nhttps://chase.com/acct\n\nbalance $1", bank) and "block list" in hide_blocked({"url": "https://chase.com/x"}, bank)["blocked"]
+assert hide_blocked("Hi\nhttps://example.com/\n\nbody", bank).endswith("body")
+# the sites the AI read, shown under the reply
+from core.readguard import page_host  # noqa: E402
+assert page_host("Title\nhttps://www.github.com/a/b?x=1\n\nbody") == "github.com" and page_host("Title\nhttp://localhost:3000/\n\nx") == "localhost"
+assert page_host("[Nova hid this page]") == "" and page_host({"url": "https://x.com"}) == "" and page_host("a\nnot a url\nb") == "" and page_host("") == ""
 
 # Settings → Privacy & safety lists the guard's last decisions, with the command cut short and the home folder as ~
 real_history = app_mod.read_history
@@ -6348,6 +6493,264 @@ for key in ("triple_tap_mode", "overlay.sketch", "overlay.sketch_images", "voice
         node = node[part]  # the key exists in the defaults
 assert 'id="projExclude"' in polish and 'set("projects.exclude"' in polish
 assert 'send("undo")' in polish and 'op == "undo"' in Path("nova.py").read_text(encoding="utf-8") and "Undo a dictation" in polish and "Sketch the answer" in polish
+# a background job's request nobody answers is asked again instead of becoming a no, until the wait is up or the job ends
+nova_mod.JOB_ASK_AGAIN_S = 0.05
+def job_ask(wait, cancelled=False, answer=None):
+    jn = nova_stub(1.5)
+    jn.cfg["safety"]["job_wait_s"], jn.bg = wait, {"j1": {"cancel": threading.Event()}}
+    if cancelled:
+        jn.bg["j1"]["cancel"].set()
+    out = []
+    t = threading.Thread(target=lambda: out.append(nova_mod.Nova.ask(jn, {"summary": "s", "reason": "r", "job": "j1"})))
+    t.start()
+    if answer is not None:
+        time.sleep(2.0)  # the first showing (1.5 s) ran out; the second is up
+        while jn.pending is None:
+            time.sleep(0.01)
+        done, box = jn.pending
+        box[0] = answer
+        done.set()
+    t.join()
+    return out[0], len([e for e in list(jn.outbox.queue) if e.get("event") == "asking"])
+assert job_ask(5, answer=True) == (True, 2), "allowed on the second showing"
+assert job_ask(5, answer=False) == (False, 2), "denied on the second showing"
+assert job_ask(0) == (False, 1), "no wait set: no answer is a no, as before"
+assert job_ask(2) == (False, 1), "a showing that would end after the guard stopped waiting is never started"
+esc = []
+assert nova_mod.Nova.on_esc(types.SimpleNamespace(pending=True, asking_retry=True, answer=esc.append)) is None and esc == [], "Esc can't deny a re-shown job request"
+nova_mod.Nova.on_esc(types.SimpleNamespace(pending=True, asking_retry=False, answer=esc.append))
+assert esc == [False], "but it still denies an ordinary one"
+assert job_ask(5, cancelled=True) == (False, 1), "a cancelled job isn't asked again"
+assert json.loads(Path("config.default.json").read_text(encoding="utf-8"))["safety"]["job_wait_s"] == 600
+assert 'data-bind="safety.job_wait_s"' in polish
+assert 'id="blockedSites"' in polish and 'set("browser.blocked_sites"' in polish
+assert json.loads(Path("config.default.json").read_text(encoding="utf-8"))["browser"]["blocked_sites"] == []
+
+# a time said out loud (core/when.py), for reminders and calendar events
+import datetime as _dtw  # noqa: E402
+from core import when, reminders  # noqa: E402
+NOW = _dtw.datetime(2026, 11, 4, 13, 0)  # a Wednesday, 1 pm
+WHEN = {"call at 4 pm": (2026, 11, 4, 16, 0), "at 4": (2026, 11, 4, 16, 0), "at 9": (2026, 11, 4, 21, 0), "at 1 pm": (2026, 11, 5, 13, 0),
+        "in 20 minutes": (2026, 11, 4, 13, 20), "in an hour": (2026, 11, 4, 14, 0), "in half an hour": (2026, 11, 4, 13, 30),
+        "tomorrow at 9": (2026, 11, 5, 9, 0), "tomorrow at 9:30 pm": (2026, 11, 5, 21, 30), "Thursday at 3": (2026, 11, 5, 15, 0),
+        "thursday at 10": (2026, 11, 5, 10, 0), "next wednesday at 2 pm": (2026, 11, 11, 14, 0), "tonight at 8": (2026, 11, 4, 20, 0),
+        "at noon": (2026, 11, 5, 12, 0), "at 4:15 p.m.": (2026, 11, 4, 16, 15), "friday at 7 am": (2026, 11, 6, 7, 0)}
+for text, want in WHEN.items():
+    got = when.find(text, NOW)
+    assert got and got[0] == _dtw.datetime(*want), (text, got, want)
+assert when.find("tomorrow", NOW) is None and when.find("call the bank", NOW) is None and when.find("at 25", NOW) is None
+assert [when.minutes(t) for t in ("10 minutes", "an hour", "half an hour", "", "2 hours")] == [10, 60, 30, 10, 120]
+REM = {"Remind me to call the bank at 4 pm": "call the bank", "remind me at 4 pm to call the bank": "call the bank",
+       "Remind me in 20 minutes to stretch.": "stretch", "please remind me to send the invoice tomorrow at 9": "send the invoice",
+       "remind me about the dentist on Thursday at 3 pm": "the dentist"}
+for text, what in REM.items():
+    got = reminders.parse(text, NOW)
+    assert got and got[1] == what, (text, got)
+assert reminders.parse("remind me to call the bank", NOW) is None and reminders.parse("what's the time at 4 pm", NOW) is None
+assert reminders.parse("remind me at 4 pm", NOW) is None  # nothing to remind of
+assert [reminders.snooze(t) for t in ("snooze", "snooze 10 minutes", "Snooze for an hour.", "snooze it for 5 minutes", "snooze my alarm")] == [10, 10, 60, 5, None]
+assert reminders.CLEAR_RE.match("clear my reminders") and not reminders.CLEAR_RE.match("clear the screen")
+assert reminders.describe(_dtw.datetime(2026, 11, 4, 16, 0).timestamp(), NOW) == "at 4:00 PM"
+assert reminders.describe(_dtw.datetime(2026, 11, 5, 9, 30).timestamp(), NOW) == "tomorrow at 9:30 AM"
+assert reminders.describe(_dtw.datetime(2026, 11, 12, 9, 30).timestamp(), NOW) == "on Thursday at 9:30 AM"
+# stored, taken when due (oldest first), and the one that is late says so
+reminders.FILE = Path(tempfile.mkdtemp(prefix="nova-rem-")) / "reminders.json"
+reminders.add(200.0, "second"); reminders.add(100.0, "first"); reminders.add(9e9, "later")
+assert reminders.first_due(50) is None
+first = reminders.first_due(250)
+assert first["text"] == "first" and reminders.first_due(250) == first, "still in the file until it has been said"
+reminders.remove(first); reminders.remove(first)  # taking out one twice is harmless
+second = reminders.first_due(250)
+assert second["text"] == "second"; reminders.remove(second); assert reminders.first_due(250) is None
+assert [i["text"] for i in reminders.load()] == ["later"] and reminders.late({"at": 0}, 7200) and not reminders.late({"at": 0}, 60)
+reminders.FILE.write_text("not json"); assert reminders.load() == []
+# the commands: "remind me…" stores one, "snooze" puts the last one back, an expired time is refused
+rem_notes, rem_app = [], types.SimpleNamespace(last_reminder=None)
+rem_app.note = lambda title, text: rem_notes.append((title, text))
+reminders.FILE = Path(tempfile.mkdtemp(prefix="nova-rem-")) / "reminders.json"
+H = lambda text: reminders.handle(text, _dtw.datetime.now(), rem_app.last_reminder, rem_app.note)
+assert H(f"remind me to call the bank in 2 hours") is True
+assert len(reminders.load()) == 1 and rem_notes[-1][0] == "Reminder set" and "call the bank" in rem_notes[-1][1], rem_notes
+assert H("snooze 5 minutes") is True and rem_notes[-1][0] == "Nothing to snooze"
+rem_app.last_reminder = {"at": 1.0, "text": "stretch"}
+assert H("snooze 5 minutes") is True and rem_notes[-1][0] == "Snoozed"
+assert sorted(i["text"] for i in reminders.load()) == ["call the bank", "stretch"]
+assert H("clear my reminders") is True and reminders.load() == []
+assert H("open spotify") is False
+# read_list: the extension scrolls a virtualized list (only the rows on screen exist) and collects every row once
+if shutil.which("node"):
+    harness = r"""
+    const vm = require("vm"), fs = require("fs");
+    const src = fs.readFileSync("browser/extension/background.js", "utf8");
+    const fn = /^async function readList\(\)[\s\S]*?^\}$/m.exec(src)[0];
+    async function run(total, start = 0, kind = "") {
+      const rowH = 20, view = 100;
+      const box = { clientHeight: view, scrollHeight: total * rowH, _top: start, parentElement: null,
+        get scrollTop() { return this._top; }, set scrollTop(v) { this._top = Math.max(0, Math.min(v, this.scrollHeight - this.clientHeight)); } };
+      const mk = i => ({ innerText: kind ? "Newsletter   Weekly digest" : `Row ${i}   from person${i % 7}`, parentElement: box,
+                         querySelector: sel => sel === "a[href]" && kind === "linked" ? { href: `https://mail.example.com/m/${i}` } : null,
+                         getBoundingClientRect: () => ({ width: 10, height: 10 }) });
+      const document = { title: "Inbox", body: {}, scrollingElement: { scrollTop: 0, clientHeight: 100 }, documentElement: {},
+        querySelectorAll: () => { const s = Math.floor(box._top / rowH);
+          return Array.from({ length: view / rowH + 1 }, (_, k) => s + k).filter(i => i < total).map(mk); } };
+      const ctx = { document, location: { href: "https://mail.example.com/inbox" }, setTimeout: f => f(),
+        getComputedStyle: el => ({ overflowY: el === box ? "auto" : "visible", visibility: "visible", display: "block" }) };
+      const text = await vm.runInNewContext(`(${fn})()`, ctx);
+      return { text, top: box._top };
+    }
+    (async () => console.log(JSON.stringify({ small: await run(57, 140), big: await run(500), none: await run(0),
+      linked: await run(9, 0, "linked"), bare: await run(9, 0, "bare") })))();
+    """
+    got = json.loads(subprocess.run(["node", "-e", harness], capture_output=True, text=True, check=True, timeout=60).stdout)
+    lines = got["small"]["text"].splitlines()
+    assert lines[:2] == ["Inbox", "https://mail.example.com/inbox"] and lines[3].startswith("57 rows (") and lines[3].endswith("):"), lines[:5]
+    assert "don't give an exact count" in lines[3], "the AI is told identical rows may be missing from a count"
+    assert [l.split(". ", 1)[1] for l in lines[4:]] == [f"Row {i} from person{i % 7}" for i in range(57)]  # each once, in order
+    assert got["small"]["top"] == 140, "the list is scrolled back to where the user had it"
+    assert "(stopped at 400; the list may go on):" in got["big"]["text"] and got["none"]["text"].splitlines()[3].startswith("0 rows (")
+    assert got["linked"]["text"].splitlines()[3].startswith("9 rows ("), "same words, different links: nine rows"
+    assert got["bare"]["text"].splitlines()[3].startswith("1 rows ("), "same words and no link: one row, which the header warns about"
+src_js = Path("browser/extension/background.js").read_text(encoding="utf-8")
+assert "async read_list(" in src_js and '"read_list"' in Path("helpers/browser_mcp.py").read_text(encoding="utf-8")
+assert browser_classify("read_list", {})[0] == "allow" and browser_classify("read_list", {}, None, "plan")[0] == "allow"
+assert browser_classify("read_list", {}, None, "plan") == ("allow", "reads or moves around")
+# "put a review on Thursday at 3 pm": one event as an .ics file for the user's own calendar app (core/calendar_ics.py)
+from core import calendar_ics as cal_ics  # noqa: E402
+EVENTS = {"put a review on Thursday at 3 pm for an hour": ("review", (2026, 11, 5, 15, 0), 60),
+          "Add lunch with Sam tomorrow at 12:30 pm to my calendar": ("lunch with Sam", (2026, 11, 5, 12, 30), 30),
+          "schedule a meeting with Bob on Friday at 10 am": ("meeting with Bob", (2026, 11, 6, 10, 0), 30),
+          "book the dentist on Monday at 9": ("dentist", (2026, 11, 9, 9, 0), 30),
+          "set up a call tonight at 8 for 45 minutes": ("call", (2026, 11, 4, 20, 0), 45)}
+EVENTS["add a review at 3 pm to my calendar"] = ("review", (2026, 11, 4, 15, 0), 30)  # "calendar" is enough for add
+for text, (title, start, length) in EVENTS.items():
+    assert cal_ics.parse_event(text, NOW) == (title, _dtw.datetime(*start), length), (text, cal_ics.parse_event(text, NOW))
+for text in ("add a margin at 4 px", "add pnpm to my notes", "put the kettle on", "schedule a meeting", "remind me to call at 4 pm",
+             "add a cron job that runs every day at 3 am", "make a PR before 5 pm", "set up the build to run at 9 pm",
+             "put " + "a very long description of everything that has to happen " * 2 + "on Thursday at 3 pm",
+             "every weekday at 9, run start my day", "make it louder", "create a file on Thursday"):
+    assert cal_ics.parse_event(text, NOW) is None, text  # no time, or a day with no clock time, is not an event
+ics = cal_ics.make_ics("Lunch, with Sam; ok", _dtw.datetime(2026, 11, 5, 12, 30), 60)
+assert ics.startswith("BEGIN:VCALENDAR\r\n") and ics.endswith("END:VCALENDAR\r\n") and "\n" not in ics.replace("\r\n", "")
+assert "DTSTART:20261105T123000\r\n" in ics and "DTEND:20261105T133000\r\n" in ics and "SUMMARY:Lunch\\, with Sam\\; ok\r\n" in ics
+import icalendar as _ical  # noqa: E402
+parsed = _ical.Calendar.from_ical(ics).walk("VEVENT")[0]  # a real parser reads it back
+assert str(parsed["SUMMARY"]) == "Lunch, with Sam; ok" and parsed["DTSTART"].dt == _dtw.datetime(2026, 11, 5, 12, 30)
+# Nova writes it and opens it; a time that has passed, or no app to open it, is said plainly
+ev_notes, ev_opened = [], []
+ev_app = types.SimpleNamespace(note=lambda title, text: ev_notes.append((title, text)))
+real_ws, real_open = nova_mod.WORKSPACE, nova_mod.system.open_path
+nova_mod.WORKSPACE, nova_mod.system.open_path = Path(tempfile.mkdtemp(prefix="nova-ws-")), ev_opened.append
+try:
+    soon = _dtw.datetime.now() + _dtw.timedelta(days=1)
+    nova_mod.Nova.add_event(ev_app, "Review: Q3", soon, 30)
+    assert ev_notes[-1][0] == "Event ready" and len(ev_opened) == 1 and ev_opened[0].suffix == ".ics" and ev_opened[0].name.startswith("review-q3-")
+    assert b"SUMMARY:Review: Q3\r\n" in ev_opened[0].read_bytes()
+    nova_mod.Nova.add_event(ev_app, "Old", _dtw.datetime(2020, 1, 1, 9, 0), 30)
+    assert ev_notes[-1][0] == "That time has passed" and len(ev_opened) == 1
+    nova_mod.system.open_path = lambda p: (_ for _ in ()).throw(OSError("no app"))
+    nova_mod.Nova.add_event(ev_app, "Review", soon, 30)
+    assert ev_notes[-1][0] == "Event saved"
+finally:
+    nova_mod.WORKSPACE, nova_mod.system.open_path = real_ws, real_open
+# an .ics title can't add lines to the event
+ics = cal_ics.make_ics("Review\rATTENDEE:evil@x.test\nBEGIN:VALARM", _dtw.datetime(2026, 11, 5, 15, 0), 30)
+assert not [l for l in ics.split("\r\n") if l.startswith(("ATTENDEE", "BEGIN:VALARM"))] and ics.count("\r") == ics.count("\r\n")
+# the reminder loop: a due one is said, then removed; a busy Nova waits; a late one is called missed; a failed say still removes it
+rl_notes, real_fg, real_log = [], nova_mod.system.foreground, nova_mod.log
+rl_app = types.SimpleNamespace(phase="idle", pending=None, paused=False, ui=lambda fn: fn(), last_reminder=None, target=None,
+                               voice=False, spawn=lambda work, phase: work(), note=lambda title, text: rl_notes.append((title, text)))
+nova_mod.system.foreground, nova_mod.log = lambda: None, lambda *a, **k: None
+reminders.FILE = Path(tempfile.mkdtemp(prefix="nova-rl-")) / "reminders.json"
+try:
+    reminders.add(time.time() - 5, "call the bank"); reminders.add(time.time() + 3600, "later")
+    nova_mod.Nova.run_due_reminders(rl_app)
+    assert rl_notes == [("Reminder", "Reminder: call the bank")] and rl_app.voice is True and rl_app.last_reminder["text"] == "call the bank"
+    assert [i["text"] for i in reminders.load()] == ["later"]
+    rl_app.phase = "busy"; reminders.add(time.time() - 1, "wait"); rl_notes.clear()
+    nova_mod.Nova.run_due_reminders(rl_app)
+    assert rl_notes == [] and "wait" in [i["text"] for i in reminders.load()], "a busy Nova leaves it for the next check"
+    rl_app.phase = "idle"; reminders.add(time.time() - 7200, "old")
+    nova_mod.Nova.run_due_reminders(rl_app)
+    assert rl_notes == [("Reminder", "A reminder I missed: old")], rl_notes
+    rl_app.note = lambda title, text: (_ for _ in ()).throw(RuntimeError("no voice"))
+    try:
+        nova_mod.Nova.run_due_reminders(rl_app)
+    except RuntimeError:
+        pass
+    assert "wait" not in [i["text"] for i in reminders.load()], "removed even when saying it failed"
+finally:
+    nova_mod.system.foreground, nova_mod.log = real_fg, real_log
+# reminders added from many threads at once are all kept
+reminders.FILE = Path(tempfile.mkdtemp(prefix="nova-rl-")) / "reminders.json"
+rl_threads = [threading.Thread(target=lambda i=i: reminders.add(1000 + i, f"r{i}")) for i in range(30)]
+for th in rl_threads:
+    th.start()
+for th in rl_threads:
+    th.join()
+assert len(reminders.load()) == 30
+
+
+# a scheduled request nobody watches waits for an answer like a background job; a normal one doesn't
+def sched_ask(wait, unattended=True, answer=None, cancelled=False):
+    sn = nova_stub(1.5)
+    sn.cfg["safety"]["job_wait_s"], sn.unattended, sn.cancel = wait, unattended, threading.Event()
+    titles = []
+    sn.card, sn.ui, sn.show_bar = types.SimpleNamespace(show=lambda title, *a, **k: titles.append(title)), (lambda fn: fn()), (lambda s: None)
+    if cancelled:
+        sn.cancel.set()
+    out = []
+    th = threading.Thread(target=lambda: out.append(nova_mod.Nova.ask(sn, {"summary": "s", "reason": "r"})))
+    th.start()
+    if answer is not None:
+        time.sleep(2.0)
+        while sn.pending is None:
+            time.sleep(0.01)
+        done, box = sn.pending
+        box[0] = answer
+        done.set()
+    th.join()
+    asked = len([e for e in list(sn.outbox.queue) if e.get("event") == "asking"])
+    return out[0], asked, [x for x in titles if x != "Needs your OK"]
+
+
+assert sched_ask(5, answer=True) == (True, 2, ["Saved for later"]), "allowed on the second showing"
+assert sched_ask(1) == (False, 1, ["Denied"]), "too short for another showing: it says no, and says so"
+assert sched_ask(5, cancelled=True)[:2] == (False, 1), "a stopped request isn't asked again"
+assert sched_ask(5, unattended=False) == (False, 1, ["Denied"]), "an ordinary request: no answer is a no, as before"
+# only a few connections can wait on the pairing key at once
+import asyncio as _aio  # noqa: E402
+import core.phone as phone_mod  # noqa: E402
+
+
+class WaitingSocket:
+    def __init__(self):
+        self.closed, self.ev = None, None
+
+    async def recv(self):
+        await self.ev.wait()
+        return "{}"
+
+    async def close(self, code, reason=""):
+        self.closed = code
+
+
+async def unpaired_cap():
+    ph = Phone(lambda m, r: None)
+    sockets = [WaitingSocket() for _ in range(6)]
+    for s in sockets:
+        s.ev = _aio.Event()
+    tasks = [_aio.ensure_future(ph._client(s)) for s in sockets]
+    await _aio.sleep(0.1)
+    refused_now = [s.closed for s in sockets]
+    for s in sockets:
+        s.ev.set()
+    await _aio.gather(*tasks)
+    return refused_now, [s.closed for s in sockets], ph.unpaired
+
+
+now_closed, end_closed, left = _aio.run(unpaired_cap())
+assert now_closed == [None] * phone_mod.MAX_UNPAIRED + [1013] * (6 - phone_mod.MAX_UNPAIRED), now_closed
+assert end_closed[:4] == [4001] * 4 and left == 0, (end_closed, left)  # the four wrong keys are turned away; the count is back to 0
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
 
 from core.cleanup import fix_vocabulary  # noqa: E402

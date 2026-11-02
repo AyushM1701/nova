@@ -209,6 +209,10 @@ const TOOLS = {
     const tab = await activeTab(tab_id);
     return inPage(tab.id, readPage, mode);
   },
+  async read_list({ tab_id }) {
+    const tab = await activeTab(tab_id);
+    return inPage(tab.id, readList);
+  },
   async inspect({ ref, tab_id }) {
     const tab = await activeTab(tab_id);
     return inPage(tab.id, elementInfo, String(ref));
@@ -304,6 +308,44 @@ function readPage(mode) {
   }
   document.documentElement.dataset.novaNext = String(next);
   return head + "\n" + lines.join("\n");
+}
+
+// A whole list in one read: scrolls the list that holds the page's rows, collects each row once (a virtualized list only
+// keeps the rows on screen), and gives back one line per row. Reads and scrolls; it never clicks. Shortcut: a row is an
+// <li>, <tr>, <article> or an ARIA row/listitem/option, and the list is the scrollable parent of the first one; upgrade
+// if a site draws rows as plain <div>s.
+async function readList() {
+  const rowSel = "[role=row],[role=listitem],[role=option],tr,li,article";
+  const visible = el => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none"; };
+  const rows = () => [...document.querySelectorAll(rowSel)].filter(el => visible(el) && !el.querySelector(rowSel));
+  let box = document.scrollingElement || document.documentElement;
+  const first = rows()[0];
+  for (let el = first && first.parentElement; el && el !== document.body; el = el.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight + 20) { box = el; break; }
+  }
+  const seen = new Map(), MAX_ROWS = 400, MAX_CHARS = 60000, end = Date.now() + 20000;
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const grab = () => { for (const el of rows()) {
+    const text = (el.innerText || "").replace(/\s+/g, " ").trim();
+    const link = el.querySelector("a[href]");  // two rows with the same words but different links are two rows
+    const key = text.slice(0, 160) + (link ? "|" + link.href : "");
+    if (text.length > 2 && seen.size < MAX_ROWS && !seen.has(key)) seen.set(key, text.slice(0, 300));
+  } };
+  const from = box.scrollTop;
+  box.scrollTop = 0; await wait(300); grab();
+  for (let still = 0; still < 3 && seen.size < MAX_ROWS && Date.now() < end; ) {
+    const count = seen.size, top = box.scrollTop;
+    box.scrollTop = top + Math.max(40, box.clientHeight * 0.8);  // less than a screenful, so no row is skipped
+    await wait(400); grab();
+    still = seen.size === count ? still + 1 : 0;  // three scrolls in a row with nothing new: the end
+  }
+  box.scrollTop = from;  // back where the user was
+  let used = 0;
+  const lines = [...seen.values()].map((t, i) => `${i + 1}. ${t}`).filter(l => (used += l.length + 1) <= MAX_CHARS);
+  const more = seen.size >= MAX_ROWS ? ` (stopped at ${MAX_ROWS}; the list may go on)` : lines.length < seen.size ? " (cut to fit)" : "";
+  const note = "rows with the same text and no link of their own appear once, so don't give an exact count";
+  return `${document.title}\n${location.href}\n\n${lines.length} rows (${note})${more}:\n${lines.join("\n")}`;
 }
 
 function elementInfo(ref) {  // ref "": the element that has focus

@@ -1,16 +1,19 @@
 """Your calendar, read-only, from its secret iCal (ICS) address: Google Calendar (Settings → your calendar →
 "Secret address in iCal format") or Outlook (Settings → Calendar → Shared calendars → Publish → ICS link).
-Nova names a meeting recording after the event happening now and reminds you when one starts.
+Nova names a meeting recording after the event happening now and reminds you when one starts. It can also write one
+event as an .ics file ("put a review on Thursday at 3 pm") for your calendar app to open: no account, no access.
 
 The address works like a password to your calendar, so it's kept in data/calendar.key, which the safety guard
 won't let the AI read. Nova fetches it at most every 10 minutes.
 """
 import datetime as dt
+import re
 import threading
 import time
 import urllib.request
+import uuid
 
-from core import vault
+from core import vault, when
 from core.config import DATA
 
 KEY_FILE = DATA / "calendar.key"
@@ -82,3 +85,44 @@ def now_event(now=None, cal=None):
     found = [e for e in events(now - dt.timedelta(hours=4), now + dt.timedelta(minutes=5), cal)
              if e["start"] - dt.timedelta(minutes=5) <= now < e["end"]]
     return min(found, key=lambda e: abs((e["start"] - now).total_seconds()), default=None)
+
+
+# ---------- writing: one event as an .ics file the user's own calendar app opens (no account, no access) ----------
+EVENT_RE = re.compile(r"^\W*(?:please )?(put|add|schedule|book|block(?: off)?|create|set up|make)\s+"
+                      r"(?:an? |the |my |some )?(.+?)[.!]?$", re.I)
+CALENDAR_TAIL = re.compile(r"\s+(?:on|to|in|onto) (?:my )?(?:calendar|schedule)\b", re.I)
+LENGTH = re.compile(rf"\s+for ((?:{when.NUMBER}) (?:minute|min|hour|hr)s?)\b", re.I)
+DAY_WORD = re.compile(r"\b(?:today|tonight|tomorrow|" + "|".join(when.DAYS) + r")\b", re.I)
+SURE = re.compile(r"\b(?:[ap]\.?m\.?|noon|midnight)\b|" + DAY_WORD.pattern, re.I)
+PLAIN_VERBS = ("add", "create", "make", "set up")  # also what a developer says about a cron job or a build
+
+
+def parse_event(text, now):
+    """(title, start, minutes) for "put a review on Thursday at 3 pm for an hour", or None. Needs a day or an am/pm, so
+    "add a margin at 4 px" is not an event. Shortcut: 30 minutes when no length is said."""
+    m = EVENT_RE.match(text.strip())
+    if not m:
+        return None
+    rest = CALENDAR_TAIL.sub("", m[2])
+    if m[1].lower() in PLAIN_VERBS and rest == m[2] and not DAY_WORD.search(rest):
+        return None  # "add a cron job that runs at 3 am": no day and no "calendar", so it is for the AI
+    length = LENGTH.search(rest)
+    minutes = when.minutes(length[1]) if length else 30
+    rest = LENGTH.sub("", rest)
+    found = when.find(rest, now)
+    if not found or not SURE.search(rest[found[1][0]:found[1][1]]):
+        return None
+    start, (a, b) = found
+    title = re.sub(r"\s+", " ", f"{rest[:a]} {rest[b:]}")
+    title = re.sub(r"^\s*(?:on|at|for|to)\s+|\s+(?:on|at|for|by|to|in)\s*$", "", title).strip(" ,.")
+    return (title, start, minutes) if title and len(title) <= 60 else None  # a long "title" is a command, not an event
+
+
+def make_ics(title, start, minutes=30):
+    """The text of an .ics file with one event. Times are local ("floating"): the calendar app shows them as said."""
+    esc = lambda s: re.sub(r"[\x00-\x1f]", " ", s).replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")  # noqa: E731
+    stamp = lambda t: t.strftime("%Y%m%dT%H%M%S")  # noqa: E731
+    return "\r\n".join(["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Nova//EN", "BEGIN:VEVENT",
+                        f"UID:{uuid.uuid4()}@nova", f"DTSTAMP:{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+                        f"DTSTART:{stamp(start)}", f"DTEND:{stamp(start + dt.timedelta(minutes=minutes))}",
+                        f"SUMMARY:{esc(title)[:200]}", "END:VEVENT", "END:VCALENDAR", ""])

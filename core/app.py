@@ -563,6 +563,12 @@ class Api:
         return [{k: s[k] for k in ("name", "title", "say", "safety", "needs")} | {"last": runs.latest(s["name"])}
                 for s in skills.all_skills()]
 
+    def schedule_usage(self, phrase):
+        """"Last run used about 12,400 tokens" for a scheduled skill that has run before, else "" (Settings → Routines)."""
+        skill = skills.match(phrase, skills.all_skills())
+        n = runs.tokens((runs.latest(skill["name"]) or {}).get("usage")) if skill else None
+        return f"Last run used about {n:,} tokens" if n else ""
+
     def deck(self):
         """The Home deck: what the AI's tool reported using (core/usage.py), the skills with how their last run went, and
         the background jobs running now."""

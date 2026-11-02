@@ -109,6 +109,7 @@
   "browser": {
     "default": "opera-gx",
     "agent_window": true,
+    "blocked_sites": [],
     "enabled": []
   },
   "phone": {
@@ -119,7 +120,8 @@
   "safety": {
     "mode": "auto",
     "tainted_manual": true,
-    "confirm_timeout_s": 30
+    "confirm_timeout_s": 30,
+    "job_wait_s": 600
   },
   "companion": {
     "enabled": false,

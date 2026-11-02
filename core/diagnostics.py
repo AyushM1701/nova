@@ -16,7 +16,7 @@ from core.config import CONFIG, LOGS, WORKSPACE, user_config
 FIELDS = {"t", "event", "error", "mode", "source", "via", "brain", "stt_device", "tool", "tier", "decision", "ok",
           "allowed", "timed_out", "browser", "engine", "status", "duration", "verdict"}
 PERSONAL = {"dictionary", "replacements", "aliases", "folders", "exclude", "routines", "actions", "custom_stt_url",
-            "whisper_cpp_server", "whisper_cpp_model", "folder", "tts_voice"}
+            "whisper_cpp_server", "whisper_cpp_model", "folder", "tts_voice", "blocked_sites", "schedules", "servers"}
 DAYS = 7
 
 

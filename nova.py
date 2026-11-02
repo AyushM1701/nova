@@ -45,7 +45,7 @@ from core.brain import discover_projects, find_cli, make_brain, pick_model, proj
 from core.local_llm import LocalLLM  # noqa: E402
 from core.overlay import Card  # noqa: E402
 from core.draw import Canvas, take as take_drawing  # noqa: E402
-from core.background import BACKGROUND_RE, STOP_BACKGROUND_RE, BackgroundMixin, free  # noqa: E402,F401
+from core.background import BACKGROUND_RE, STOP_BACKGROUND_RE, BackgroundMixin, free, job_mode  # noqa: E402,F401
 from core.errors import friendly  # noqa: E402
 from core.questions import chip_question, screen_question, sketch_question  # noqa: E402
 from core.sketch import as_text as sketch_text, take as take_sketch  # noqa: E402
@@ -53,6 +53,8 @@ from core import corrections  # noqa: E402
 from core.suggest import SuggestMixin  # noqa: E402
 from core.sketchpad import SketchPad  # noqa: E402
 from core import webimage  # noqa: E402
+from core import reminders  # noqa: E402
+from core.readguard import page_host  # noqa: E402
 from core.pointer import Pointer, last_step, rgb, take as take_point  # noqa: E402
 NOT_DONE_RE = re.compile(r"\b(?:couldn'?t|could not|can'?t|cannot|unable|didn'?t|did not|failed|wasn'?t able|not able|sorry|"
                          r"no luck|doesn'?t seem|not sure)\b", re.I)  # an answer like this is not a success worth repeating
@@ -64,6 +66,10 @@ CLAUDE_ALLOWED = ["Read", "Glob", "Grep", "Bash", "PowerShell", "Write", "Edit",
 SINGLE_INSTANCE_PORT = 47821
 # a Siri request comes over the home network without encryption: it asks about every change, whatever the setting
 STRICTER = {"auto": "manual", "accept_edits": "manual", "bypass": "manual"}
+PREVIEW_NOTE = ("[The user wants a PREVIEW of the skill below: say, step by step and in plain words, what you would do and "
+                "what it would change, and finish with an ASK: line asking whether to go ahead. Change nothing yet.]\n")
+JOB_ASK_AGAIN_S = 60  # a background job's unanswered request is shown again this often
+TAINT = DATA / "taint"  # exists once the AI has read a web page in this request: the guard and the browser then ask more
 
 
 def tightened(mode, tainted, enabled=True):
@@ -248,6 +254,9 @@ HOLD_SETTINGS = ("hold_key", "hold_key_2", "hold_delay_s", "push_to_talk", "text
 
 class Nova(BackgroundMixin, SuggestMixin):
     job_mode = None  # the mode a shortcut asked for, this request only (None: the current mode)
+    unattended = False  # a schedule or a program's event is running this request: nobody is watching
+    asking_retry = False  # the approval card on screen is a job's request shown again (see ask)
+    last_reminder = None  # the reminder Nova last said, which "snooze 10 minutes" puts back
     restarting = False
     agent_open = False  # the AI has a window of its own open in the browser (see the extension's agentWindow)
 
@@ -306,7 +315,7 @@ class Nova(BackgroundMixin, SuggestMixin):
         self.ctrl = Listener(self.ctrl_addr, authkey=self.ctrl_key)
         self.env = dict(os.environ, NOVA_PIPE=self.pipe, NOVA_KEY=key.hex(), NOVA_HOME=str(ROOT),
                         NOVA_NOTES=str(NOTES), NOVA_LOG=str(LOGS),
-                        NOVA_TIMEOUT=str(self.cfg["safety"]["confirm_timeout_s"]), NOVA_MODE=self.cfg["safety"]["mode"],
+                        NOVA_TIMEOUT=str(self.cfg["safety"]["confirm_timeout_s"]), NOVA_MODE=self.cfg["safety"]["mode"], NOVA_TAINT=str(TAINT),
                         # Claude Code: no telemetry, error reports or other non-essential traffic
                         DISABLE_TELEMETRY="1", DISABLE_ERROR_REPORTING="1",
                         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1")
@@ -368,7 +377,7 @@ class Nova(BackgroundMixin, SuggestMixin):
             "permissions": {"allow": CLAUDE_ALLOWED + mcp.allow_list(self.apps)},
             "hooks": {"PreToolUse": [{"matcher": CLAUDE_GUARDED, "hooks": [
                 {"type": "command", "command": self.hook,
-                 "timeout": self.cfg["safety"]["confirm_timeout_s"] + 30}]}]},
+                 "timeout": max(self.cfg["safety"]["confirm_timeout_s"], self.cfg["safety"].get("job_wait_s", 0)) + 30}]}]},
         }
         path = DATA / "claude-settings.json"
         write_atomic(path, json.dumps(settings, indent=2))  # a CLI starting now never reads half of it
@@ -871,7 +880,8 @@ class Nova(BackgroundMixin, SuggestMixin):
         """Esc in any app: deny an approval, or stop Nova listening or talking. A request still at work isn't stopped
         by an Esc meant for another app (closing a popup in your editor); the shortcut, the card or Stop does that."""
         if self.pending:
-            self.answer(False)
+            if not getattr(self, "asking_retry", False):  # a job's card that came back by itself: Esc was probably meant for another app
+                self.answer(False)
         elif self.suggesting():
             self.answer_suggestion(False)
         elif self.bar.state in ("listening", "speaking"):
@@ -1028,6 +1038,12 @@ class Nova(BackgroundMixin, SuggestMixin):
                 self.typed(f"run {skill['name'].replace('-', ' ')}", "window", skill)
             else:
                 self.outbox.put({"event": "note", "title": "Not found", "text": "That skill isn't there any more."})
+        elif op == "skill_preview":  # the Skills page's Preview button: what the skill would do, nothing changed
+            skill = next((s for s in skills.all_skills() if s["name"] == msg.get("name")), None)
+            if skill:
+                self.typed(f"Preview {skill['title']}", "window", note=PREVIEW_NOTE + self.skill_prompt(skill) + "\n", preview=True)
+            else:
+                self.outbox.put({"event": "note", "title": "Not found", "text": "That skill isn't there any more."})
         elif op == "claude_skill":  # a button on the Skills page: one of Claude Code's own skills, sent as its text
             found = claude_skills.load(msg.get("id"))
             if found:
@@ -1080,10 +1096,11 @@ class Nova(BackgroundMixin, SuggestMixin):
             threading.Thread(target=tts.speak, args=("Hi, I'm Nova. This is how I'll sound when I answer you.", v,
                                                      self.stop_tts), daemon=True).start()
 
-    def typed(self, text, via, skill=None, note=""):
+    def typed(self, text, via, skill=None, note="", preview=False):
         """A request typed in the Nova window, on the phone or in a browser panel (`via`): same brain and guard,
         answered on screen instead of aloud. `skill`: the Skills page's button, so the exact skill runs. `note`: context sent
-        with the request (a Claude skill's text), not shown as what the user said."""
+        with the request (a Claude skill's text), not shown as what the user said. `preview`: in Plan mode, so the AI only
+        says what it would do."""
         siri_approves = via == "siri" and self.asked and wake.approval(text)  # Siri's key can ask, never approve a plan
         if not free(self) or siri_approves:
             why = ("Nova is paused. Resume it to send requests." if self.paused else
@@ -1095,7 +1112,7 @@ class Nova(BackgroundMixin, SuggestMixin):
 
         def work():
             log("heard", mode="assistant", text=text, source="chat", via=via)  # each page shows the others' requests
-            self.strict_turn = via == "siri"
+            self.strict_turn, self.preview_turn = via == "siri", preview
             try:
                 if skill:
                     self.run_skill(skill)
@@ -1104,7 +1121,7 @@ class Nova(BackgroundMixin, SuggestMixin):
                 elif not self.command(text, typed=True):
                     self.assist(text)
             finally:
-                self.strict_turn = False
+                self.strict_turn = self.preview_turn = False
         self.spawn(work, "busy")
 
     # ---------- speech engines: faster-whisper on this computer, or whisper.cpp / Deepgram when chosen ----------
@@ -1468,6 +1485,13 @@ class Nova(BackgroundMixin, SuggestMixin):
             self.cancel_background()
             self.note("Background jobs", f"Stopped {running} background job{'s' if running != 1 else ''}." if running
                       else "No background jobs are running.")
+            return True
+        if reminders.handle(text, datetime.datetime.now(), getattr(self, "last_reminder", None),
+                          lambda *a: self.note(*a)):
+            return True  # "remind me to call the bank at 4 pm", "snooze 10 minutes"
+        event = calendar_ics.parse_event(text, datetime.datetime.now())  # "put a review on Thursday at 3 pm"
+        if event:
+            self.add_event(*event)
             return True
         planned = schedule.parse(text)  # "every weekday at 9, run start my day"
         if planned:
@@ -2202,10 +2226,49 @@ class Nova(BackgroundMixin, SuggestMixin):
         """Run scheduled routines when they're due (core/schedule.py), once a day each, when Nova is free."""
         while True:
             try:
+                self.run_due_reminders()
                 self.run_due_schedule()
             except Exception as e:  # a write error or an odd setting: log it, keep checking (the thread never ends)
                 log("error", error=f"schedules: {e!r}")
             time.sleep(30)
+
+    def add_event(self, title, start, minutes):
+        """Write the event as an .ics file and open it: the user's own calendar app asks them to save it, so Nova
+        needs no account and no access to the calendar."""
+        if start <= datetime.datetime.now():
+            return self.note("That time has passed", "That time has already passed. Say it again with a later time.")
+        folder = WORKSPACE / "calendar"
+        folder.mkdir(parents=True, exist_ok=True)
+        name = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40] or "event"
+        path = folder / f"{name}-{start:%Y%m%d-%H%M}.ics"
+        path.write_bytes(calendar_ics.make_ics(title, start, minutes).encode("utf-8"))  # CRLF lines stay as written
+        try:
+            system.open_path(path)
+        except OSError:
+            return self.note("Event saved", f"I saved {title} as {path}, but no app opened it. Open the file to add it.")
+        self.note("Event ready", f"I opened {title} in your calendar app. Press Save there to add it.")
+
+    def run_due_reminders(self):
+        """Say the first reminder that is due, once Nova is free (a busy Nova tries again in 30 s)."""
+        items = reminders.load()
+        if not items or items[0]["at"] > time.time():
+            return
+
+        def start():
+            item = reminders.first_due() if free(self) else None
+            if not item:
+                return
+            self.last_reminder, self.target, self.voice = item, system.foreground(), True
+            log("reminder", text=item["text"])
+            what = f"{'A reminder I missed: ' if reminders.late(item) else 'Reminder: '}{item['text']}"
+
+            def say_it():
+                try:
+                    self.note("Reminder", what)
+                finally:
+                    reminders.remove(item)  # after it is said, so a crash says it again instead of never
+            self.spawn(say_it, "busy")
+        self.ui(start)
 
     def run_due_schedule(self):
         try:
@@ -2222,7 +2285,7 @@ class Nova(BackgroundMixin, SuggestMixin):
                 write_atomic(schedule.LAST, json.dumps(last))
                 log("scheduled", run=s["run"], at=s["at"])
                 self.target, self.voice = system.foreground(), True
-                self.spawn(lambda: self.command(s["run"], typed=True) or self.assist(s["run"]), "busy")
+                self.spawn(lambda: self.unattended_run(lambda: self.command(s["run"], typed=True) or self.assist(s["run"])), "busy")
             self.ui(start)  # checked and started on the UI thread, where a shortcut press can't slip in between
             return  # one at a time: the next waits until this one is done
 
@@ -2296,7 +2359,19 @@ class Nova(BackgroundMixin, SuggestMixin):
     def start_skill_event(self, skill):
         self.target, self.voice = system.foreground(), True
         # off the UI thread: starting a job speaks, and a program on this computer asked for it, so say so
-        self.spawn(lambda: self.run_skill(skill), "busy")
+        self.spawn(lambda: self.unattended_run(lambda: self.run_skill(skill)), "busy")
+
+    def unattended_run(self, run):
+        """Run what nobody is watching (a schedule, a program's event): Bypass drops to Auto (background.job_mode)."""
+        self.unattended = True
+        try:
+            return run()
+        finally:
+            self.unattended = False
+
+    def live_mode(self):
+        """This request's permission mode, tightened once the AI has read a web page (its text can carry instructions)."""
+        return tightened(self.env.get("NOVA_MODE", "auto"), TAINT.exists(), self.cfg["safety"].get("tainted_manual", True))
 
     def wait_to_start(self, skill, first=True):
         """A program asked for a skill while Nova was busy: ask again every 15 s for 5 minutes, then give up. One wait
@@ -2381,9 +2456,11 @@ class Nova(BackgroundMixin, SuggestMixin):
         # folders chosen in Settings → AI
         folders = project_folders(projects, self.cfg["projects"]["folders"])
         self.env["NOVA_ROOTS"] = os.pathsep.join([*projects.values(), *folders])
-        mode = self.cfg["safety"]["mode"]
+        mode = job_mode(self.cfg["safety"]["mode"], self.unattended)
         if getattr(self, "strict_turn", False):
             mode = STRICTER.get(mode, mode)
+        if getattr(self, "preview_turn", False):
+            mode = "plan"  # a skill's preview changes nothing: it says what it would do, and asks
         if mode == "plan" and self.asked and wake.approval(text):  # "yes, go ahead" to a plan: carry it out, once
             mode, note = "auto", note + "[The user approved your plan. Carry it out now.]\n"
         if plain:
@@ -2397,7 +2474,14 @@ class Nova(BackgroundMixin, SuggestMixin):
         if tighter != mode:
             mode = tighter
             self.on_step("This request includes text from your screen, so Nova will ask before changing anything")
+        # shortcut: a page read in an earlier request is still in the AI's session context, but this request starts
+        # untainted; upgrade by keeping the taint for the life of the session
+        TAINT.unlink(missing_ok=True)
+        self.read_hosts = []
         self.env["NOVA_MODE"] = mode  # the guard and the browser apply it to every action of this request
+        # a request nobody watches (a schedule) gets as long as a background job to be answered, and the guard waits that long
+        wait = self.cfg["safety"].get("job_wait_s", 0) if self.unattended else 0
+        self.env["NOVA_TIMEOUT"] = str(max(wait, self.cfg["safety"]["confirm_timeout_s"]))
         if self.brain:
             self.brain.mode = mode
         prompt = note + context + text
@@ -2452,6 +2536,8 @@ class Nova(BackgroundMixin, SuggestMixin):
         if ask:  # the AI wants an answer: say the question, then listen for it (once, if the reply has it already)
             shown = shown if ask in shown else f"{shown}\n\n{ask}"
             spoken, self.followup = spoken if ask in spoken else f"{spoken} {ask}", self.voice
+        if self.__dict__.get("read_hosts"):  # the pages the AI read in your browser for this answer
+            shown = f"{shown}\n\nRead: {', '.join(self.read_hosts[:8])}"
         history = f"{shown}\n\n{sketch_text(sketch)}" if sketch else shown  # the window's history can't show the drawing
         log("reply", brain=main, request=text, reply=history, say=spoken,
             source="voice" if self.voice else "chat")
@@ -2480,6 +2566,29 @@ class Nova(BackgroundMixin, SuggestMixin):
                 pass
 
     def ask(self, req):
+        """True when the user allows `req`. A request nobody is watching (a background job, a scheduled routine) that
+        nobody answers waits for `job_wait_s` instead of becoming a no: it is asked again every minute, with the approval
+        slot free in between, so the user can allow it when they are back, from the window or the phone."""
+        limit = time.monotonic() + self.cfg["safety"].get("job_wait_s", 0)  # the guard stops waiting then
+        answer = Nova._ask_once(self, req)
+        # a new showing must end by `limit`: after that the guard has already said no, and a late Allow would do nothing
+        while (answer is None and Nova.job_running(self, req.get("job"))
+               and time.monotonic() + JOB_ASK_AGAIN_S + self.cfg["safety"]["confirm_timeout_s"] <= limit):
+            time.sleep(JOB_ASK_AGAIN_S)
+            if Nova.job_running(self, req.get("job")):
+                answer = Nova._ask_once(self, req, speak=False)
+        return bool(answer)
+
+    def job_running(self, job_id):
+        """The request that is asking is still going: the background job `job_id`, or (no id) a scheduled or
+        program-started request in the foreground."""
+        if not job_id:
+            return bool(getattr(self, "unattended", False)) and not self.cancel.is_set()
+        job = getattr(self, "bg", {}).get(job_id)
+        return bool(job) and not job["cancel"].is_set()
+
+    def _ask_once(self, req, speak=True):
+        """One showing of the card: True or False for an answer, None when the time ran out."""
         # the guard stops waiting `confirm_timeout_s` after it asked, so a request that waited behind another
         # card gets only the time it has left; showing it longer would turn a late "Allow" into a silent no
         deadline = time.monotonic() + self.cfg["safety"]["confirm_timeout_s"]
@@ -2487,12 +2596,14 @@ class Nova(BackgroundMixin, SuggestMixin):
             timeout = deadline - time.monotonic()
             if timeout < 1:
                 log("approval", request=req, allowed=False, timed_out=True)
-                return False
+                return None
             done, box = threading.Event(), [None]
             self.asking_id += 1
             self.pending, self.asking = (done, box), req["summary"]
             job = jobs.load(req["job"]) if req.get("job") else None
-            self.asking_job = bool(job)
+            patient = bool(job) or getattr(self, "unattended", False)  # nobody is watching it: it waits (see ask)
+            self.asking_job = patient
+            self.asking_retry = not speak
             who = f"Background job “{job['prompt'][:40]}”" if job else self.brain.name if self.brain else "The AI"
             # the plain sentence ("Deletes the dist folder in portfolio (14 files)") when the guard is sure of it
             plain = f"{who}: {req['plain']}" if job and req.get("plain") else req.get("plain", "")  # the card names the job
@@ -2503,17 +2614,21 @@ class Nova(BackgroundMixin, SuggestMixin):
             self.outbox.put(self.ask_event)
             self.ui(lambda: self.card.show("Needs your OK", body, buttons=True, detail=req["summary"]))
             self.ui(lambda: self.show_bar("approval"))
-            if self.voice and (not job or self.phase == "idle"):  # a job's question never talks over another request
+            if speak and self.voice and (not job or self.phase == "idle"):  # a job's question never talks over another request
                 threading.Thread(target=self.hear_answer, args=(done, plain, self.asking_id), daemon=True).start()
             done.wait(timeout)
             done.set()  # also ends the spoken question and the listening for an answer
             self.pending = self.ask_event = None
-            self.asking_job = False
-            if box[0] is None:  # no answer: deny, and don't leave the buttons on screen
-                self.ui(lambda: self.card.show("Denied", "No answer in time, so Nova said no.", hide_after=4))
+            self.asking_job = self.asking_retry = False
+            if box[0] is None:  # no answer: don't leave the buttons on screen
+                # it is shown again only if another whole showing fits before the guard stops waiting (see ask)
+                waits = patient and self.cfg["safety"].get("job_wait_s", 0) >= JOB_ASK_AGAIN_S + self.cfg["safety"]["confirm_timeout_s"]
+                self.ui(lambda: self.card.show("Saved for later" if waits else "Denied",
+                                               "Nova is waiting for your OK and will ask again." if waits
+                                               else "No answer in time, so Nova said no.", hide_after=4))
                 self.ui(lambda: self.show_bar("thinking"))
             log("approval", request=req, allowed=bool(box[0]), timed_out=box[0] is None)
-            return bool(box[0])
+            return box[0]
 
     def hear_answer(self, done, what="", ask_id=None):
         """Ask out loud, then listen for "allow" / "deny" until someone answers (by voice, key or click).
@@ -2564,7 +2679,13 @@ class Nova(BackgroundMixin, SuggestMixin):
                     own = self.cfg["browser"]["agent_window"] and web.BROWSERS[bid][3] != "applescript"  # not Safari
                     if own and tool == "tabs" and args.get("action") == "open":
                         args = {**args, "background": True}  # the AI's pages go to a window of their own
-                    result = self.web.run_tool(bid, tool, args, self.ask, self.env.get("NOVA_MODE", "auto"))
+                    result = self.web.run_tool(bid, tool, args, self.ask, self.live_mode(), self.cfg["browser"].get("blocked_sites", []))
+                    host = page_host(result) if tool in ("read", "read_list") else ""
+                    if host and host not in self.__dict__.setdefault("read_hosts", []):
+                        self.read_hosts.append(host)  # shown under the reply: what the AI read
+                    if tool in ("read", "read_list") and not TAINT.exists() and self.cfg["safety"].get("tainted_manual", True):
+                        TAINT.write_text("1", encoding="utf-8")
+                        self.outbox.put({"event": "step", "text": "Read a web page: Nova will ask before changing anything"})
                     log("browser", browser=bid, tool=tool, args=json.dumps(args)[:300], ok=True)
                     if tool == "tabs" and args.get("action") == "open" and own:
                         self.agent_open = True
@@ -2586,7 +2707,7 @@ class Nova(BackgroundMixin, SuggestMixin):
 
     def hands_tool(self, tool, args):
         """A desktop-app action from the AI, under the browser's rules: risky buttons ask, password fields are refused."""
-        mode = self.env.get("NOVA_MODE", "auto")
+        mode = self.live_mode()
         self.outbox.put({"event": "step", "text": f"{tool.replace('_', ' ')} {json.dumps(args)[:80]}"})
         try:
             if tool == "hands_see":

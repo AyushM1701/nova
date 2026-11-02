@@ -443,7 +443,7 @@ class Codex(Brain):
     def _config(self, projects):
         b = self.cfg["brain"]
         hook = {"type": "command", "command": self.hook_command,
-                "timeout": self.cfg["safety"]["confirm_timeout_s"] + 30}
+                "timeout": max(self.cfg["safety"]["confirm_timeout_s"], self.cfg["safety"].get("job_wait_s", 0)) + 30}
         hooks = "[{hooks=[{" + ", ".join(f"{k}={json.dumps(v)}" for k, v in hook.items()) + "}]}]"
         # Nova's own folder too, so "change my shortcut" can edit config.json; the guard asks before every write there
         roots = json.dumps(list(projects.values()) + project_folders(projects, self.cfg["projects"]["folders"])

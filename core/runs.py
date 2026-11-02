@@ -2,6 +2,7 @@
 run of the same skill reads the newest notes first, so it can do better: that is the loop. Plain markdown, so the
 user can open a note in any editor and write what to change under "## Feedback"."""
 import os
+import re
 import shutil
 import time
 from pathlib import Path
@@ -86,6 +87,13 @@ def _usage(usage):
     cost = f", ${usage['cost_usd']:.4f} API-equivalent" if usage.get("cost_usd") else ""
     return (f"usage: {usage.get('input', 0)} in ({usage.get('cached', 0)} cached), {usage.get('output', 0)} out{cost}"
             " (as reported by the CLI)\n")
+
+
+def tokens(usage_line):
+    """About how many tokens a run used (what it read outside the cache, plus what it wrote), from its note's usage
+    line, or None if the line has no numbers."""
+    m = re.search(r"(\d+) in \((\d+) cached\), (\d+) out", usage_line or "")
+    return int(m[1]) - int(m[2]) + int(m[3]) if m else None
 
 
 def record(skill_name, rec, folder):

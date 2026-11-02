@@ -1183,6 +1183,9 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="engines" id="setBrowsers"></div><div class="log mono" id="browserLog" hidden></div></div>
         <div class="row"><div class="what"><h2>Keep the AI's pages in their own window</h2><p>Pages the AI opens go to a window of their own, not among the tabs you are using. Not for Safari.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="browser.agent_window" aria-label="Keep the AI's pages in their own window"></button></div></div>
+        <div class="row" style="display:block"><div class="what"><h2>Sites the AI must not touch</h2><p>Your bank, your health portal, anything private. The AI can't open these, follow a link to them, read them or click in them, in any permission mode. Their tabs are hidden from it too.</p></div>
+          <textarea class="input" id="blockedSites" rows="4" spellcheck="false" aria-label="Sites the AI must not touch" aria-describedby="blockedSitesNote" style="margin-top:10px;width:100%;font-family:var(--mono);font-size:12.5px"></textarea>
+          <p class="muted small" id="blockedSitesNote" style="margin-top:6px">One per line, like chase.com. Their subdomains are blocked too. A screenshot of a tab you already have open on one of them isn't hidden.</p></div>
       </div>
 
       <div data-panel="phone" class="rows" hidden>
@@ -1229,12 +1232,14 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><button class="switch" role="switch" data-bind="brain.clipboard_history" aria-label="Remember what you copy"></button></div></div>
         <div class="row"><div class="what"><h2>Answer permission requests by voice</h2><p>When Nova asks for your OK during a spoken request, say “allow” or “deny” (or “yes”, “go ahead”, “no”, “cancel”). Only a short, clear answer counts. Turn this off if other people talk near your computer and you'd rather always click or press a key.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="voice.approve_by_voice" aria-label="Answer permission requests by voice"></button></div></div>
-        <div class="row"><div class="what"><h2>Ask more when text from the screen is involved</h2><p>Text on a web page, in a document or in a call can carry instructions meant for the AI, not for you. When a request includes your screen, selected text, copied items or the computer's audio, Nova asks before every change, as in Manual mode, whatever the permission above. Reading and searching never ask.</p></div>
+        <div class="row"><div class="what"><h2>Ask more when text from the screen is involved</h2><p>Text on a web page, in a document or in a call can carry instructions meant for the AI, not for you. When a request includes your screen, selected text, copied items or the computer's audio, or once the AI has read a page in your browser, Nova asks before every change for that request, as in Manual mode, whatever the permission above except Bypass and Plan. Reading and searching never ask.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="safety.tainted_manual" aria-label="Ask more when text from the screen is involved"></button></div></div>
         <div class="row" style="display:block"><div class="what"><h2>Recent safety decisions</h2><p>The last 20 things the AI tried that Nova checked. <span id="safetyNow"></span></p></div>
           <div class="small mono" id="safetyList" style="margin-top:10px"></div></div>
         <div class="row"><div class="what"><h2>Time to answer a permission request</h2><p>When the AI wants to delete files, install software or push code, Nova asks first. No answer means no.</p></div>
           <div class="how"><input class="input short num" type="number" min="10" max="300" data-bind="safety.confirm_timeout_s" aria-label="Seconds"><span class="muted">seconds</span></div></div>
+        <div class="row"><div class="what"><h2>Background jobs wait for your answer</h2><p>When a background job needs your OK and you're away, it waits this long and Nova asks again every minute, so you can allow it from this window or your phone when you're back. 0 means no answer is a no after the time above.</p></div>
+          <div class="how"><input class="input short num" type="number" min="0" max="3600" data-bind="safety.job_wait_s" aria-label="Seconds"><span class="muted">seconds</span></div></div>
         <div class="row"><div class="what"><h2>What stays on this computer</h2><p>Speech recognition, the wake word, spoken replies, settings and history. Only your request text (plus a screenshot when you ask about your screen) goes to your AI.</p></div></div>
       </div>
 
@@ -2005,8 +2010,10 @@ function renderSchedules() {  // added by voice (core/schedule.py), removed here
   $("#schedules").replaceChildren(...(list.length ? list.map((s, i) => {
     const rm = h("button", { class: "icon-btn", "aria-label": "Delete", html: I.x });
     rm.addEventListener("click", async () => { await fresh("schedules"); set("schedules", (get("schedules") || []).filter(x => !(x.run === s.run && x.at === s.at && x.days.join("") === s.days.join("")))); save(); renderSchedules(); });
+    const cost = h("span", { class: "muted small" });
+    api().schedule_usage(s.run).then(t => { cost.textContent = t; }).catch(() => {});
     return h("li", { style: "display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)" },
-      h("span", { style: "flex:1;min-width:0" }, `${when(s)}: ${s.run}`), rm);
+      h("span", { style: "flex:1;min-width:0" }, `${when(s)}: ${s.run}`), cost, rm);
   }) : [h("li", {}, h("p", { class: "muted" }, "Nothing scheduled yet."))]));
 }
 $("#addRoutine").addEventListener("click", () => addRoutine());
@@ -2142,13 +2149,15 @@ function renderSkills(list) {
     const sub = last ? `Last run ${when}${last.status ? ", " + last.status : ""}${last.usage ? ". " + last.usage : ""}` : "Hasn't run yet";
     const run = h("button", { class: "btn primary sm", "aria-label": `Run ${s.title}` }, "Run");
     run.addEventListener("click", () => { send("skill", { name: s.name }); toast("Asked Nova to run it"); go("chat"); });
+    const preview = h("button", { class: "btn sm", "aria-label": `Preview ${s.title}`, title: "Says what it would do, changes nothing" }, "Preview");
+    preview.addEventListener("click", () => { send("skill_preview", { name: s.name }); toast("Asked Nova what it would do"); go("chat"); });
     const note = h("button", { class: "btn sm", disabled: !last }, "Last run");
     note.addEventListener("click", () => api().open_skill(s.name, "note").catch(fail));
     const file = h("button", { class: "btn sm" }, "Edit");
     file.addEventListener("click", () => api().open_skill(s.name, "skill").catch(fail));
     return h("li", { style: "grid-template-columns: 1fr auto" },
       h("div", { class: "body" }, h("div", { class: "t" }, s.title), h("div", { class: "sub" }, `${s.name} · ${s.safety}${s.needs === "apps" ? " · uses your apps" : ""}`), h("div", { class: "sub" }, sub)),
-      h("div", { class: "acts", style: "opacity:1" }, run, note, file));
+      h("div", { class: "acts", style: "opacity:1" }, run, preview, note, file));
   }));
 }
 let CLAUDE_SKILLS = [];
@@ -2265,6 +2274,7 @@ function bindSettings() {
   $("#autostart").setAttribute("aria-checked", !!S.autostart);
   const lang = $("#langSel"); lang.replaceChildren(...Object.entries(S.languages).map(([v, l]) => h("option", { value: v }, l))); lang.value = get("voice.language");
   exclude.value = (get("projects.exclude") || []).join("\n");
+  $("#blockedSites").value = (get("browser.blocked_sites") || []).join("\n");
   renderWords();
   addRepl = pairsEditor($("#repls"), "dictation.replacements", "wisper", "Wispr");
   // shortcut: the pairs editor is single-line, so multi-line snippets need config.json; a textarea if users ask
@@ -2407,6 +2417,7 @@ $("#undoDictation").addEventListener("click", () => { send("undo"); toast("Asked
 /* folders skipped when looking for projects: one per line */
 const exclude = $("#projExclude");
 exclude.addEventListener("change", () => { set("projects.exclude", exclude.value.split("\n").map(x => x.trim()).filter(Boolean)); save(); });
+$("#blockedSites").addEventListener("change", e => { set("browser.blocked_sites", e.target.value.split("\n").map(x => x.trim()).filter(Boolean)); save(); });
 $("#startNova").addEventListener("click", async e => {
   const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Starting…";
   try { await api().start_nova(); } catch (err) { fail(err); btn.disabled = false; btn.textContent = "Start Nova"; }  // on success this window closes and Nova opens its own

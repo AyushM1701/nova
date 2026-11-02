@@ -205,6 +205,11 @@ PROTECTED = (r"[\\/](windows|program files[^\\/]*|programdata|appdata|library|sy
              r"[\\/]|[\\/]\.(ssh|config|local|bashrc|zshrc|zshenv|zprofile|profile|bash_profile|gitconfig|npmrc)\b")
 
 
+def mode_now(mode, taint):
+    """NOVA_MODE, asking about every change once the AI has read a web page this request (Nova makes the `taint` file)."""
+    return "manual" if taint and os.path.exists(taint) and mode in ("auto", "accept_edits") else mode
+
+
 def with_mode(tier, why, mode, unfamiliar=None):
     """Adjust one verdict for the permission mode. Blocks always stay blocks."""
     if tier == "block" or mode not in MODES:
@@ -650,7 +655,7 @@ def main():
     env = os.environ.get
     roots = [r for r in env("NOVA_ROOTS", "").split(os.pathsep) if r]
     tier, reason = classify(tool, inp, data.get("cwd") or os.getcwd(), roots, env("NOVA_HOME"), env("NOVA_NOTES"),
-                            env("NOVA_MODE") or "accept_edits")
+                            mode_now(env("NOVA_MODE") or "accept_edits", env("NOVA_TAINT")))
     summary = str(inp.get("command") or inp.get("file_path") or inp.get("notebook_path") or inp)[:400]
     if new_text(inp):  # a file write: the card shows what goes in, not only where
         summary = f"{summary[:200]}\n{new_text(inp)[:400]}"
