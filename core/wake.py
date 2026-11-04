@@ -42,7 +42,9 @@ def match(text):
 DONE_RE = re.compile(
     r"(?:(?:yeah|yes|yep|yup|ok|okay|alright|all right|cool|great|perfect|awesome|nice|good|no|nope|nah|"
     r"thanks|thank you|nova)\s+)*"
-    r"(?:thats (?:it|all|enough|fine|great|perfect)|that will be all|thatll be all|thanks?(?: you)?(?: so much| a lot)?|"
+    r"(?:thats (?:it|all|enough|fine|good|great|perfect|okay|ok)|that is (?:it|all)|that will be all|thatll be all|"
+    r"thanks?(?: you)?(?: so much| a lot)?|stop(?: listening)?|enough|no more|nothing more|not now|(?:talk )?later|"
+    r"bas(?: itna(?: hi)?)?|theek hai|thik hai|ho gaya|shukriya|dhanyavaad|dhanyavad|nahi chahiye|kuch nahi|nahi|"
     r"thank you(?: so much)?|nothing(?: else)?|no thanks|all good|im good|were done|im done|done|bye|goodbye|"
     r"see you|never ?mind|no|nope|nah|ok|okay|alright|cool|great|perfect|got it)"
     r"(?:\s+(?:nova|thanks|thank you|bye|for now))*")

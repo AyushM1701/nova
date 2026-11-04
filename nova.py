@@ -49,7 +49,7 @@ from core.background import BACKGROUND_RE, STOP_BACKGROUND_RE, BackgroundMixin, 
 from core.errors import friendly  # noqa: E402
 from core.questions import chip_question, screen_question, sketch_question  # noqa: E402
 from core.sketch import as_text as sketch_text, take as take_sketch  # noqa: E402
-from core import corrections  # noqa: E402
+from core import corrections, theme  # noqa: E402
 from core.suggest import SuggestMixin  # noqa: E402
 from core.sketchpad import SketchPad  # noqa: E402
 from core import webimage  # noqa: E402
@@ -249,10 +249,29 @@ def local_address(name):
 
 
 
+FOLLOWUP_WAIT_S, QUESTION_WAIT_S = 3, 6  # seconds a follow-up waits for a first word: after an answer, after a question
 HOLD_SETTINGS = ("hold_key", "hold_key_2", "hold_delay_s", "push_to_talk", "text_mode", "dictate", "dictate_hands_free")
 
 
+class Early:
+    """A SAY line being spoken while the AI is still writing the rest of its reply."""
+
+    def __init__(self, line):
+        self.line, self.abort, self.interruption, self.thread, self.at = line, threading.Event(), [], None, time.monotonic()
+
+
+class Either:
+    """Stands in for a stop event that two events can set (the user's, and Early.abort): tts only asks is_set()."""
+
+    def __init__(self, *events):
+        self.events = events
+
+    def is_set(self):
+        return any(e.is_set() for e in self.events)
+
+
 class Nova(BackgroundMixin, SuggestMixin):
+    early = None  # the Early line being spoken for the request at work, if any
     job_mode = None  # the mode a shortcut asked for, this request only (None: the current mode)
     unattended = False  # a schedule or a program's event is running this request: nobody is watching
     asking_retry = False  # the approval card on screen is a job's request shown again (see ask)
@@ -346,10 +365,14 @@ class Nova(BackgroundMixin, SuggestMixin):
         system.after_tk()
         self.hotkey = self.cfg["hotkey"] or system.DEFAULT_HOTKEY
         position = self.cfg["overlay"]["position"]
+        theme.apply(rgb(self.cfg["companion"]["color"]))  # the bar and card are the colour picked in Settings
         self.card = Card(self.root, lambda: self.answer(True), lambda: self.answer(False),
-                         on_open=lambda: self.open_app("chat"), hotkey=system.pretty_hotkey(self.hotkey), position=position)
+                         on_open=lambda: self.open_app("chat"), hotkey=system.pretty_hotkey(self.hotkey), position=position,
+                         on_ask=lambda: self.on_hotkey())
         # clicking the bar works like the shortcut; right-click opens the Nova window
-        self.bar = Bar(self.root, self.on_hotkey, on_menu=self.open_app, hint=self.hint(), position=position)
+        self.bar = Bar(self.root, self.on_hotkey, on_menu=self.open_app, hint=self.hint(), position=position,
+                       reveal=self.cfg["overlay"]["reveal"])
+        self.card.bar = self.bar  # the card grows out of the pill at the top of the screen, and the pill steps aside
         audio.apply_devices(self.cfg["voice"])
         self.pointer, self.shot = Pointer(self.root), None  # flies to what the AI points at on the screenshot
         self.pointer.set_color(rgb(self.cfg["companion"]["color"]))
@@ -359,6 +382,7 @@ class Nova(BackgroundMixin, SuggestMixin):
         self.root.after(1000, self.companion_poll)
         self.ink, self.trail, self.hand = circle.Ink(self.root), circle.Trail(), None  # the mouse path while a hold key is down
         self.sketchpad = SketchPad(self.root, self.chip_clicked)  # the paper note drawn while Nova speaks (a :::sketch block)
+        self.sketchpad.below = self.card.bottom  # a card at the top of the screen would cover the note
 
     # ---------- setup ----------
     def write_mcp(self):
@@ -417,7 +441,7 @@ class Nova(BackgroundMixin, SuggestMixin):
             log("error", error=f"speech model failed to load: {e!r}")
             message = f"{friendly(e)}\n\nRun Nova's setup again to download it."  # `e` is gone once except ends
             return self.ui(lambda: self.card.show("Speech model didn't load", message, hide_after=15, kind="error"))
-        hint = (f"Say \"Hey Nova\", hold {system.pretty_hotkey(self.cfg["push_to_talk"])} or click the bar. Mode: {self.mode}. "
+        hint = (f"Say \"Hey Nova\", hold {system.pretty_hotkey(self.cfg["push_to_talk"])} or {self.where_bar()}. Mode: {self.mode}. "
                 f"Brain: {self.brain.name if self.brain else 'none'}. Speech runs on the {self.stt.device}.")
         if not self.brain:
             hint += " No Claude Code or Codex found: open Nova's settings to connect one."
@@ -442,12 +466,6 @@ class Nova(BackgroundMixin, SuggestMixin):
         self.ui(self.start_wake)
         self.ui(self.push_state)
         try:
-            self.ui(self.audio_memory)
-            self.stt.load_accurate()  # CPU only: the Hindi/Hinglish model loads after Nova is already usable
-            (DATA / "models-ready").touch()
-        except Exception as e:
-            log("error", error=f"accurate speech model failed to load: {e!r}")
-        try:
             saved = user_config().get("voice", {})
         except ValueError:  # config.json is broken: decide at the next start, and never save over it here
             saved = None
@@ -457,9 +475,15 @@ class Nova(BackgroundMixin, SuggestMixin):
         engine = tts.pick(self.cfg["voice"])
         if engine:
             try:
-                tts.load(engine)  # now, so the first reply doesn't wait for it
+                tts.load(engine)  # before the accurate model (a big download on a first run): the first reply must not wait
             except Exception as e:
                 log("error", error=f"the {engine} voice failed to load, using the system voice: {e!r}")
+        try:
+            self.ui(self.audio_memory)
+            self.stt.load_accurate()  # CPU only: the Hindi/Hinglish model loads after Nova is already usable
+            (DATA / "models-ready").touch()
+        except Exception as e:
+            log("error", error=f"accurate speech model failed to load: {e!r}")
 
     def check_updates(self):
         """A minute after starting, then daily: is there a newer Nova on GitHub? Say so once per version. Also
@@ -652,6 +676,11 @@ class Nova(BackgroundMixin, SuggestMixin):
     def pretty(self):
         return system.pretty_hotkey(self.hotkey)
 
+    def where_bar(self):
+        """How to reach the bar, for the ready message: it hides at the top unless Settings keep it on screen."""
+        o = self.cfg["overlay"]
+        return "point at the top of the screen" if o["position"] == "top" and o["reveal"] == "hover" and not system.IS_MAC             else "click the bar"
+
     def hint(self):
         if self.cfg["triple_tap"]:  # the default way to talk: Ctrl (Cmd on a Mac) tapped three times
             return f"Click, or tap {'Cmd' if system.IS_MAC else 'Ctrl'} three times, to talk"
@@ -705,6 +734,9 @@ class Nova(BackgroundMixin, SuggestMixin):
         if cfg["companion"] != old["companion"]:
             self.pointer.set_enabled(cfg["companion"]["enabled"])
             self.pointer.set_color(rgb(cfg["companion"]["color"]))
+            theme.apply(rgb(cfg["companion"]["color"]))
+            self.bar.dirty = True
+            self.bar._wake()  # redrawn in the new colour; a card on screen takes it from the next one
         if cfg["mcp"] != old["mcp"] or cfg["browser"]["enabled"] != old["browser"]["enabled"]:
             self.write_mcp()  # a change to the user's apps (or the browser) reaches the next request
             self.settings = self.write_claude_settings()
@@ -727,6 +759,7 @@ class Nova(BackgroundMixin, SuggestMixin):
             self.bind_hotkey_2(cfg["hotkey_2"])
         self.start_wake()
         self.bar.set_position(cfg["overlay"]["position"])  # bottom, or top (from the notch on a MacBook)
+        self.bar.set_reveal(cfg["overlay"]["reveal"])
         self.card.top = cfg["overlay"]["position"] == "top"
         self.icon.update_menu()
         self.push_state()
@@ -746,13 +779,17 @@ class Nova(BackgroundMixin, SuggestMixin):
     def companion_poll(self):
         """Once a second: no companion in a game, and a count of the agents at work on its corner."""
         try:
-            self.pointer.set_suppressed(system.gaming())
+            busy = system.gaming()
+            self.pointer.set_suppressed(busy)
+            self.bar.suppressed = busy or system.fullscreen()  # no hover-reveal over a full-screen app
             self.pointer.set_badge(len(self.bg))
         except Exception as e:
             log("error", error=f"companion: {e!r}")
         self.root.after(1000, self.companion_poll)
 
     def show_bar(self, state):
+        if state == "listening" and not self.card.buttons:
+            self.card.hide(instant=True)  # a new request: the old card makes way for the pill (not one waiting for an OK)
         self.pointer.set_state(state)
         self.bar.set(state)
         self.outbox.put({"event": "bar", "state": state})
@@ -1217,7 +1254,9 @@ class Nova(BackgroundMixin, SuggestMixin):
             system.beep(start=True)
             stream = self.open_stream()
             try:
-                clip = audio.record(silence, cap, self.stop_rec, self.on_level, on_block=stream and stream.send)
+                # after a question Nova waits for the answer; a plain follow-up gives up sooner, so a conversation ends promptly
+                wait_s = (QUESTION_WAIT_S if self.asked else FOLLOWUP_WAIT_S) if self.in_followup else 6
+                clip = audio.record(silence, cap, self.stop_rec, self.on_level, on_block=stream and stream.send, wait_s=wait_s)
             finally:
                 if stream and (clip is None or self.cancel.is_set()):
                     stream.close()
@@ -1315,23 +1354,64 @@ class Nova(BackgroundMixin, SuggestMixin):
             self.level_t = now
             self.outbox.put({"event": "level", "value": value})  # for the window only (see send_events)
 
-    def say(self, title, spoken, body=""):
-        if not self.voice:
-            return
-        self.ui(lambda: self.card.show(title, body or spoken, kind="speaking"))
+    def _voice(self, title, shown, say, stop, compare):
+        """The card and the bar while Nova speaks `say` (until `stop` is set). Returns what the user said over it, if
+        anything: [(clip, floor)]. `compare` is the whole reply, for telling Nova's own voice from the user's."""
+        self.ui(lambda: self.card.show(title, shown, kind="speaking"))
         self.ui(lambda: self.show_bar("speaking"))
         done, interruption = threading.Event(), []
         if self.cfg["voice"]["barge_in"] and self.stt:
-            threading.Thread(target=self.watch_barge_in, args=(spoken, done, interruption), daemon=True).start()
+            threading.Thread(target=self.watch_barge_in, args=(compare, done, interruption), daemon=True).start()
         memory = self.sysaudio
         if memory:
             memory.muted = True  # "what did the video say?" shouldn't hear Nova's own answers
         try:
-            tts.speak(spoken, self.cfg["voice"], self.stop_tts)
+            tts.speak(say, self.cfg["voice"], stop)
         finally:
             if memory:
                 memory.muted = False
         done.set()
+        return interruption
+
+    def speak_early(self, line):
+        """The AI wrote its SAY line and is still writing the rest: start talking now. None: a tool call followed it, so
+        that was not the final answer (stop; the reply is spoken whole when it is done). Runs on the request's thread."""
+        current = self.early
+        if line is None:
+            if current and not current.abort.is_set():
+                current.abort.set()
+                self.ui(lambda: self.show_bar("thinking"))
+            return
+        if current and not current.abort.is_set():
+            return  # one is already speaking
+        early = self.early = Early(line)
+        stop = Either(self.stop_tts, early.abort)
+        def speak():
+            early.interruption.extend(self._voice("Nova", line, line, stop, line))
+            if early.interruption and self.brain:
+                self.brain.cancel()  # talked over: stop writing the reply, the user's words are what matters now
+
+        early.thread = threading.Thread(target=speak, daemon=True)
+        early.thread.start()
+
+    def drop_early(self):
+        """Another brain is answering instead: what was said early is not part of its answer."""
+        early, self.early = self.early, None
+        if early:
+            early.abort.set()
+            early.thread.join(5)
+
+    def say(self, title, spoken, body="", early=None):
+        if not self.voice:
+            return
+        rest, interruption = spoken, []
+        if early:  # its line was spoken while the AI wrote the rest: wait for it to end, then say what is left
+            early.thread.join(60)
+            interruption = early.interruption
+            if not early.abort.is_set() and spoken.startswith(early.line):  # else: a different answer, said whole
+                rest = spoken[len(early.line):].strip()
+        if rest and not interruption:
+            interruption = self._voice(title, body or spoken, rest, self.stop_tts, spoken)
         if interruption and not self.cancel.is_set():
             return self.interrupted(spoken, *interruption[0])
         # same card, now at rest (no waveform), until it hides
@@ -2440,6 +2520,7 @@ class Nova(BackgroundMixin, SuggestMixin):
         if not self.brain and not fallback.key():
             return self.note("No AI connected", "I can't find Claude Code or Codex. Open Nova's settings to connect one.")
         self.heard = text
+        marks = {"start": time.monotonic()}  # where a slow answer spends its time: read in logs/ ("timing")
         # "in Brave", "open Brave and…", "switch to Brave", "the Brave browser": that browser, for this request
         named = re.search(rf"\b(?:in|on|with|using|open|launch|start|switch to|go to) (?:the )?({web.NAMES_RE})\b"
                           rf"|\b({web.NAMES_RE}) browser\b", re.sub(r"[^\w\s]", "", text), re.I)
@@ -2468,6 +2549,7 @@ class Nova(BackgroundMixin, SuggestMixin):
             self.tainted_turn, context = False, ""
         else:
             context = self.context(text)  # sets tainted_turn
+        marks["context"] = time.monotonic()
         # text from a page, a document or a call can carry instructions meant for the AI: it asks before changing
         # anything for this request (reading and searching never ask)
         tighter = tightened(mode, self.tainted_turn, self.cfg["safety"].get("tainted_manual", True))
@@ -2490,16 +2572,24 @@ class Nova(BackgroundMixin, SuggestMixin):
         model = pick_model(prompt, self.cfg["brain"]) if main == "Claude Code" else ""
         log("route", tier=2 if model == "haiku" else 3, why=model or ("ai" if self.brain else "backup brain"),
             text=text[:200])
+        self.early = None
         if self.brain:
             quick = bool(self.image) and screen_question(text)
             if quick:
                 self.on_step("Looking at your screen")
             shown, spoken, ask = self.brain.run(prompt, projects, self.cfg["projects"]["aliases"], self.on_step,
-                                                image=self.image, tools=tools and not quick)
+                                                image=self.image, tools=tools and not quick,
+                                                on_say=self.speak_early if self.voice else None)
+        early = self.early  # its SAY line, if it was spoken while the AI was still writing
+        if early and early.interruption and not self.cancel.is_set():  # talked over it: the AI was stopped, listen instead
+            return self.interrupted(early.line, *early.interruption[0])
+        marks["brain"] = time.monotonic()
         if self.cancel.is_set():
             return
         if (not self.brain or self.brain.limited) and fallback.key():  # out of quota: the backup brain takes over
             self.on_step(f"{main} is at its usage limit, so the backup brain (Gemini) is answering")
+            self.drop_early()
+            early = None
             shown, spoken, ask = fallback.run(prompt, self.cfg, self.ask, self.on_step, main=main,
                                               memory=memory_text(), mode=mode, cancel=self.cancel)
             main = "Gemini (backup)"
@@ -2531,11 +2621,14 @@ class Nova(BackgroundMixin, SuggestMixin):
                 log("error", error=f"sketch failed: {e!r}")
         if built:
             self.ui(lambda: self.sketchpad.show(built))
-        self.asked = bool(ask)
+        # a question for the user: the AI's ASK: line, or a reply that ends in one
+        self.asked = bool(ask) or spoken.rstrip().endswith("?")
         self.last_say = spoken  # learn_by_doing reads it: a shortcut is only saved from a request that says it worked
-        if ask:  # the AI wants an answer: say the question, then listen for it (once, if the reply has it already)
+        if ask:  # the AI wants an answer: say the question (once, if the reply has it already)
             shown = shown if ask in shown else f"{shown}\n\n{ask}"
-            spoken, self.followup = spoken if ask in spoken else f"{spoken} {ask}", self.voice
+            spoken = spoken if ask in spoken else f"{spoken} {ask}"
+        if self.asked:  # then listen for the answer, without "Hey Nova"
+            self.followup = self.voice
         if self.__dict__.get("read_hosts"):  # the pages the AI read in your browser for this answer
             shown = f"{shown}\n\nRead: {', '.join(self.read_hosts[:8])}"
         history = f"{shown}\n\n{sketch_text(sketch)}" if sketch else shown  # the window's history can't show the drawing
@@ -2543,7 +2636,11 @@ class Nova(BackgroundMixin, SuggestMixin):
             source="voice" if self.voice else "chat")
         self.replied_at = time.time()
         jobs.update(rec, reply=history[:4000], say=spoken[:500], ask=ask or None)
-        self.say("Nova", spoken, shown)
+        marks["say"] = time.monotonic()
+        log("timing", context_s=round(marks["context"] - marks["start"], 2), brain_s=round(marks["brain"] - marks["context"], 2),
+            after_brain_s=round(marks["say"] - marks["brain"], 2),
+            early_s=round(early.at - marks["context"], 2) if early else None)  # when the SAY line began to be spoken
+        self.say("Nova", spoken, shown, **({"early": early} if early else {}))
         if built:
             self.ui(lambda: self.sketchpad.hold(sketch))  # stays a while after Nova stops talking, unless replaced
 

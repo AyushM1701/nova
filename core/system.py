@@ -352,6 +352,15 @@ GAME_DIRS = re.compile(r"steamapps[\\/]common|[\\/](?:epic games|riot games|xbox
                        r"|ubisoft game launcher[\\/]games)[\\/]", re.I)
 
 
+def fullscreen():
+    """A full-screen app, game or presentation is in front (Windows; False on macOS, where the bar stays put)."""
+    if IS_MAC:
+        return False
+    state = ctypes.c_int()
+    # QUNS_BUSY (a full-screen app), QUNS_RUNNING_D3D_FULL_SCREEN, QUNS_PRESENTATION_MODE
+    return not ctypes.windll.shell32.SHQueryUserNotificationState(ctypes.byref(state)) and state.value in (2, 3, 4)
+
+
 def gaming():
     """A game is in front: a full-screen Direct3D program (Windows), an app filed as a game (macOS), or a program a
     game store installed (Steam, Epic, Xbox, GOG, EA, Ubisoft, Riot). Blizzard games install to their own folders,
@@ -1015,6 +1024,24 @@ def work_area():
     rect = ctypes.wintypes.RECT()
     user32.SystemParametersInfoW(0x30, 0, ctypes.byref(rect), 0)  # SPI_GETWORKAREA
     return rect.left, rect.top, rect.right, rect.bottom
+
+
+_motion = (0.0, False)  # (when it was last asked, the answer): the setting changes rarely, the animation asks often
+
+
+def reduced_motion():
+    """True when the user turned animations off (Windows: client-area animation; macOS: Reduce motion)."""
+    global _motion
+    now = time.monotonic()
+    if now - _motion[0] > 2:
+        if IS_MAC:
+            answer = bool(NSWorkspace.sharedWorkspace().accessibilityDisplayShouldReduceMotion())
+        else:
+            on = ctypes.c_int(1)
+            ok = user32.SystemParametersInfoW(0x1042, 0, ctypes.byref(on), 0)  # SPI_GETCLIENTAREAANIMATION
+            answer = bool(ok) and not on.value
+        _motion = (now, answer)
+    return _motion[1]
 
 
 def notch():

@@ -922,8 +922,10 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><div class="seg" role="radiogroup" data-bind="start_mode" data-options="assistant:Assistant,dictation:Dictation"></div></div></div>
         <div class="row"><div class="what"><h2>Open Nova when you sign in</h2><p>Nova waits quietly in the tray (the ^ by the clock) or the menu bar.</p></div>
           <div class="how"><button class="switch" role="switch" id="autostart" aria-label="Open Nova when you sign in"></button></div></div>
-        <div class="row"><div class="what"><h2>Where the bar sits</h2><p>Bottom: above the taskbar or Dock. Top: along the top of the screen; on a MacBook with a notch, Nova hangs from the notch and grows out of it while it listens and talks.</p></div>
-          <div class="how"><div class="seg" role="radiogroup" data-bind="overlay.position" data-options="bottom:Bottom,top:Top"></div></div></div>
+        <div class="row"><div class="what"><h2>Where the bar sits</h2><p>Top: along the top of the screen; on a MacBook with a notch, Nova hangs from the notch and grows out of it while it listens and talks. Bottom: above the taskbar or Dock, always on screen.</p></div>
+          <div class="how"><div class="seg" role="radiogroup" data-bind="overlay.position" data-options="top:Top,bottom:Bottom"></div></div></div>
+        <div class="row"><div class="what"><h2>Show the bar</h2><p>At the top, the bar can stay out of sight: rest the pointer at the top edge of the screen to open it, and it shows by itself while Nova listens, thinks or talks. It never opens over a full-screen app.</p></div>
+          <div class="how"><div class="seg" role="radiogroup" data-bind="overlay.reveal" data-options="hover:When I point at the top,always:Always,shortcut:Only while Nova works"></div></div></div>
         <div class="row"><div class="what"><h2>Notes folder</h2><p>Where Nova keeps its memory, skills, run notes and meeting notes. Pick a folder inside your Obsidian vault (for example <span class="mono">Nova</span>) to read them in Obsidian, and on your other devices through whatever syncs the vault.</p>
           <p class="mono" id="notesPath" style="margin-top:6px;overflow-wrap:anywhere"></p><p class="muted small" id="notesNote"></p>
           <div class="banner" id="notesAsk" hidden style="margin:10px 0 0"><span class="grow" style="flex:1" id="notesAskText"></span><button class="btn sm primary" id="notesCopy">Copy my notes in</button><button class="btn sm" id="notesJust">Use without copying</button><button class="btn sm ghost" id="notesCancel">Cancel</button></div></div>
@@ -1058,8 +1060,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
         <div class="row" style="display:block"><div class="devlist" id="outDevs" role="radiogroup" aria-label="Speaker"></div>
           <button class="btn sm" id="testOut" style="margin-top:12px">Play a test sound</button></div>
         <div class="sec">Conversation</div>
-        <div class="row"><div class="what"><h2>Keep listening after an answer</h2><p>After Nova answers, the mic opens again so you can keep talking without “Hey Nova”. Say “that's it”, “ok thanks” or “bye”, stay quiet for a few seconds, or press Esc to end the conversation.</p></div>
-          <div class="how"><button class="switch" role="switch" data-bind="voice.conversation" aria-label="Keep listening after an answer"></button></div></div>
+        <div class="row"><div class="what"><h2>Keep listening after every answer</h2><p>Off: Nova opens the mic by itself only when it asks you something or needs you to do something before it can go on. On: it also listens after every answer, so you can keep talking without “Hey Nova”. Either way, say “that's it”, “ok thanks” or “bye”, stay quiet for a few seconds, or press Esc to end the conversation.</p></div>
+          <div class="how"><button class="switch" role="switch" data-bind="voice.conversation" aria-label="Keep listening after every answer"></button></div></div>
         <div class="row"><div class="what"><h2>Interrupt by talking</h2><p>Start speaking while Nova answers and it stops to listen. Nova ignores its own voice coming back through your speakers; headphones make it even more reliable.</p></div>
           <div class="how"><button class="switch" role="switch" data-bind="voice.barge_in" aria-label="Interrupt by talking"></button></div></div>
         <div class="row"><div class="what"><h2>Stop listening after a pause of</h2><p>For requests. Shorter feels snappier; longer lets you think mid-sentence.</p></div>
@@ -1705,11 +1707,12 @@ function renderLive() {
   $("#stWake").textContent = S.cfg.wake_word ? "Listening for it" : "Off"; $("#stWakeDot").className = "dot " + (S.cfg.wake_word ? "ok" : "");
   renderLede(); renderComposer();
 }
+function barHides() { const o = S.cfg.overlay || {}; return o.position === "top" && o.reveal === "hover" && S.platform !== "mac"; }  // the bar waits out of sight at the top
 function renderLede() {
   const keys = talkKeys();
   $("#homeLede").innerHTML = S.state.mode === "dictation"
     ? `Dictation mode. Press ${keys} in any app and talk; Nova types clean text where your cursor is.`
-    : `Press ${keys}, click the bar at the bottom of your screen${S.cfg.wake_word ? ", or say “Hey Nova”" : ""}, then ask for anything.`;
+    : `Press ${keys}, ${barHides() ? "point at the top of your screen and click the bar" : "click the bar"}${S.cfg.wake_word ? ", or say “Hey Nova”" : ""}, then ask for anything.`;
 }
 
 /* ---------- navigation ---------- */
@@ -2487,7 +2490,7 @@ function recordHotkey(capsEl, btn, done, show = () => keycaps(hotkey(), capsEl))
 }
 
 
-const SET_PAGES = { general: ["General", "How Nova starts and where it shows up."], shortcuts: ["Shortcuts", "Press, hold or tap to talk to Nova from any app."], cursor: ["Colour & cursor", "The colour of the whole app, and the marker beside your mouse pointer."],
+const SET_PAGES = { general: ["General", "How Nova starts and where it shows up."], shortcuts: ["Shortcuts", "Press, hold or tap to talk to Nova from any app."], cursor: ["Colour & cursor", "The colour of the whole app, the bar and its replies, and the marker beside your mouse pointer."],
   voice: ["Voice", "How Nova listens, and how it sounds."], microphone: ["Microphone", "Pick the microphone and check that Nova hears you."], dictation: ["Dictation", "How Nova turns speech into text in any app."], meetings: ["Meetings", "Record, transcribe and summarise calls."],
   ai: ["AI", "The AI that does the work, and the apps it can use."], routines: ["Routines", "Things Nova does on a schedule."], browsers: ["Browsers", "Which browsers Nova can use for you."], phone: ["Phone", "Use Nova from your phone."],
   privacy: ["Privacy & safety", "What Nova asks about, and what stays on this computer."], advanced: ["Advanced", "Files, updates and resets."] };

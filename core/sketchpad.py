@@ -430,15 +430,18 @@ def build(sketch, scale, total_frames=TOTAL_FRAMES):
     return {"base": base, "elements": elements, "chips": chips, "sketch": sketch}
 
 
-def note_top(top, bottom, note_height):
-    """Where a note's top edge goes: 12% down the work area, higher when the note is tall so it stays on screen. A
-    whole number: Windows' point structure takes nothing else (a fractional one never showed the note)."""
-    return int(max(top + 8, min(top + 0.12 * (bottom - top), bottom - note_height - 8)))
+def note_top(top, bottom, note_height, below=0):
+    """Where a note's top edge goes: 12% down the work area, higher when the note is tall so it stays on screen, and
+    never above `below` (the bottom of a card at the top of the screen). A whole number: Windows' point structure
+    takes nothing else (a fractional one never showed the note)."""
+    return int(max(top + 8, below + 8, min(top + 0.12 * (bottom - top), bottom - note_height - 8)))
 
 
 class SketchPad(Layered):
     """The window: shows a built sketch, drawing each line in; a click on a chip asks its question, any other click
     clears it."""
+
+    below = staticmethod(lambda: 0)  # set to the card's bottom edge when the card is at the top of the screen
 
     def __init__(self, root, on_chip=None):
         self.root = root
@@ -471,7 +474,7 @@ class SketchPad(Layered):
         base = built["base"]
         left, top, right, bottom = system.work_area()
         x = int(left + 0.06 * (right - left))
-        y = note_top(top, bottom, base.height / self.px)
+        y = note_top(top, bottom, base.height / self.px, self.below())
         page = base.copy()
         self._show()
         self._present(page, x, y)

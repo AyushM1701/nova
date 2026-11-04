@@ -37,7 +37,7 @@
     "kitten_voice": "expr-voice-2-f",
     "tts_speed": 1.0,
     "barge_in": true,
-    "conversation": true,
+    "conversation": false,
     "approve_by_voice": true,
     "tts_voice": "",
     "silence_ms": 1200,
@@ -140,7 +140,8 @@
   },
   "overlay": {
     "hide_after_s": 6,
-    "position": "bottom",
+    "position": "top",
+    "reveal": "hover",
     "sketch": true,
     "sketch_images": true
   }

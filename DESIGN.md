@@ -144,7 +144,7 @@ Density is high but calm. Data is mono, anything you read is the system sans. Pa
 
 The violet is the default, not a fixed rule: Settings → Colour & cursor re-derives the accent, its hover and wash, the navy surfaces, hairlines and text tints, and the orb's hue from one picked colour (`themeTokens` in `core/app.html`; a grey pick gives neutral surfaces). Every pick keeps the contrast targets below (checked for each tile in `tests.py`): lettering on the accent at 4.5:1 or better (near-black when white can't reach it, as on yellow), accent text 7:1 on the panels. Read "violet" in this file as "the chosen colour".
 
-Nova's brand violet is #7b6dff (tray icon, bar, reply card, orb). In this window the working accent is #6d5ff7 for fills and #b9b1ff for violet text and marks, so white button text and small violet text both stay legible on the navy ground.
+Nova's brand violet is #7b6dff (tray icon, bar, reply card, orb). The bar and reply card are one island of frosted glass at the top-centre of the screen, in the colour picked in Settings (the screen behind it, blurred, tinted with the theme's dark; a bright top rim; fine grain; the accent on the action button, the orb and the heard-text bubble): hidden until the pointer rests at the top edge or Nova is working, and the card grows out of the bar on a spring (about a quarter second) and shrinks back into it. In this window the working accent is #6d5ff7 for fills and #b9b1ff for violet text and marks, so white button text and small violet text both stay legible on the navy ground.
 
 **Key Characteristics:**
 - Always dark; three stacked `:root` token blocks in app.html, the third wins.

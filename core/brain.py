@@ -18,7 +18,7 @@ import tomllib
 import uuid
 from pathlib import Path
 
-from core.config import NOTES, memory_text
+from core.config import NOTES, log, memory_text
 from core import procs
 from core.fallback import LIMIT_RE
 from core.sketch import strip as strip_sketch
@@ -56,14 +56,17 @@ Nova applies it within a second. The user is asked to OK the edit.
 - A message may start with [Context: ...] describing the app the user is in or pointing to a screenshot \
 of their screen. Read the screenshot only when the request is about what is on screen, and when it is \
 attached to the message, look at that instead of opening the file.
-- End with exactly one line starting "SAY:" to be read aloud. Write it for the ear, the way you'd talk: \
+- Your final message, after all your tool calls are done, starts with exactly one line beginning "SAY:", to be \
+read aloud while you finish the rest (never put one in a message that a tool call follows; anything more you want \
+shown on screen comes after it). Write it for the ear, the way you'd talk: \
 at most two short sentences (longer only when they ask you to explain or go deeper), no code, paths, \
 markdown, lists or symbols, "for example" not "e.g.", small numbers spelled out, and never "simply" or \
 "just". After answering a question or explaining something, don't end on a dead end like "want to know \
 more?"; when it fits, end by naming one related, more ambitious thing worth trying next.
-- If you need the user's answer to continue, or want to offer one clear next step (after building or \
-editing something: run the tests, wire it up, handle an edge case), add one more line starting "ASK:" \
-with that short yes/no or either/or question. Nova reads it out and listens for the answer. Leave it out \
+- If you need the user's answer to continue, need them to do something before you can go on (sign in, \
+pick a file), or want to offer one clear next step (after building or editing something: run the tests, \
+wire it up, handle an edge case), add one more line starting "ASK:" \
+with that short yes/no or either/or question. Nova reads it out and opens the mic for the answer. Leave it out \
 when the task is simply done, and never use it to offer more explanation.
 - Long-term memory is in {memory}. It says:
 {memory_text}
@@ -224,6 +227,38 @@ def split_say(text):
     return shown or say, say, ask
 
 
+class SayLine:
+    """The spoken line of a reply that is still being written, so Nova can start talking before the rest arrives (and
+    before the CLI has exited, which takes seconds after the last word). The first line of the text block that starts
+    with "SAY:", found the moment that line is complete, or when the block ends; split_say's rule for what a SAY line is."""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.text, self.done, self.scanned = "", False, 0
+
+    def feed(self, delta):
+        """More text of the block. The SAY line (its text, no tag) once it is complete, else None."""
+        if self.done:
+            return None
+        self.text += delta
+        return self._find(self.text.split("\n")[:-1])  # the last piece is still being written
+
+    def finish(self):
+        """The block ended: the line, if it hasn't come out yet."""
+        return None if self.done else self._find(self.text.split("\n"))
+
+    def _find(self, lines):
+        for line in lines[self.scanned:]:
+            line = line.strip()
+            if line[:4].upper() == "SAY:":
+                self.done = True
+                return line[4:].strip() or None
+        self.scanned = len(lines)
+        return None
+
+
 def describe(tool_use):
     i = tool_use.get("input", {})
     detail = next((i[k] for k in ("description", "command", "file_path", "url", "query", "pattern") if i.get(k)), "")
@@ -232,6 +267,7 @@ def describe(tool_use):
 
 class Brain:
     name = ""
+    on_say = None  # set by run(): told the SAY line while the reply is still being written
 
     def __init__(self, exe, cfg, workspace, env):
         self.exe, self.cfg, self.workspace, self.env = exe, cfg, workspace, env
@@ -319,12 +355,15 @@ class Brain:
             self.proc = None
         return " ".join(other)[-300:]
 
-    def run(self, prompt, projects, aliases, on_step, image=None, tools=True):
+    def run(self, prompt, projects, aliases, on_step, image=None, tools=True, on_say=None):
         """Returns (text to show, line to speak, question to ask back or None). `image`: a screenshot (PNG) sent
-        with the request. tools=False: one answer with no tools, for questions about the screen (Claude only)."""
+        with the request. tools=False: one answer with no tools, for questions about the screen (Claude only).
+        `on_say(line)` is called while the reply is still being written, with its SAY line (Claude only), and
+        `on_say(None)` if a tool call follows it after all: that line was not the final answer."""
         mark = Path(tempfile.gettempdir()) / f"nova-hook-{os.getpid()}-{self.tag}.log"
         mark.write_text("", encoding="utf-8")
         self.env["NOVA_HOOK_MARK"] = str(mark)
+        self.on_say = on_say
         self.limited = False
         self.usage = {}
         self.recorded = {"steps": [], "other": False, "error": False}
@@ -382,10 +421,37 @@ class Claude(Brain):
             args += ["--model", model]
         if self._resume_id():
             args += ["--resume", self.session_id]
-        state = {"result": None, "commands": 0}
+        state = {"result": None, "commands": 0, "early": False}
+        on_say, say_line = self.on_say, SayLine()
+        if on_say:  # the reply's text as it is written, so the SAY line can be spoken before the rest arrives
+            args.append("--include-partial-messages")
+
+        def early(ev):
+            e = ev.get("event") or {}
+            kind, block, delta = e.get("type"), e.get("content_block") or {}, e.get("delta") or {}
+            line = None
+            if kind == "message_start" or (kind == "content_block_start" and block.get("type") == "text"):
+                say_line.reset()
+            elif kind == "content_block_start" and block.get("type") == "tool_use" and state["early"]:
+                state["early"] = False
+                on_say(None)  # a tool call follows what was spoken: that was not the final answer
+            elif kind == "content_block_delta" and delta.get("type") == "text_delta":
+                line = say_line.feed(delta.get("text") or "")
+            elif kind == "content_block_stop":
+                line = say_line.finish()
+            if line:
+                state["early"] = True
+                on_say(line)
 
         def on_event(ev):
-            if ev.get("type") == "assistant":
+            nonlocal on_say
+            if ev.get("type") == "stream_event" and on_say:
+                try:
+                    early(ev)
+                except Exception as e:  # speaking early is a bonus: it must never stop the request
+                    on_say = None
+                    log("error", error=f"early speech: {e!r}")
+            elif ev.get("type") == "assistant":
                 for c in ev.get("message", {}).get("content", []):
                     if c.get("type") == "tool_use":
                         state["commands"] += c.get("name") in ("Bash", "PowerShell", "Write", "Edit")

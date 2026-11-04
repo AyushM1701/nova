@@ -197,10 +197,11 @@ for said, want in VOICE_OK:
 # conversation mode ends on a closing phrase, never on a real request
 DONE = ["Yeah, that's it.", "Ok thanks", "Okay, thank you so much!", "No, that's all.", "Nothing else, bye.",
         "Thanks Nova", "Nope.", "That'll be all.", "Got it, thanks.", "Alright, bye for now.",
-        "Aish. That's it.", "That's it. Is this a good gift? That's it.", "Okay. Thanks."]
+        "Aish. That's it.", "That's it. Is this a good gift? That's it.", "Okay. Thanks.",
+        "That's good.", "Stop listening", "Enough", "Not now", "Talk later", "Bas itna hi", "Theek hai", "Shukriya", "Ho gaya", "No more", "Okay, that is all"]
 NOT_DONE = ["Open Spotify", "Okay, now open my mail", "No, make it Chandigarh instead", "Thanks, and play some music",
             "That's it, now commit the changes", "What's the time?", "Open YouTube. That's it.",
-            "That's it. Now commit the changes."]
+            "That's it. Now commit the changes.", "Stop the music", "Later today remind me to call Sam", "Enough about that, open Spotify"]
 for said in DONE:
     assert is_done(said), f"done {said!r} should end the conversation"
 for said in NOT_DONE:
@@ -3955,6 +3956,13 @@ w.context = lambda text: ""
 w.shot, w.voice = None, False
 w.assist("who won today's grand prix?")
 assert "show" not in events, events                                       # typed or phone: never on the PC
+w.voice = True                                                            # the mic opens by itself only for a question to the user
+for said, asks in (("Made it.\nSAY: Done. Want me to open it?", True), ("Made it.\nSAY: Done, it is on your desktop.", False),
+                   ("Which one?\nSAY: I found two.\nASK: The red one or the blue one?", True)):
+    reply["text"], w.followup, w.asked = said, False, False
+    w.assist("make a file")
+    assert w.followup is asks and w.asked is asks, (said, w.followup, w.asked)
+assert json.loads((Path(__file__).parent / "config.default.json").read_text(encoding="utf-8"))["voice"]["conversation"] is False
 nova_mod.log = real_log
 
 # the picture on a note (core/webimage.py): a link the AI wrote may come from a web page, so nothing unsafe is fetched
@@ -6484,7 +6492,7 @@ assert 'id="startNova"' in polish and "api().start_nova()" in polish and "def st
 assert ".feed .acts { display: flex; gap: 2px; opacity: .5;" in polish  # row actions are faint at rest, not hidden
 assert re.search(r"SINGLE_INSTANCE_PORT = (\d+)", Path("core/app.py").read_text(encoding="utf-8"))[1] == re.search(r"SINGLE_INSTANCE_PORT = (\d+)", Path("nova.py").read_text(encoding="utf-8"))[1]
 # every setting in config.default.json that README documents as config-file only now also has a control (data-bind) in the window
-for key in ("triple_tap_mode", "overlay.sketch", "overlay.sketch_images", "voice.stt_model", "voice.stt_accurate_model", "voice.deepgram_model",
+for key in ("triple_tap_mode", "overlay.sketch", "overlay.sketch_images", "overlay.reveal", "voice.stt_model", "voice.stt_accurate_model", "voice.deepgram_model",
             "dictation.claude_model", "dictation.codex_model", "meetings.codex_model", "brain.fallback_model", "brain.max_turns", "brain.max_background",
             "proactive.max_per_day", "proactive.use_local_model", "skills.past_runs", "browser.agent_window"):
     assert f'data-bind="{key}"' in polish, key
@@ -6751,6 +6759,235 @@ async def unpaired_cap():
 now_closed, end_closed, left = _aio.run(unpaired_cap())
 assert now_closed == [None] * phone_mod.MAX_UNPAIRED + [1013] * (6 - phone_mod.MAX_UNPAIRED), now_closed
 assert end_closed[:4] == [4001] * 4 and left == 0, (end_closed, left)  # the four wrong keys are turned away; the count is back to 0
+
+# the bar sits at the top and stays out of sight until the pointer rests at the top edge (Phase 1 of the island redesign)
+from core.bar import Bar as _Bar, Reveal as _Reveal, visible as _visible
+_defaults = json.loads(Path("config.default.json").read_text(encoding="utf-8"))["overlay"]
+assert _defaults["position"] == "top" and _defaults["reveal"] == "hover", _defaults
+_clock, _zone, _keep = [0.0], (100, 0, 500, 2), (100, 0, 500, 60)
+_rv = _Reveal(lambda: _clock[0])
+def _rv_at(t, mouse, blocked=False):
+    _clock[0] = t
+    return _rv.update(mouse, _zone, _keep, blocked)
+assert _rv_at(0.0, (300, 1)) == "hidden" and _rv_at(0.05, (300, 1)) == "hidden"            # a brush past the edge shows nothing
+assert _rv_at(0.09, (300, 1)) == "peek" and _rv_at(0.2, (300, 1)) == "peek"                 # a glow first
+assert _rv_at(0.31, (300, 1)) == "open" and _rv_at(0.5, (300, 30)) == "open"                # then the pill, which stays under the pointer
+assert _rv_at(0.6, (300, 300)) == "open" and _rv_at(1.0, (300, 300)) == "open"               # a pause after leaving, not an instant close
+assert _rv_at(1.11, (300, 300)) == "hidden"
+assert _rv_at(2.0, (300, 1)) == "hidden" and _rv_at(2.09, (300, 1)) == "peek"
+assert _rv_at(2.1, (300, 300)) == "hidden" and _rv_at(2.2, (300, 1)) == "hidden"             # leaving the glow resets the dwell
+assert _rv_at(3.0, (300, 1), blocked=True) == "hidden" and _rv_at(3.5, (300, 1), blocked=True) == "hidden"  # a drag, a full-screen app: never
+assert _rv_at(4.0, (300, 1)) == "hidden" and _rv_at(4.4, (300, 1)) == "open"
+assert _rv_at(4.5, (300, 30), blocked=True) == "open"                                        # a click on the open pill (button down) doesn't close it
+assert _rv_at(5.0, None) == "hidden"                                                          # a locked desktop: no pointer position
+assert _visible("idle", False, "hidden", "hover", True) is False and _visible("paused", False, "hidden", "hover", True) is False
+assert _visible("idle", False, "peek", "hover", True) and _visible("idle", False, "open", "hover", True)
+assert all(_visible(s, False, "hidden", "hover", True) for s in ("listening", "thinking", "speaking", "approval"))  # working: always shown
+assert _visible("idle", False, "hidden", "always", True) and _visible("idle", False, "hidden", "hover", False)  # always; and the bottom bar
+assert _visible("idle", False, "open", "shortcut", True) is False and _visible("thinking", False, "hidden", "shortcut", True)
+assert _visible("thinking", True, "hidden", "always", True) is False                          # a card on top of it hides it in any state
+_calls = []
+_b = object.__new__(_Bar)
+_b.top, _b.state, _b.stage, _b.reveal, _b.dirty = True, "idle", "hidden", "hover", False
+_b._show, _b._hide, _b._wake = (lambda: _calls.append("show")), (lambda: _calls.append("hide")), (lambda: None)
+_b._click_through, _b._grab = (lambda on: _calls.append(("thru", on))), (lambda: _calls.append("grab"))  # the glass takes its backdrop as the bar appears
+_b._apply()
+assert _calls == ["hide"], _calls                                                             # hidden at start: nothing on screen
+_calls.clear(); _b.stage = "peek"; _b._apply()
+assert _calls == ["grab", "show", ("thru", True)], _calls                                     # the glow lets clicks through
+_calls.clear(); _b.stage = "open"; _b._apply()
+assert _calls == [("thru", False)], _calls                                                    # the open pill takes clicks
+_calls.clear(); _b.stage, _b.state = "hidden", "thinking"; _b._apply()
+assert _calls == [], _calls                                                                   # working: stays shown, however the pointer moves
+_calls.clear(); _b.state = "idle"; _b._apply()
+assert _calls == ["hide"], _calls
+_calls.clear(); _b.levels, _b.stage = __import__("collections").deque([0.0] * 15, maxlen=15), "hidden"
+_b.set("listening")
+assert _calls == ["grab", "show", "grab"] and _b.state == "listening", _calls                # Bar.set() itself shows a hidden bar for a working state
+_calls.clear(); _b.set("idle")
+assert _calls == ["hide"], _calls
+assert note_top(0, 1000, 300.5, 300) == 308 and note_top(0, 1000, 300.5, 0) == 120           # the sketch note sits under a card at the top
+# the bar and card are frosted glass in the colour picked in Settings -> Colour & cursor
+from core import theme as _theme, glass as _glass
+from core.pointer import rgb as _rgb
+assert _theme.tokens(None) == _theme.NOVA and _theme.tokens(_rgb("nova")) == _theme.NOVA and _theme.NOVA["accent"] == (123, 109, 255)
+for _hex in ("#ffd400", "#ffffff", "#2f7bff", "#ff3b30", "#808080", "#00c853", "#000000", "#7b6dff"):
+    _tk = _theme.tokens(_rgb(_hex))
+    assert _theme.ratio(_tk["ink"], _tk["accent"]) >= 4.5, (_hex, _tk)                         # lettering on the accent button stays legible
+    assert _theme.ratio(_tk["light"], _tk["tint"]) >= 7 and sum(_tk["tint"]) < 220, (_hex, _tk)  # light marks read on the dark glass
+assert _theme.tokens(_rgb("#ffd400"))["ink"] == _theme.INK and _theme.tokens(_rgb("#2f7bff"))["ink"] == (255, 255, 255)  # near-black on yellow, white on blue
+assert _theme.tokens(_rgb("#808080"))["tint"][0] == _theme.tokens(_rgb("#808080"))["tint"][2]  # a grey pick gives neutral glass
+_theme.apply(_rgb("#2f7bff"))
+assert _theme.T["accent"] == _theme.tokens(_rgb("#2f7bff"))["accent"] != _theme.NOVA["accent"]
+_theme.apply(None)
+assert _theme.T == _theme.NOVA                                                                # back to Nova's own violet
+_pane = _glass.pane(200, 60, 30, _theme.T["tint"], _theme.T["accent"])
+assert _pane.size == (200, 60) and _pane.getpixel((0, 0))[3] < 40 and _pane.getpixel((100, 30))[3] >= 200  # rounded; solid in the middle
+_red = _glass.pane(200, 60, 30, _theme.T["tint"], _theme.T["accent"], back=Image.new("RGB", (200, 60), (255, 0, 0)))
+assert _red.getpixel((100, 30))[0] > _pane.getpixel((100, 30))[0] + 20                       # the screen behind it comes through the glass
+assert _glass.pane(3, 3, 9, _theme.T["tint"], _theme.T["accent"]).size == (6, 6)             # a degenerate size still makes a pane
+assert _glass.backdrop((10, 10, 10, 40)) is None                                              # nothing to grab: plain glass
+_b2 = object.__new__(_Bar)                                                                    # the orb opens Nova; the rest of the capsule is the shortcut
+_b2.w, _b2.scale, _b2.px, _clicks = 125.0, 1.25, 1, []
+_b2.on_menu, _b2.on_click, _b2._parts = (lambda: _clicks.append("menu")), (lambda: _clicks.append("click")), (lambda: {"btn": 80})
+_b2._clicked(types.SimpleNamespace(x=120)); _b2._clicked(types.SimpleNamespace(x=250))
+_b2._parts = lambda: None
+_b2._clicked(types.SimpleNamespace(x=120))                                                    # the quiet standby pill has no orb: a click is a click
+assert _clicks == ["menu", "click", "click"], _clicks
+_cd = object.__new__(overlay_mod.Card)                                                        # links under a reply, and Allow / Deny, are hit by position
+_ran = []
+_cd.scale, _cd.over, _cd.anim = 1.0, False, False
+_cd.buttons, _cd.chips = [((100, 100, 140, 130), lambda: _ran.append("allow"))], [((10, 10, 50, 30), lambda: _ran.append("ask"))]
+_hit = lambda x, y: _cd._hit(types.SimpleNamespace(x=x, y=y))
+_hit(30, 20)(); _hit(120, 115)()
+assert _hit(70, 60) is None and _ran == ["ask", "allow"], _ran
+_cd.over, _cd.anim = True, True
+assert _hit(30, 20) is None                                                                   # still moving: a click would land beside them
+
+from core.bar import spring as _spring
+for _fps in (30, 60, 144):                                                                    # the spring settles in about a quarter second at any frame rate
+    _x = _v = _peak = 0.0
+    _settled = None
+    for _i in range(_fps):
+        _x, _v = _spring(_x, _v, 100.0, 1 / _fps)
+        _peak = max(_peak, _x)
+        if _settled is None and abs(_x - 100) < 1:
+            _settled = (_i + 1) / _fps
+    assert _settled is not None and _settled < 0.4 and _peak < 108 and abs(_x - 100) < 0.01, (_fps, _settled, _peak, _x)
+import core.overlay as overlay_mod
+_t, _cov, _real_time, _real_rm = [0.0], [], overlay_mod.time, system.reduced_motion
+overlay_mod.time, system.reduced_motion = types.SimpleNamespace(monotonic=lambda: _t[0]), lambda: False
+_c = object.__new__(overlay_mod.Card)                                                         # the card grows out of the pill and shrinks back into it
+_c.bar, _c.over, _c.closing, _c.anim, _c.visible, _c.seed, _c.full = types.SimpleNamespace(cover=_cov.append), True, False, True, True, (64.0, 14.0), (440.0, 120.0)
+_c.cw, _c.ch, _c.vw, _c.vh, _c._tick_job, _c.hide_later, _c._hide = 64.0, 14.0, 0.0, 0.0, 1, (lambda s: None), (lambda: _cov.append("hidden"))
+_frames = 0
+while _c._step():
+    _t[0] += 1 / 60
+    _frames += 1
+    assert _frames < 120 and _c.cw <= 442 and _c.ch <= 122
+assert (_c.cw, _c.ch, _c.anim) == (440.0, 120.0, False) and 6 < _frames < 40, (_c.cw, _c.ch, _frames)
+_c.hide()                                                                                     # a plain hide starts the shrink: nothing is hidden yet
+assert _c.closing and _c.visible and _cov == [], _cov
+_c.hide()                                                                                     # asked again while shrinking: no change
+assert _c.closing and _cov == []
+_frames = 0
+while _c.visible:
+    _t[0] += 1 / 60
+    _frames += 1
+    _c._step()
+    assert _frames < 120
+assert _cov == [False, "hidden"] and not _c.closing, _cov                                      # the pill is uncovered, then the card goes
+_c.visible, _c.closing = True, False
+_c.hide(instant=True)                                                                         # the mic is opening: no waiting for the shrink
+assert not _c.visible and _cov == [False, "hidden", False, "hidden"], _cov
+_c.visible, _c.over = True, False
+_c.hide()                                                                                     # off the top (or on a Mac): hides at once, as before
+assert not _c.visible
+overlay_mod.time, system.reduced_motion = _real_time, _real_rm
+# Phase 3: Nova speaks the SAY line while the AI is still writing the rest of its reply
+from core.brain import SayLine as _SayLine
+def _say_feed(*parts):
+    s, out = _SayLine(), []
+    out += [s.feed(p) for p in parts]
+    out.append(s.finish())
+    return [x for x in out if x]
+assert _say_feed("SA", "Y: Hi th", "ere.\nMore") == ["Hi there."]                              # once, when its line is complete
+assert _say_feed("say: x\n") == ["x"] and _say_feed("  \nSAY: It's three pm.") == ["It's three pm."]  # lower case; no trailing newline: when the block ends
+assert _say_feed("Done.\nSAY: x\n") == ["x"] and _say_feed("SAY: a\nSAY: b\n") == ["a"] and _say_feed("SAY:   \n") == []  # first or last line of the block
+assert _say_feed("SA") == [] and _say_feed("**SAY:** x\n") == []                               # the same rule split_say uses
+_early_events = []
+def _fake_stream(events):
+    def run(args, prompt, on_event):
+        _early_events.append(args)
+        for ev in events:
+            on_event(ev)
+        return ""
+    return run
+def _se(kind, **kw):
+    return {"type": "stream_event", "event": {"type": kind, **kw}}
+def _text_block(*deltas):
+    return [_se("message_start"), _se("content_block_start", content_block={"type": "text", "text": ""}),
+            *[_se("content_block_delta", delta={"type": "text_delta", "text": d}) for d in deltas], _se("content_block_stop")]
+_result = {"type": "result", "result": "SAY: Hello there.\nMore detail.", "usage": {}}
+_cl = brain_mod.Claude("claude", defaults(), tempfile.gettempdir(), {}, "settings.json")
+def _early_run(events, **kw):
+    said = []
+    _cl._stream = _fake_stream(events)
+    shown, say_, ask_ = _cl.run("hi", {}, {}, lambda s: None, on_say=said.append, **kw)
+    return said, (shown, say_, ask_)
+said_, got_ = _early_run([*_text_block("SAY: Hello there", ".", "\nMore detail."), _result])
+assert said_ == ["Hello there."] and got_[1] == "Hello there." and got_[0] == "More detail." and "--include-partial-messages" in _early_events[-1], said_
+said_, _ = _early_run([*_text_block("SAY: Done."), _result])
+assert said_ == ["Done."]                                                                      # a one-line reply with no newline: spoken when the block ends
+said_, _ = _early_run([*_text_block("SAY: One."), _se("content_block_start", content_block={"type": "tool_use", "name": "Bash"}),
+                       *_text_block("SAY: Two.\nMore"), _result])
+assert said_ == ["One.", None, "Two."], said_                                                  # a tool call after it: stop, and the real one is spoken
+said_, _ = _early_run([*_text_block("I'll check."), _se("content_block_start", content_block={"type": "tool_use", "name": "Bash"}), _result])
+assert said_ == []                                                                             # nothing was spoken, so nothing to stop
+_cl._stream = _fake_stream([_result])
+_cl.run("hi", {}, {}, lambda s: None)
+assert "--include-partial-messages" not in _early_events[-1]                                   # without on_say: the stream is as before
+def _boom(line):
+    raise RuntimeError("tts broke")
+_cl._stream = _fake_stream([*_text_block("SAY: Hi.\nx"), _result])
+assert _cl.run("hi", {}, {}, lambda s: None, on_say=_boom)[1] == "Hello there."                # a broken listener never stops the request
+_spoken_calls, _real_speak, _nn = [], nova_mod.tts.speak, object.__new__(nova_mod.Nova)
+nova_mod.tts.speak = lambda text, v, stop: _spoken_calls.append(text)
+_nn.cfg = merged(json.loads(Path("config.default.json").read_text(encoding="utf-8")), {})
+_nn.cfg["voice"]["barge_in"] = False
+_nn.voice, _nn.stt, _nn.sysaudio, _nn.cancel, _nn.stop_tts = True, None, None, threading.Event(), threading.Event()
+_nn.ui, _nn.show_bar, _nn.card = (lambda fn: fn()), (lambda s: None), types.SimpleNamespace(show=lambda *a, **k: None)
+_nn.interrupted = lambda spoken, *a: _spoken_calls.append(("interrupted", spoken))
+def _early_said(line, interrupted=None, aborted=False):
+    e = nova_mod.Early(line)
+    e.thread = threading.Thread(target=lambda: None)
+    e.thread.start()
+    e.interruption.extend(interrupted or [])
+    if aborted:
+        e.abort.set()
+    return e
+_nn.say("Nova", "Hi. Want more?", "shown")
+assert _spoken_calls == ["Hi. Want more?"], _spoken_calls                                      # no early line: as before
+_spoken_calls.clear(); _nn.say("Nova", "Hi. Want more?", "shown", early=_early_said("Hi."))
+assert _spoken_calls == ["Want more?"], _spoken_calls                                          # only what the early line did not say
+_spoken_calls.clear(); _nn.say("Nova", "Hi.", "shown", early=_early_said("Hi."))
+assert _spoken_calls == [], _spoken_calls                                                      # all of it was said
+_spoken_calls.clear(); _nn.say("Nova", "Hi. Want more?", "shown", early=_early_said("Hi.", aborted=True))
+assert _spoken_calls == ["Hi. Want more?"], _spoken_calls                                      # a tool call followed it: the whole reply is spoken
+_spoken_calls.clear(); _nn.say("Nova", "A different answer.", "shown", early=_early_said("Hi."))
+assert _spoken_calls == ["A different answer."], _spoken_calls                                 # never lose the real answer
+_spoken_calls.clear(); _nn.say("Nova", "Hi. Want more?", "shown", early=_early_said("Hi.", interrupted=[("clip", 0.1)]))
+assert _spoken_calls == [("interrupted", "Hi. Want more?")], _spoken_calls                     # talked over during the early line: carry on from there
+_nn.early = None
+_nn.stop_tts = threading.Event()
+_nn.speak_early("One.")                                                                        # speak_early starts a thread and abort stops it
+assert _nn.early.line == "One."
+_nn.speak_early("Again.")
+assert _nn.early.line == "One."                                                                # one is already speaking
+_nn.speak_early(None)
+assert _nn.early.abort.is_set()
+_nn.speak_early("Two.")
+assert _nn.early.line == "Two."                                                                # after a stop, the next one is spoken
+_nn.early.thread.join(5)
+nova_mod.tts.speak = _real_speak
+_cancelled = []                                                                                # talked over the early line: the AI stops, and the user is heard at once
+_nn.brain, _nn._voice, _nn.early = types.SimpleNamespace(cancel=lambda: _cancelled.append(1)), (lambda *a: [("clip", 0.1)]), None
+_nn.speak_early("Hi.")
+_nn.early.thread.join(5)
+assert _cancelled == [1] and _nn.early.interruption == [("clip", 0.1)], (_cancelled, _nn.early.interruption)
+_nn._voice, _nn.early = (lambda *a: []), None
+_nn.speak_early("Hi.")
+_nn.early.thread.join(5)
+assert _cancelled == [1]                                                                       # not talked over: the AI is left to finish
+if not system.IS_MAC:
+    _styles = []
+    bar_mod.user32 = types.SimpleNamespace(GetWindowLongW=lambda h, i: 0x80028, SetWindowLongW=lambda h, i, v: _styles.append(v))
+    _w = object.__new__(bar_mod.Layered)
+    _w.ns, _w.hwnd = None, 7
+    _w._click_through(True)
+    _w._click_through(False)
+    bar_mod.user32 = real_user32
+    assert _styles == [0x80028 | 0x20, 0x80028 & ~0x20], _styles                              # the toggle sets and clears WS_EX_TRANSPARENT
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
 
 from core.cleanup import fix_vocabulary  # noqa: E402

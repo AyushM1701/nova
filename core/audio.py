@@ -112,11 +112,12 @@ class WarmMic:
 MIC = WarmMic()
 
 
-def record(silence_ms, max_s, stop, on_level=None, prefix=None, floor_rms=None, on_block=None):
+def record(silence_ms, max_s, stop, on_level=None, prefix=None, floor_rms=None, on_block=None, wait_s=6):
     """Record until `silence_ms` of quiet after speech, `stop` is set, or `max_s`. None if nothing said.
     `silence_ms` None (hold-to-talk) ignores pauses: only `stop` or `max_s` ends it.
     `prefix` is speech already captured (an interruption): recording continues from it.
-    `on_block` gets every 30 ms block as it arrives (streaming to a cloud recognizer)."""
+    `on_block` gets every 30 ms block as it arrives (streaming to a cloud recognizer). `wait_s`: how long to wait for
+    the first word before giving up (a follow-up listens for a shorter time)."""
     floor, speaking, quiet_ms, got = [], False, 0, False
     chunks = []
     if prefix is not None:  # mid-sentence already: the room's level comes from before the user spoke
@@ -153,7 +154,7 @@ def record(silence_ms, max_s, stop, on_level=None, prefix=None, floor_rms=None, 
                 quiet_ms += 30
                 if quiet_ms >= silence_ms:
                     break
-            elif time.monotonic() - start > 6:
+            elif time.monotonic() - start > wait_s:
                 break  # never started speaking
     finally:
         MIC.release(broken=stalled or not got and not stop.is_set())

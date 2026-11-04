@@ -208,7 +208,7 @@ Only tagged releases reach the Update button, never unreleased work on `main`. T
 
 | Do this | What happens |
 |---|---|
-| Say "Hey Nova", tap **Ctrl** three times (Mac: **Cmd**), hold **Ctrl+`**, or click the bar | Nova listens. Press again to stop early, or press while it's working to cancel. |
+| Say "Hey Nova", tap **Ctrl** three times (Mac: **Cmd**), hold **Ctrl+`**, or point at the top of the screen and click the bar | Nova listens. Press again to stop early, or press while it's working to cancel. |
 | "Hey Nova, play some music" in one breath | Runs straight away |
 | Esc | Stop listening or talking; when Nova is asking for permission, Esc denies. A request Nova is working on keeps going (Esc in another app shouldn't stop it): press the shortcut again, or Stop in the Nova window or on your phone |
 | "switch to dictation" / "switch to assistant" | Change mode |
@@ -222,14 +222,14 @@ Only tagged releases reach the Update button, never unreleased work on `main`. T
 | Select text, then "make this shorter" (dictation mode) | Rewrites the selection in place |
 | Click the tray icon, or right-click the bar | Opens the Nova window |
 
-**The bar** at the bottom-centre shows what Nova is doing:
+**The bar** at the top-centre is a small pane of frosted glass in your colour (Settings → Colour & cursor): the Nova orb, a button that says what Nova is doing (Ask, a waveform while it listens or talks, Thinking, Needs OK) and a stop button while it works. Click the orb for the Nova window, the rest to talk or stop. Replies open from it as the same glass: what Nova heard in a bubble, the answer, and Ask more / Open in Nova under it. It stays out of sight until you rest the pointer at the top edge of the screen (a glow first, then the bar), and it shows by itself while Nova listens, thinks or talks. It never opens over a full-screen app or game, and not while a mouse button is held down. When Nova answers, the bar grows into the reply card and shrinks back when the card goes (with Windows animations off, it just switches). Nova starts speaking as soon as its spoken line is written, without waiting for the rest of the reply.
 
 - a waveform while it listens
 - dots while it thinks
 - a ripple while it talks
 - amber when it needs your OK
 
-Hover over it to see the shortcut. Settings → General → **Where the bar sits** moves it to the top of the screen; on a MacBook with a notch it then hangs from the notch and grows out of it while Nova listens, thinks and talks, like the Dynamic Island. Clicking the tray / menu bar icon opens the Nova window; its menu has mode, **Brain** (switch between Claude Code and Codex), pause, settings and quit.
+Hover over it to see the shortcut. Settings → General → **Where the bar sits** moves it to the bottom (always visible there) and **Show the bar** picks hover, always, or only while Nova works; on a MacBook with a notch it then hangs from the notch and grows out of it while Nova listens, thinks and talks, like the Dynamic Island. Clicking the tray / menu bar icon opens the Nova window; its menu has mode, **Brain** (switch between Claude Code and Codex), pause, settings and quit.
 
 ## Phone
 
@@ -304,7 +304,8 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 | `hold_delay_s` | `1.5` | Seconds a hold key is held on its own before Nova listens |
 | `hotkey_mode`, `hotkey_2_mode`, `hold_mode`, `hold_key_2_mode`, `triple_tap_mode` | `current`, `dictation`, `dictation`, `assistant`, `assistant` | What each one starts: `"current"` (the mode Nova is in), `"assistant"` or `"dictation"` (for that request only). The same key in two slots follows the current mode |
 | `wake_word` | `true` | Listen for "Hey Nova" |
-| `overlay.position` | `bottom` | `"top"` puts the bar at the top of the screen (from the notch on a MacBook) |
+| `overlay.position` | `top` | `"bottom"` puts the bar above the taskbar or Dock, always visible; at the top it grows from the notch on a MacBook |
+| `overlay.reveal` | `hover` | At the top (Windows): `"hover"` shows the bar when you rest the pointer at the top edge, `"always"` keeps it on screen, `"shortcut"` shows it only while Nova works |
 | `overlay.sketch` | `true` | Draw a paper note on screen for spoken questions with a short factual answer |
 | `overlay.sketch_images` | `true` | Let a note show one photo: the lead image of the Wikipedia page the AI names |
 | `voice.tts_engine` | `piper` | `"piper"`, `"kitten"`, `"kokoro"` (downloads when picked), `"pocket"` (your own voice: needs the download and a recording, else Piper speaks) or `"system"` |
@@ -391,8 +392,8 @@ core/schedule.py      scheduled routines ("every weekday at 9, run start my day"
 core/walkthrough.py   the first-run walkthrough's clips: downloaded once, checked against the release's checksum
 core/brain.py         Claude Code and Codex adapters
 core/jobs.py          a record of every request (data/jobs) for "pick that up", and background jobs' folders
-core/bar.py           the bottom-centre bar
-core/overlay.py       the card for replies and approvals
+core/bar.py           the top-centre bar: hover-to-reveal, and the spring it moves with
+core/overlay.py       the card for replies and approvals, which grows out of the bar
 core/pointer.py       the companion: follows the mouse, flies to what the AI points at, is the pen
 core/circle.py        circle-to-ask: follows the mouse while a hold key is down and finds the loop
 core/mcp.py           the user's apps (MCP servers): validation and the files Claude Code reads

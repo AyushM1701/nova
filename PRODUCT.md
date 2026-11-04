@@ -25,7 +25,7 @@ Nova uses the AI subscription the user already has (Claude Code or Codex CLI) in
 ## Operating Context
 
 - Lives in the Windows tray (hidden icons area) or the macOS menu bar; starts at login.
-- A small pill bar sits bottom-centre of the screen; a reply/approval card appears bottom-right.
+- A small pill bar sits top-centre of the screen, out of sight until the pointer rests at the top edge or Nova is working; the reply/approval card grows out of it.
 - The companion window opens from the tray icon: chat, history, dictionary, settings, first-run onboarding.
 - Used mid-task, in other apps: Nova must never steal focus while dictating.
 
