@@ -26,16 +26,18 @@ def _mix(x, stops):
     return stops[-1][1]
 
 
-def draw(size=64):
+def draw(size=64, tile=True):
+    """The icon, `size` px square. tile=False: the bars and their glow alone, for a surface of their own (the pill)."""
     S = size * 4  # drawn at 4x, then downscaled: smooth corners at 16 px
     u = S / 48
 
-    tile_mask = Image.new("L", (S, S))
-    ImageDraw.Draw(tile_mask).rounded_rectangle((0, 0, S - 1, S - 1), 11 * u, fill=255)
-    tile = Image.new("RGB", (1, 2))
-    tile.putdata(TILE)
+    tile_mask = Image.new("L", (S, S), 0 if tile else 255)
     img = Image.new("RGBA", (S, S))
-    img.paste(tile.resize((S, S), Image.BILINEAR), mask=tile_mask)
+    if tile:
+        ImageDraw.Draw(tile_mask).rounded_rectangle((0, 0, S - 1, S - 1), 11 * u, fill=255)
+        ground = Image.new("RGB", (1, 2))
+        ground.putdata(TILE)
+        img.paste(ground.resize((S, S), Image.BILINEAR), mask=tile_mask)
 
     bars = Image.new("L", (S, S))
     d = ImageDraw.Draw(bars)

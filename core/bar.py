@@ -11,6 +11,7 @@ smooth: a layered window on Windows, a native borderless window on macOS (sharp 
 focus, and clicks pass through its transparent parts).
 """
 import collections
+import functools
 import ctypes
 import io
 import math
@@ -19,7 +20,7 @@ import tkinter as tk
 
 from PIL import Image, ImageDraw, ImageFont
 
-from core import glass, system, theme
+from core import glass, icon, system, theme
 
 if not system.IS_MAC:
     from ctypes import wintypes as w
@@ -38,13 +39,19 @@ if not system.IS_MAC:
                                            ctypes.c_void_p, ctypes.c_void_p, w.DWORD, ctypes.c_void_p, w.DWORD]
 
 SS = 3  # draw 3x larger, then downscale: anti-aliased edges
-BOX = (300, 48)  # window size in logical px (bottom position); the pill is drawn inside it
+BOX = (300, 56)  # window size in logical px; the pill (6 px in, CAPSULE tall) and its halo are drawn inside it
 SIZES = {"idle": (64, 14), "paused": (64, 14), "listening": (156, 36), "thinking": (92, 30),
          "speaking": (124, 30), "approval": (92, 30), "hover": (0, 30)}  # the notch island's; the capsule works its own out
-CAPSULE = 36  # the capsule's height, logical px: an orb, the action button and (while working) a stop button inside it
-ORB, PAD, GAP = 26, 5, 6  # the orb and buttons are ORB across, PAD from the edge, GAP apart
-WHITE, AMBER, DIM, VIOLET, INK = (255, 255, 255), (255, 186, 60), (190, 193, 214), (123, 109, 255), (11, 13, 26)
+CAPSULE = 42  # the capsule's height, logical px: an orb, the action button and (while working) a stop button inside it
+ORB, PAD, GAP = 32, 5, 6  # the orb and buttons are ORB across, PAD from the edge, GAP apart
+WHITE, AMBER, DIM, INK = (255, 255, 255), (255, 186, 60), (190, 193, 214), (11, 13, 26)
 LIGHT = {False: (169, 161, 255), True: AMBER}  # the thinking dots: light violet, or amber when Nova needs you
+
+
+@functools.lru_cache(maxsize=4)
+def _logo(size):
+    """The bars of Nova's icon at `size` px (drawing pixels), drawn once."""
+    return icon.draw(size, tile=False)
 
 
 def _inside(point, rect):
@@ -95,12 +102,10 @@ def spring(x, v, target, dt, k=420.0, damping=0.8):
     return x, v
 
 
-def visible(state, covered, stage, reveal, top):
-    """Whether the bar is on screen. Hidden while a card covers it; always at the bottom (the edge belongs to the
+def visible(state, card, stage, reveal, top):
+    """Whether the bar is on screen: while a card hangs under it; always at the bottom (the edge belongs to the
     taskbar); while Nova works; otherwise only as the reveal mode allows."""
-    if covered:
-        return False
-    if reveal == "always" or not top or state not in ("idle", "paused"):
+    if card or reveal == "always" or not top or state not in ("idle", "paused"):
         return True
     return reveal == "hover" and stage in ("peek", "open")
 
@@ -314,7 +319,7 @@ class Bar(Layered):
     # class defaults so a Bar built without __init__ (the tests do) behaves as before: always on screen
     reveal, stage, covered, suppressed, _vis, _thru = "always", "hidden", False, False, None, False
     vw, vh, _last = 0.0, 0.0, None  # the pill's size velocities, and when it was last stepped
-    back = None  # the blurred screen behind the bar, for its glass
+    back, _pane = None, None  # the blurred screen behind the bar, for its glass; and the last pane made
 
     def __init__(self, root, on_click, on_menu=None, hint="", position="bottom", reveal="always"):
         self.scale = dpi_scale(root)
@@ -361,7 +366,7 @@ class Bar(Layered):
         self._apply()
 
     def cover(self, on):
-        """A card sits where the pill is, grown from it: the bar steps out of the way until the card has shrunk back."""
+        """A card hangs under the pill: the pill stays on screen, open (orb and Ask), until the card goes."""
         self.covered = on
         self._apply()
 
@@ -449,7 +454,7 @@ class Bar(Layered):
 
     def _expanded(self):
         """The idle pill opens into the capsule while the pointer is on it, or when it has just opened at the top edge."""
-        return self.state == "idle" and (self.hovering or self.stage == "open" and self.reveal == "hover")
+        return self.state == "idle" and (self.hovering or self.covered or self.stage == "open" and self.reveal == "hover")
 
     def _hint_on(self):
         return self._expanded() and bool(self.hint)
@@ -466,13 +471,13 @@ class Bar(Layered):
         standby pill. Click the orb for the Nova window, the rest to talk (or, while Nova works, to stop it)."""
         state = self.state
         if state == "idle":
-            return {"label": "Ask", "btn": 13 + GAP + self._text_w("Ask") + 26, "stop": False} if self._expanded() else None
+            return {"label": "Ask", "btn": 15 + GAP + self._text_w("Ask") + 32, "stop": False} if self._expanded() else None
         if state in ("listening", "speaking"):
-            return {"label": "", "btn": 78, "stop": True}
+            return {"label": "", "btn": 96, "stop": True}
         if state == "thinking":
-            return {"label": "Thinking", "btn": 20 + GAP + self._text_w("Thinking") + 26, "stop": True}
+            return {"label": "Thinking", "btn": 20 + GAP + self._text_w("Thinking") + 32, "stop": True}
         if state == "approval":
-            return {"label": "Needs OK", "btn": self._text_w("Needs OK") + 28, "stop": False}
+            return {"label": "Needs OK", "btn": self._text_w("Needs OK") + 32, "stop": False}
         return None  # paused
 
     def _target(self):
@@ -643,17 +648,21 @@ class Bar(Layered):
                 r, x = 1.1 * s, W / 2 + (i - 2) * 6.5 * s
                 d.ellipse((x - r, cy - r, x + r, cy + r), fill=WHITE + (70 if state == "paused" else 115,))
         else:
-            self._orb(d, x0 + (PAD + ORB / 2) * s, cy, ORB / 2 * s, s)
+            self._orb(img, d, x0 + (PAD + ORB / 2) * s, cy, ORB / 2 * s, s, state != "idle")
             b0 = x0 + (PAD + ORB + GAP) * s
             b1 = b0 + parts["btn"] * s
-            ink = INK if state == "approval" else T["ink"]
-            d.rounded_rectangle((b0, cy - ORB / 2 * s, b1, cy + ORB / 2 * s), radius=ORB / 2 * s, fill=accent + (255,),
-                                outline=WHITE + (70,), width=max(1, round(s)))
+            box = (b0, cy - ORB / 2 * s, b1, cy + ORB / 2 * s)
+            if state in ("listening", "approval"):  # the accent says "live mic"; amber says "needs you"
+                ink = INK if state == "approval" else T["ink"]
+                d.rounded_rectangle(box, radius=ORB / 2 * s, fill=accent + (255,), outline=WHITE + (70,), width=max(1, round(s)))
+            else:  # a lighter well of the same glass, like a key on it
+                ink = T["text"]
+                self._well(d, box, s)
             mid = (b0 + b1) / 2
             if state == "idle":
                 label_w = self._text_w(parts["label"]) * s
-                left = mid - (13 * s + GAP * s + label_w) / 2
-                self._sparkle(d, left + 6.5 * s, cy, 6.5 * s, ink)
+                left = mid - (15 * s + GAP * s + label_w) / 2
+                self._sparkle(d, left + 7.5 * s, cy, 7.5 * s, T["light"])
                 d.text((left + (13 + GAP) * s, cy), parts["label"], font=self.f_label, fill=ink + (255,), anchor="lm")
             elif state == "thinking":
                 label_w = self._text_w(parts["label"]) * s
@@ -663,7 +672,7 @@ class Bar(Layered):
                     r, x = 1.9 * s, left + (3 + i * 7) * s
                     lift = max(0.0, math.sin(phase)) * 2.4 * s
                     alpha = int(255 * (0.55 + 0.45 * max(0.0, math.sin(phase))))
-                    d.ellipse((x - r, cy - r - lift, x + r, cy + r - lift), fill=ink + (alpha,))
+                    d.ellipse((x - r, cy - r - lift, x + r, cy + r - lift), fill=T["light"] + (alpha,))
                 d.text((left + (20 + GAP) * s, cy), parts["label"], font=self.f_label, fill=ink + (255,), anchor="lm")
             elif state == "approval":
                 d.text((mid, cy), parts["label"], font=self.f_label, fill=ink + (255,), anchor="mm")
@@ -680,32 +689,39 @@ class Bar(Layered):
                 self._bars(d, mid, cy, s, heights, 2.4 * s, ink)
             if parts["stop"]:
                 sx = b1 + (GAP + ORB / 2) * s
-                d.ellipse((sx - ORB / 2 * s, cy - ORB / 2 * s, sx + ORB / 2 * s, cy + ORB / 2 * s), fill=T["raised"] + (255,),
-                          outline=WHITE + (50,), width=max(1, round(s)))
-                q = 4.2 * s
+                self._well(d, (sx - ORB / 2 * s, cy - ORB / 2 * s, sx + ORB / 2 * s, cy + ORB / 2 * s), s)
+                q = 4.6 * s
                 d.rounded_rectangle((sx - q, cy - q, sx + q, cy + q), radius=1.6 * s, fill=WHITE + (240,))
         content = img.reduce(SS) if self.px == 1 else img.resize((self.W * self.px, self.H * self.px), Image.LANCZOS)
         out = Image.new("RGBA", content.size)
         gw, gh = round(self.w * k), round(self.h * k)
         gx = round((content.width - gw) / 2)
         gy = round(6 * k) if self.top else round(content.height - 6 * k - gh)
-        back = self.back.crop((gx, gy, gx + gw, gy + gh)) if self.back and self.back.size == content.size else None
-        out.alpha_composite(glass.pane(gw, gh, gh // 2, T["tint"], accent, back, 150 if state == "paused" else glass.OPACITY),
-                            (gx, gy))
+        # the pane changes only with its size, colour or backdrop: not with each frame of a waveform
+        key = (gw, gh, gx, gy, T["tint"], accent, state == "paused", id(self.back))
+        if not self._pane or self._pane[0] != key:
+            back = self.back.crop((gx, gy, gx + gw, gy + gh)) if self.back and self.back.size == content.size else None
+            self._pane = key, glass.pane(gw, gh, gh // 2, T["tint"], accent, back, 150 if state == "paused" else glass.OPACITY)
+        out.alpha_composite(self._pane[1], (gx, gy))
         out.alpha_composite(content)
         self._present(out, self.x, self.y)
 
     @staticmethod
-    def _orb(d, cx, cy, r, s):
-        """Nova's mark: a glassy accent bubble with a ring and a dot in it."""
-        ink = theme.T["ink"]
-        d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=theme.T["accent"] + (255,))
-        d.ellipse((cx - r * .62, cy - r * .92, cx + r * .62, cy - r * .3), fill=theme.T["light"] + (120,))  # a soft gloss on top
-        d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=WHITE + (95,), width=max(1, round(s)))
-        q = r * .42
-        d.ellipse((cx - q, cy - q, cx + q, cy + q), outline=ink + (235,), width=max(1, round(1.6 * s)))
-        q = r * .13
-        d.ellipse((cx - q, cy - q, cx + q, cy + q), fill=ink + (235,))
+    def _well(d, box, s):
+        """A lighter pocket of the glass (round ends): the orb, the action button and the stop button sit in one."""
+        light = theme.T["light"]  # tinted by the theme's light, so the wells belong to the glass rather than sit grey on it
+        d.rounded_rectangle(box, radius=(box[3] - box[1]) / 2, fill=light + (34,), outline=light + (80,), width=max(1, round(s)))
+
+    @staticmethod
+    def _orb(img, d, cx, cy, r, s, lit=False):
+        """Nova's logo (the tray icon's bars, without its tile) in a glass well; a soft accent glow behind it while Nova
+        works. Click it for the Nova window."""
+        Bar._well(d, (cx - r, cy - r, cx + r, cy + r), s)
+        if lit:
+            for f, a in ((.82, 40), (.6, 70)):
+                d.ellipse((cx - r * f, cy - r * f, cx + r * f, cy + r * f), fill=theme.T["accent"] + (a,))
+        size = round(r * 1.55)  # the bars fill about two thirds of the well
+        img.alpha_composite(_logo(size), (round(cx - size / 2), round(cy - size / 2)))
 
     @staticmethod
     def _sparkle(d, cx, cy, r, color):

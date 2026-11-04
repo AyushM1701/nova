@@ -1,7 +1,6 @@
 "use strict";
 // Nova's orb: a rotating point-cloud sphere that follows what Nova is doing. Shared source: core/phone.py page() puts it
-// into core/app.html (the same way as md.js), so there is one copy and no build step. prototypes/orb.html is the
-// standalone version this came from.
+// into core/app.html (the same way as md.js), so there is one copy and no build step.
 //
 //   Orb.mount(canvas, { hue })   the canvas to draw on (it fills its CSS size); nothing runs until resume()
 //   Orb.setHue(hue)              the colour, 0-360 (the window's colour picker)

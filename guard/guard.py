@@ -462,8 +462,8 @@ def classify(tool, inp, cwd, roots, home, notes, mode="accept_edits"):
         return "block", "reads browser or SSH secrets"
     if home and path and _under(_real(cwd, path), os.path.join(home, "data")):
         return "block", NOVA_DATA
-    if tool in ("Grep", "grep_files") and path:  # a search tool always goes through every folder below its path
-        full = _real(cwd, path)
+    if tool in ("Grep", "grep_files"):  # a search tool always goes through every folder below its path (default: cwd)
+        full = _real(cwd, path or ".")
         if _wide(full):
             return with_mode("confirm", WIDE_WHY, mode, unfamiliar=False)
         if home and _under(os.path.join(home, "data"), full):  # it obeys .gitignore only in a git repo, not a ZIP install

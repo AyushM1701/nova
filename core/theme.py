@@ -4,8 +4,10 @@ colour) keeps Nova's own violet on navy. `T` holds the current tokens as RGB tup
 import colorsys
 
 VIOLET, INK = (123, 109, 255), (11, 13, 26)
-NOVA = {"accent": VIOLET, "ink": (255, 255, 255), "light": (185, 177, 255), "tint": (13, 15, 26), "raised": (38, 42, 66),
-        "text": (240, 242, 250), "body": (212, 215, 232), "muted": (164, 168, 194), "faint": (124, 129, 156)}
+# Nova's own: indigo glass with the violet as its one voice. Fills are Signal Violet (#6d5ff7), not the brand #7b6dff,
+# so white lettering on them reaches 4.5:1; the text tints come from the violet, not from grey.
+NOVA = {"accent": (109, 95, 247), "ink": (255, 255, 255), "light": (190, 182, 255), "tint": (17, 14, 42), "raised": (44, 38, 86),
+        "text": (244, 242, 255), "body": (222, 219, 246), "muted": (184, 179, 226), "faint": (158, 152, 208)}
 T = dict(NOVA)  # what the bar and card draw with right now
 
 

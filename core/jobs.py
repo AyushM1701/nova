@@ -3,13 +3,12 @@ session to resume, and how it ended. When Nova closes mid-request the record say
 that into "interrupted" and offers to pick it up. Background jobs (kind "background") keep their files in
 workspace/jobs/<id>/ and use the same records."""
 import json
-import os
 import re
 import time
 import uuid
 
 from core import usage
-from core.config import DATA, WORKSPACE, log
+from core.config import DATA, WORKSPACE, log, write_atomic
 
 DIR = DATA / "jobs"
 FOLDERS = WORKSPACE / "jobs"  # a background job's own working folder, with output/ and tmp/
@@ -27,9 +26,7 @@ def _write(rec):
     """Atomic, and never fatal: a full disk or a locked file must not stop the request itself."""
     try:
         DIR.mkdir(parents=True, exist_ok=True)
-        tmp = _path(rec["id"]).with_suffix(".tmp")
-        tmp.write_text(json.dumps(rec, indent=1, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp, _path(rec["id"]))
+        write_atomic(_path(rec["id"]), json.dumps(rec, indent=1, ensure_ascii=False))
     except OSError as e:
         log("error", error=f"couldn't write job record {rec['id']}: {e!r}")
 

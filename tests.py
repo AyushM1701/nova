@@ -1449,6 +1449,9 @@ for tool, path, want in SECRET_PATHS:
 assert classify("Grep", {"pattern": r"\.ssh", "path": native(r"D:\code\portfolio")}, native(r"D:\code\portfolio"),
                 [native(r) for r in roots], native(home), native(notes))[0] == "allow"  # searching code for ".ssh" is fine
 
+assert classify("Grep", {"pattern": "x"}, native(home), [], native(home), native(notes))[0] == "confirm"  # no path: searches cwd
+assert classify("Grep", {"pattern": "x"}, native(r"D:\code\portfolio"), [native(r) for r in roots], native(home), native(notes))[0] == "allow"
+
 # permission modes: (command or file) -> verdict in auto / manual / accept_edits / plan / bypass
 MODE_ORDER = ("auto", "manual", "accept_edits", "plan", "bypass")
 MODE_CMDS = [
@@ -3216,6 +3219,14 @@ n.cancel.set()
 n.job_ended = lambda: nova_mod.Nova.job_ended(n)
 nova_mod.Nova.guarded(n, lambda: None)
 assert ran == ["next"] and n.next_job is None, ran
+# a follow-up listen uses up the flag that started it: staying quiet (or pressing stop) ends the conversation instead of listening again for ever
+spawned = []
+n = types.SimpleNamespace(followup=True, card=types.SimpleNamespace(show=lambda *a, **k: None), spawn=lambda work, phase: spawned.append(phase))
+nova_mod.Nova.start_job(n, followup=True)
+assert n.followup is False and n.in_followup is True and spawned == ["listening"], (n.followup, spawned)
+n.followup = True
+nova_mod.Nova.start_job(n)                                                    # a fresh request (not a follow-up) leaves the flag alone
+assert n.followup is True and n.in_followup is False
 # a hold while Nova is busy says so, instead of nothing happening
 cards = []
 n = types.SimpleNamespace(phase="busy", pending=None, paused=False, stt=object(), in_followup=False, holding=False,
@@ -3923,7 +3934,7 @@ w.card = w.canvas = types.SimpleNamespace(show=lambda *a, **k: None, hide=lambda
 w.pointer = types.SimpleNamespace(fly=lambda *a, **k: events.append("point"))
 w.sketchpad = types.SimpleNamespace(prepare=lambda sk: {"sk": sk}, show=lambda b: events.append("show"),
                                     hold=lambda b: events.append("hold"), hide=lambda: None)
-w.say = lambda title, spoken, shown="": events.append(("say", spoken, shown))
+w.say = lambda title, spoken, shown="", **_: events.append(("say", spoken, shown))
 reply = {"text": "Antonelli won.\n:::sketch Suzuka result\nrow 1 | Antonelli | Mercedes\n:::\nSAY: Kimi Antonelli won at Suzuka."}
 
 
@@ -3942,6 +3953,13 @@ FakeAsk.name, w.cfg["brain"]["auto_model"], w.cfg["brain"]["claude_model"] = "Cl
 w.assist("open Spotify")
 assert [f for e, f in logged if e == "route"][-1] == {"tier": 2, "why": "haiku", "text": "open Spotify"}
 FakeAsk.name = "Fake"
+events.clear()                                                            # a simple action that worked: done quietly, no callback
+reply["text"], _saved_reply = "SAY:", reply["text"]
+w.done = lambda text: events.append(("done", text))
+w.assist("open youtube in the browser")
+assert events == [("done", "Done.")] and w.last_say == "Done." and not w.asked, events
+reply["text"] = _saved_reply
+del w.done
 events[:], logged[:] = saved_events, saved_logged
 history = next(f["reply"] for e, f in logged if e == "reply")
 assert "Antonelli won." in history and "Suzuka result" in history and "Antonelli (Mercedes)" in history, history
@@ -6004,7 +6022,7 @@ limited = phone_mod.Phone(lambda msg: None)
 limited.enable(False, tailscale_only=True)
 assert limited.tailscale_only is True
 assert 'data-bind="phone.tailscale_only"' in Path("core/app.html").read_text(encoding="utf-8")
-assert config_mod.defaults()["phone"]["tailscale_only"] is False
+assert config_mod.defaults()["phone"]["tailscale_only"] is None  # never set: Tailscale only, when Tailscale is installed
 
 # the computer-audio capture lets go of its device when the default speakers change (and keeps going when they don't)
 if sys.platform == "win32":
@@ -6541,7 +6559,7 @@ NOW = _dtw.datetime(2026, 11, 4, 13, 0)  # a Wednesday, 1 pm
 WHEN = {"call at 4 pm": (2026, 11, 4, 16, 0), "at 4": (2026, 11, 4, 16, 0), "at 9": (2026, 11, 4, 21, 0), "at 1 pm": (2026, 11, 5, 13, 0),
         "in 20 minutes": (2026, 11, 4, 13, 20), "in an hour": (2026, 11, 4, 14, 0), "in half an hour": (2026, 11, 4, 13, 30),
         "tomorrow at 9": (2026, 11, 5, 9, 0), "tomorrow at 9:30 pm": (2026, 11, 5, 21, 30), "Thursday at 3": (2026, 11, 5, 15, 0),
-        "thursday at 10": (2026, 11, 5, 10, 0), "next wednesday at 2 pm": (2026, 11, 11, 14, 0), "tonight at 8": (2026, 11, 4, 20, 0),
+        "thursday at 10": (2026, 11, 5, 10, 0), "next wednesday at 2 pm": (2026, 11, 11, 14, 0), "tonight at 8": (2026, 11, 4, 20, 0), "tonight at 12": (2026, 11, 5, 0, 0),
         "at noon": (2026, 11, 5, 12, 0), "at 4:15 p.m.": (2026, 11, 4, 16, 15), "friday at 7 am": (2026, 11, 6, 7, 0)}
 for text, want in WHEN.items():
     got = when.find(text, NOW)
@@ -6557,6 +6575,7 @@ for text, what in REM.items():
 assert reminders.parse("remind me to call the bank", NOW) is None and reminders.parse("what's the time at 4 pm", NOW) is None
 assert reminders.parse("remind me at 4 pm", NOW) is None  # nothing to remind of
 assert [reminders.snooze(t) for t in ("snooze", "snooze 10 minutes", "Snooze for an hour.", "snooze it for 5 minutes", "snooze my alarm")] == [10, 10, 60, 5, None]
+assert [reminders.snooze(t) for t in ("snooze seven minutes", "snooze twenty five minutes")] == [7, 25]
 assert reminders.CLEAR_RE.match("clear my reminders") and not reminders.CLEAR_RE.match("clear the screen")
 assert reminders.describe(_dtw.datetime(2026, 11, 4, 16, 0).timestamp(), NOW) == "at 4:00 PM"
 assert reminders.describe(_dtw.datetime(2026, 11, 5, 9, 30).timestamp(), NOW) == "tomorrow at 9:30 AM"
@@ -6785,7 +6804,7 @@ assert _visible("idle", False, "peek", "hover", True) and _visible("idle", False
 assert all(_visible(s, False, "hidden", "hover", True) for s in ("listening", "thinking", "speaking", "approval"))  # working: always shown
 assert _visible("idle", False, "hidden", "always", True) and _visible("idle", False, "hidden", "hover", False)  # always; and the bottom bar
 assert _visible("idle", False, "open", "shortcut", True) is False and _visible("thinking", False, "hidden", "shortcut", True)
-assert _visible("thinking", True, "hidden", "always", True) is False                          # a card on top of it hides it in any state
+assert _visible("idle", True, "hidden", "hover", True) and _visible("idle", True, "hidden", "shortcut", True)  # a card under it keeps it up
 _calls = []
 _b = object.__new__(_Bar)
 _b.top, _b.state, _b.stage, _b.reveal, _b.dirty = True, "idle", "hidden", "hover", False
@@ -6810,7 +6829,10 @@ assert note_top(0, 1000, 300.5, 300) == 308 and note_top(0, 1000, 300.5, 0) == 1
 # the bar and card are frosted glass in the colour picked in Settings -> Colour & cursor
 from core import theme as _theme, glass as _glass
 from core.pointer import rgb as _rgb
-assert _theme.tokens(None) == _theme.NOVA and _theme.tokens(_rgb("nova")) == _theme.NOVA and _theme.NOVA["accent"] == (123, 109, 255)
+assert _theme.tokens(None) == _theme.NOVA and _theme.tokens(_rgb("nova")) == _theme.NOVA and _theme.NOVA["accent"] == (109, 95, 247)
+for _k in ("text", "body", "muted", "faint", "light"):                                        # Nova's own glass: every text tint reads on it
+    assert _theme.ratio(_theme.NOVA[_k], _theme.NOVA["tint"]) >= 7, _k
+assert _theme.ratio(_theme.NOVA["ink"], _theme.NOVA["accent"]) >= 4.5                        # white on the violet fills
 for _hex in ("#ffd400", "#ffffff", "#2f7bff", "#ff3b30", "#808080", "#00c853", "#000000", "#7b6dff"):
     _tk = _theme.tokens(_rgb(_hex))
     assert _theme.ratio(_tk["ink"], _tk["accent"]) >= 4.5, (_hex, _tk)                         # lettering on the accent button stays legible
@@ -6836,13 +6858,11 @@ _b2._clicked(types.SimpleNamespace(x=120))                                      
 assert _clicks == ["menu", "click", "click"], _clicks
 _cd = object.__new__(overlay_mod.Card)                                                        # links under a reply, and Allow / Deny, are hit by position
 _ran = []
-_cd.scale, _cd.over, _cd.anim = 1.0, False, False
+_cd.scale = 1.0
 _cd.buttons, _cd.chips = [((100, 100, 140, 130), lambda: _ran.append("allow"))], [((10, 10, 50, 30), lambda: _ran.append("ask"))]
 _hit = lambda x, y: _cd._hit(types.SimpleNamespace(x=x, y=y))
 _hit(30, 20)(); _hit(120, 115)()
 assert _hit(70, 60) is None and _ran == ["ask", "allow"], _ran
-_cd.over, _cd.anim = True, True
-assert _hit(30, 20) is None                                                                   # still moving: a click would land beside them
 
 from core.bar import spring as _spring
 for _fps in (30, 60, 144):                                                                    # the spring settles in about a quarter second at any frame rate
@@ -6855,35 +6875,25 @@ for _fps in (30, 60, 144):                                                      
             _settled = (_i + 1) / _fps
     assert _settled is not None and _settled < 0.4 and _peak < 108 and abs(_x - 100) < 0.01, (_fps, _settled, _peak, _x)
 import core.overlay as overlay_mod
-_t, _cov, _real_time, _real_rm = [0.0], [], overlay_mod.time, system.reduced_motion
-overlay_mod.time, system.reduced_motion = types.SimpleNamespace(monotonic=lambda: _t[0]), lambda: False
-_c = object.__new__(overlay_mod.Card)                                                         # the card grows out of the pill and shrinks back into it
-_c.bar, _c.over, _c.closing, _c.anim, _c.visible, _c.seed, _c.full = types.SimpleNamespace(cover=_cov.append), True, False, True, True, (64.0, 14.0), (440.0, 120.0)
-_c.cw, _c.ch, _c.vw, _c.vh, _c._tick_job, _c.hide_later, _c._hide = 64.0, 14.0, 0.0, 0.0, 1, (lambda s: None), (lambda: _cov.append("hidden"))
-_frames = 0
-while _c._step():
-    _t[0] += 1 / 60
-    _frames += 1
-    assert _frames < 120 and _c.cw <= 442 and _c.ch <= 122
-assert (_c.cw, _c.ch, _c.anim) == (440.0, 120.0, False) and 6 < _frames < 40, (_c.cw, _c.ch, _frames)
-_c.hide()                                                                                     # a plain hide starts the shrink: nothing is hidden yet
-assert _c.closing and _c.visible and _cov == [], _cov
-_c.hide()                                                                                     # asked again while shrinking: no change
-assert _c.closing and _cov == []
-_frames = 0
-while _c.visible:
-    _t[0] += 1 / 60
-    _frames += 1
-    _c._step()
-    assert _frames < 120
-assert _cov == [False, "hidden"] and not _c.closing, _cov                                      # the pill is uncovered, then the card goes
-_c.visible, _c.closing = True, False
-_c.hide(instant=True)                                                                         # the mic is opening: no waiting for the shrink
-assert not _c.visible and _cov == [False, "hidden", False, "hidden"], _cov
-_c.visible, _c.over = True, False
-_c.hide()                                                                                     # off the top (or on a Mac): hides at once, as before
-assert not _c.visible
-overlay_mod.time, system.reduced_motion = _real_time, _real_rm
+_cov = []
+_c = object.__new__(overlay_mod.Card)                                                         # the pill stays up while a card hangs under it
+_c.bar, _c.visible, _c._hide = types.SimpleNamespace(cover=_cov.append), True, (lambda: _cov.append("hidden"))
+_c.hide(); _c.hide()                                                                          # a second hide doesn't uncover the pill again
+assert not _c.visible and _cov == [False, "hidden", "hidden"], _cov
+# the answer card: the answer leads, the question sits at the top right, the links are chips that are hit where drawn
+_rc = object.__new__(overlay_mod.Card)
+_rc.scale, _rc.px, _rc.logical, _rc.hotkey, _rc.kind = 1.0, 1, 1.0, "Ctrl+Alt+Space", "reply"
+_rc.on_ask, _rc.on_open = (lambda: "ask"), (lambda: "open")
+_rc._fonts()
+_rc._render("Nova", "A discounted cash flow model values a company by projecting its future free cash flows. " * 4, False,
+            "What's a DCF model?", "", None)
+assert [a() for _, a in _rc.chips] == ["ask", "open"] and _rc.chips[0][0][2] < _rc.chips[1][0][0], _rc.chips
+assert all(r[3] <= _rc._text.height - overlay_mod.SHADOW for r, _ in _rc.chips)              # inside the panel
+assert _rc._text.height - 2 * overlay_mod.SHADOW <= overlay_mod.BACK_H                       # the grabbed backdrop covers the tallest card
+_rc.kind = "approval"
+_rc.on_allow, _rc.on_deny = (lambda: "allow"), (lambda: "deny")
+_rc._render("Needs your OK", "Delete the build folder. " * 12, True, "", "Remove-Item -Recurse build " * 6, None)
+assert [a() for _, a in _rc.buttons] == ["allow", "deny"] and _rc._text.height - 2 * overlay_mod.SHADOW <= overlay_mod.BACK_H
 # Phase 3: Nova speaks the SAY line while the AI is still writing the rest of its reply
 from core.brain import SayLine as _SayLine
 def _say_feed(*parts):
@@ -6971,7 +6981,7 @@ assert _nn.early.line == "Two."                                                 
 _nn.early.thread.join(5)
 nova_mod.tts.speak = _real_speak
 _cancelled = []                                                                                # talked over the early line: the AI stops, and the user is heard at once
-_nn.brain, _nn._voice, _nn.early = types.SimpleNamespace(cancel=lambda: _cancelled.append(1)), (lambda *a: [("clip", 0.1)]), None
+_nn.brain, _nn._voice, _nn.early, _nn.heard = types.SimpleNamespace(cancel=lambda: _cancelled.append(1)), (lambda *a: [("clip", 0.1)]), None, "hi"
 _nn.speak_early("Hi.")
 _nn.early.thread.join(5)
 assert _cancelled == [1] and _nn.early.interruption == [("clip", 0.1)], (_cancelled, _nn.early.interruption)
@@ -6988,6 +6998,120 @@ if not system.IS_MAC:
     _w._click_through(False)
     bar_mod.user32 = real_user32
     assert _styles == [0x80028 | 0x20, 0x80028 & ~0x20], _styles                              # the toggle sets and clears WS_EX_TRANSPARENT
+# audit fixes: overlapping captures, a click on the bar never approves, a full disk never stops what is being logged about
+if not system.IS_MAC:
+    _flags, _real_u32, _real_own = [], system.user32, list(system.OWN_WINDOWS)
+    system.user32 = types.SimpleNamespace(SetWindowDisplayAffinity=lambda hwnd, flag: _flags.append((hwnd, flag)))
+    system.OWN_WINDOWS[:] = [7, 8]
+    system._own_windows_hidden(True)                                                          # the AI's screenshot starts
+    system._own_windows_hidden(True)                                                          # the glass's backdrop, meanwhile
+    system._own_windows_hidden(False)                                                         # ...which ends first: the screenshot is not over
+    assert _flags == [(7, 0x11), (8, 0x11)], _flags                                           # so nothing came back into the picture yet
+    system._own_windows_hidden(False)
+    assert _flags[2:] == [(7, 0), (8, 0)] and system._HIDERS == 0, _flags                     # the last one puts them back
+    system._own_windows_hidden(False)                                                         # a stray extra restore never goes below zero
+    assert system._HIDERS == 0
+    system.user32, system.OWN_WINDOWS[:] = _real_u32, _real_own
+_cards, _answers, _started = [], [], []
+_nb = types.SimpleNamespace(pending=(object(), [None]), ask_event={"plain": "Deletes the dist folder"}, asking="rm -rf dist",
+                            card=types.SimpleNamespace(show=lambda *a, **k: _cards.append((a, k))),
+                            answer=lambda ok: _answers.append(ok), on_hotkey=lambda: _started.append(1))
+nova_mod.Nova.on_bar_click(_nb)
+assert _answers == [] and _started == [] and _cards[0][1]["buttons"] is True and _cards[0][0][1] == "Deletes the dist folder", (_cards, _answers)
+_nb.pending, _nb.ask_event = None, None
+nova_mod.Nova.on_bar_click(_nb)                                                               # nothing waiting: a click is the shortcut
+assert _started == [1] and _answers == []
+_real_logs = config_mod.LOGS
+_afile = Path(tempfile.mkdtemp()) / "afile"
+_afile.write_text("x")
+config_mod.LOGS = _afile / "logs"                                                             # can't be made: like a full or locked disk
+config_mod.log("test_full_disk", x=1)                                                         # no exception
+config_mod.LOGS = _real_logs
+# second audit: a failed update puts the old files back, the wake word follows the microphone in use, Phone defaults to
+# Tailscale when it is there, a browser that disconnected says so
+def _zip_of(*names):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for name in names:
+            z.writestr(f"nova-main/{name}", f"NEW {name}")
+    return buf.getvalue()
+_up = Path(tempfile.mkdtemp())
+(_up / "a.py").write_text("OLD a")
+(_up / "z.py").write_text("OLD z")
+(_up / "locked.py").mkdir()                                                                  # stands in for a file another program holds: the move onto it fails
+try:
+    update_mod.unpack(_zip_of("a.py", "b.py", "locked.py", "z.py"), _up)
+    raise AssertionError("the move onto a locked file should have failed")
+except PermissionError:
+    pass
+assert (_up / "a.py").read_text() == "OLD a" and (_up / "z.py").read_text() == "OLD z", "half-updated"
+assert not (_up / "b.py").exists() and not (_up / ".update-files").exists()                    # a new file is taken out again; no list of what was written
+assert not (_up / update_mod.STAGING).exists() and not (_up / update_mod.BACKUP).exists()       # and nothing left behind
+(_up / "locked.py").rmdir()
+assert update_mod.unpack(_zip_of("a.py", "a.py", "z.py"), _up) == 2 and (_up / "a.py").read_text() == "NEW a.py"  # a name listed twice is one file
+(_up / ".update-backup").mkdir()
+(_up / ".update-backup" / "old").write_text("x")
+update_mod.unpack(_zip_of(".update-backup/evil", "a.py"), _up)                                # the backup folder isn't the zip's to write, and is cleared each time
+assert not (_up / ".update-backup").exists()
+_calls, _refreshed, _real_listen = [], [], wake_mod._listen
+wake_mod._listen = lambda *a: _calls.append(1) or "stale"
+wake_mod.listen(None, None, None, running=lambda: len(_calls) < 2, refresh=lambda: _refreshed.append(1))
+wake_mod._listen = _real_listen
+assert _refreshed == [1, 1], _refreshed                                                       # a stale device list is refreshed with the microphone closed
+_det = object.__new__(wake_mod.Detector)
+_det.sure, _det.transcribe, _det.mic, _det.played, _det.stale = 3, (lambda clip: [("hey", 0.1)]), "Headset", None, False
+_det.personal = types.SimpleNamespace(voice=types.SimpleNamespace(similarity=lambda clip: 0.99))
+_det.from_speakers = lambda clip: False
+_real = (wakeword.levels, wakeword.shadow, wake_mod.log)
+wakeword.levels, wakeword.shadow, wake_mod.log = (lambda: {"USB mic": 0.2}), (lambda: False), (lambda *a, **k: None)
+assert _det.yours(np.full(wake_mod.BLOCK * 4, 0.5, np.float32)) is None and _det.stale is True  # their voice, on a microphone their tries aren't on
+_det.stale, _det.mic = False, "USB mic"
+_det.yours(np.full(wake_mod.BLOCK * 4, 0.5, np.float32))
+assert _det.stale is False                                                                    # the right microphone: nothing to refresh
+wakeword.levels, wakeword.shadow, wake_mod.log = _real
+assert "weren't recorded on" in wakeword.UNKNOWN_MIC and "Settings" in wakeword.UNKNOWN_MIC
+_dev = []
+_real_sd, audio.sd = audio.sd, types.SimpleNamespace(_terminate=lambda: _dev.append("end"), _initialize=lambda: _dev.append("start"))
+_real_apply, audio.apply_devices = audio.apply_devices, lambda cfg: _dev.append("pick")
+_real_mic, audio.MIC = audio.MIC, types.SimpleNamespace(stream=None, recording=False, lock=threading.Lock(), _close=lambda: None)
+assert audio.refresh_devices({}) is True and _dev == ["end", "start", "pick"], _dev            # re-read, then re-pick
+_dev.clear()
+audio.MIC.stream, audio.MIC.recording = object(), True
+assert audio.refresh_devices({}) is False and _dev == []                                      # being recorded from: left alone
+audio.MIC, audio.sd, audio.apply_devices = _real_mic, _real_sd, _real_apply
+_rm, _fake = [], types.SimpleNamespace(phase="idle", recorder=None, mic_refreshed=0.0, cfg={"voice": {}})
+_real_rd = audio.refresh_devices
+audio.refresh_devices = lambda cfg: _rm.append(1) or True
+nova_mod.Nova.refresh_mic(_fake)
+nova_mod.Nova.refresh_mic(_fake)                                                              # within a minute: not again
+_fake.mic_refreshed = 0.0; _fake.phase = "busy"
+nova_mod.Nova.refresh_mic(_fake)                                                              # Nova is working: another stream may be open
+_fake.phase, _fake.recorder = "idle", object()
+nova_mod.Nova.refresh_mic(_fake)                                                              # a meeting is being recorded
+audio.refresh_devices = _real_rd
+assert _rm == [1], _rm
+_ts = phone_mod._tailscale_ips
+phone_mod._tailscale_ips = lambda: ["192.168.1.5", "100.101.1.2"]
+assert phone_mod.only_tailscale(None) and phone_mod.only_tailscale("auto") and phone_mod.only_tailscale(True)
+assert not phone_mod.only_tailscale(False)                                                    # chosen off stays off, Tailscale or not
+assert phone_mod.hosts("auto") == (["100.101.1.2"], "")                                       # never set, Tailscale there: Tailscale only
+phone_mod._tailscale_ips = lambda: ["192.168.1.5"]
+assert not phone_mod.only_tailscale(None) and not phone_mod.only_tailscale("auto")           # no Tailscale: Wi-Fi works as before
+phone_mod._tailscale_ips = _ts
+assert nova_mod.phone_scope({"phone": {"tailscale_only": None}}) == "auto" and nova_mod.phone_scope({"phone": {"tailscale_only": False}}) is False
+_ph = phone_mod.Phone(lambda msg: None)
+_ph.enable(False, tailscale_only="auto")
+assert _ph.tailscale_only == "auto"
+_loop = asyncio.new_event_loop()
+threading.Thread(target=_loop.run_forever, daemon=True).start()
+_bridge = object.__new__(web.Bridge)
+_bridge.loop, _bridge.conns, _bridge.pending, _bridge.next_id = _loop, {}, {}, 0
+try:
+    _bridge.call("brave", "read", {})
+    raise AssertionError("no connection should be an error")
+except RuntimeError as e:
+    assert "disconnected" in str(e), e                                                        # not a bare KeyError('brave')
+_loop.call_soon_threadsafe(_loop.stop)
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
 
 from core.cleanup import fix_vocabulary  # noqa: E402

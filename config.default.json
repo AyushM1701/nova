@@ -114,7 +114,7 @@
   },
   "phone": {
     "enabled": false,
-    "tailscale_only": false,
+    "tailscale_only": null,
     "keep_awake": true
   },
   "safety": {

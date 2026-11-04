@@ -99,11 +99,20 @@ def router():
         return ""
 
 
+def only_tailscale(setting, ips=None):
+    """Whether Phone listens only on Tailscale: as Settings says, and while it was never set (None, or "auto"), whenever
+    the Tailscale app is on this computer, since Wi-Fi isn't encrypted and Tailscale is."""
+    if setting is None or setting == "auto":
+        return any(_tailscale(ip) for ip in (_tailscale_ips() if ips is None else ips))
+    return bool(setting)
+
+
 def hosts(tailscale_only=False):
     """Where Phone listens, and why it's paused ('' if it isn't): everywhere on the network it was turned on in,
-    else only on Tailscale. `tailscale_only`: always only there, since Wi-Fi isn't encrypted and Tailscale is."""
-    if tailscale_only:
-        found = [ip for ip in _tailscale_ips() if _tailscale(ip)]
+    else only on Tailscale. `tailscale_only`: always only there (see only_tailscale)."""
+    ips = _tailscale_ips()  # asked once: it runs the tailscale program
+    if only_tailscale(tailscale_only, ips):
+        found = [ip for ip in ips if _tailscale(ip)]
         return found or ["127.0.0.1"], "" if found else NO_TAILSCALE
     now = router()
     try:
@@ -116,7 +125,7 @@ def hosts(tailscale_only=False):
     if now and now == home:
         return ["0.0.0.0"], ""
     # no router found (wired with no ARP entry, or the check failed): paused, not open to whatever network this is
-    return [ip for ip in _tailscale_ips() if _tailscale(ip)] or ["127.0.0.1"], PAUSED if now else UNKNOWN
+    return [ip for ip in ips if _tailscale(ip)] or ["127.0.0.1"], PAUSED if now else UNKNOWN
 
 
 def _tailscale_ips():
@@ -184,7 +193,8 @@ def page(path):
 
 
 def links(tailscale_only=False):
-    return [f"http://{ip}:{PORT}/#{token()}" for ip in addresses() if not tailscale_only or _tailscale(ip)]
+    only = only_tailscale(tailscale_only)
+    return [f"http://{ip}:{PORT}/#{token()}" for ip in addresses() if not only or _tailscale(ip)]
 
 
 def _icon():
@@ -209,8 +219,8 @@ class Phone:
     def enable(self, on, here=False, tailscale_only=None):
         """Listen on the network (Settings → Phone on), or stop and drop every phone. `here`: the user just turned
         Phone on, so this network is the one to trust."""
-        if tailscale_only is not None:
-            self.tailscale_only = bool(tailscale_only)
+        if tailscale_only is not None:  # "auto": never set in Settings (see only_tailscale)
+            self.tailscale_only = tailscale_only if tailscale_only == "auto" else bool(tailscale_only)
         if on and here:
             DATA.mkdir(parents=True, exist_ok=True)
             NETWORK.write_text(router(), encoding="utf-8")

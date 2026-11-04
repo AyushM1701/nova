@@ -251,6 +251,8 @@ Type a request, or tap the **mic on the phone's keyboard** to dictate it. Replie
 
 **Siri, the Action Button, Apple Watch and CarPlay:** tap **Siri** at the top of the phone page. It gives you a link to copy and five steps to build an "Ask Nova" shortcut in the Shortcuts app (Dictate Text → URL Encode → Get Contents of URL → Speak Text). Then say "Hey Siri, Ask Nova" and your request; Siri reads Nova's answer. A task that takes longer than about 50 seconds keeps going, and its answer appears in the phone page. Siri's dictation is Apple's, not Nova's on-device speech recognition.
 
+**On Wi-Fi the phone link isn't encrypted**, so while Tailscale is installed on the computer, Phone listens only on Tailscale unless you turn Settings → Phone → Only through Tailscale off yourself.
+
 **Away from home:** install the free [Tailscale](https://tailscale.com/download) app on the computer and the phone, and sign in to both with the same account. Settings → Phone then shows a second code, "Anywhere, with Tailscale"; scan that one and the page works from anywhere, privately and encrypted, without opening anything to the internet.
 
 **Safety:** only phones that scanned the code can connect; each link carries a secret pairing key. **Forget phones** in Settings → Phone makes a new key and disconnects every paired phone. On home Wi-Fi the connection isn't encrypted, so use it on your own network, not public Wi-Fi; over Tailscale it is encrypted. A paired phone can do anything you can do from the Nova window, including approving requests, so treat the link like a password.

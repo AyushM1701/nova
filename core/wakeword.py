@@ -155,6 +155,10 @@ def levels():
     return found
 
 
+UNKNOWN_MIC = ("a microphone your tries weren't recorded on (pick that microphone in Settings → Microphone, or record "
+               "your tries again on this one)")
+
+
 def too_quiet(audio, mic):
     """Why `audio` isn't the user saying it to this microphone ('' if it is): quieter than a third of their tries on
     it (a fan, a voice across the room), or a microphone they never recorded their tries on, whose level Nova can't
@@ -164,7 +168,7 @@ def too_quiet(audio, mic):
         return ""  # no tries to compare with: the voiceprint decides, as before
     level = known.get(mic) if mic else float(np.median(list(known.values())))
     if level is None:
-        return "a microphone your tries weren't recorded on (record them again in Settings)"
+        return UNKNOWN_MIC
     return "" if peak(audio) >= level * LOUD_SHARE else "too quiet for the user at the microphone"
 
 

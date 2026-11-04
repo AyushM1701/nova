@@ -44,9 +44,12 @@ def write_private(path, text):
 
 def log(event, **fields):
     entry = {"t": time.time(), "event": event, **fields}
-    LOGS.mkdir(parents=True, exist_ok=True)
-    with open(LOGS / time.strftime("nova-%Y-%m-%d.jsonl"), "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+    try:
+        LOGS.mkdir(parents=True, exist_ok=True)
+        with open(LOGS / time.strftime("nova-%Y-%m-%d.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+    except OSError:  # a full or locked disk must not stop the thing being logged about (it was often an error handler)
+        pass
     for hook in LOG_HOOKS:
         hook(entry)
 

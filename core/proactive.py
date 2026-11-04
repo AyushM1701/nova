@@ -9,11 +9,10 @@ What it keeps: only a count per day, when the last card was, which kinds you dis
 already offered (data/proactive.json). Never the text."""
 import hashlib
 import json
-import os
 import re
 import time
 
-from core.config import DATA, log
+from core.config import DATA, log, write_atomic
 
 STATE = DATA / "proactive.json"
 GAP_S = 20 * 60  # at least this long between two cards
@@ -88,9 +87,7 @@ class Limiter:
     def _save(self):
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self.s), encoding="utf-8")
-            os.replace(tmp, self.path)
+            write_atomic(self.path, json.dumps(self.s))
         except OSError as e:
             log("error", error=f"couldn't save proactive state: {e!r}")
 

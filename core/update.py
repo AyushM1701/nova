@@ -27,9 +27,11 @@ ASSET, SUMS, SIG = "nova-main.zip", "SHA256SUMS", "SHA256SUMS.sig"
 # yet and the checksum alone is trusted. Once it is set, an update or walkthrough download whose SHA256SUMS lacks
 # this key's signature is refused: whoever took over the release could rewrite the zip and its checksum, not this.
 RELEASE_KEY = ""
-KEEP = {".git", ".venv", "data", "logs", "workspace", "config.json", ".update-files", ".update-staging"}  # this computer's own
+KEEP = {".git", ".venv", "data", "logs", "workspace", "config.json", ".update-files", ".update-staging",
+        ".update-backup"}  # this computer's own
 FILES = ".update-files"  # what the last update wrote, so the next one can remove what a new version dropped
 STAGING = ".update-staging"  # the new files land here first, then move into place, so a failed write changes nothing
+BACKUP = ".update-backup"  # the files being replaced wait here until every move has worked
 
 
 def parse(version):
@@ -72,10 +74,13 @@ def verified(archive, sums, name=ASSET):
 def unpack(archive, root=ROOT):
     """Write the release zip over Nova's folder, skipping this computer's own files, and remove the files an
     earlier update wrote that this version no longer has. Everything is unpacked into a staging folder first, so a
-    bad zip or a full disk leaves Nova as it was. Returns the file count."""
-    stage = root / STAGING
-    shutil.rmtree(stage, ignore_errors=True)  # a leftover from an update that stopped partway
-    written = []
+    bad zip or a full disk leaves Nova as it was. Then each file moves into place with the old one kept aside: if a
+    move fails (a file another program holds open), the files already moved are put back, never half and half.
+    Returns the file count."""
+    stage, saved = root / STAGING, root / BACKUP
+    for leftover in (stage, saved):  # from an update that stopped partway
+        shutil.rmtree(leftover, ignore_errors=True)
+    written, moved = [], []
     try:
         with zipfile.ZipFile(io.BytesIO(archive)) as z:
             for info in z.infolist():
@@ -92,12 +97,29 @@ def unpack(archive, root=ROOT):
                 if os.name != "nt" and (info.external_attr >> 16) & 0o111:
                     dest.chmod(0o755)  # setup.sh and friends stay runnable
                 written.append("/".join(parts))
-        for name in written:  # same disk, so each move is instant and whole
-            dest = root.joinpath(*name.split("/"))
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(stage.joinpath(*name.split("/")), dest)
+        written = list(dict.fromkeys(written))  # a name listed twice is one file: the later one is what was staged
+        try:
+            for name in written:  # same disk, so each move is instant and whole
+                dest = root.joinpath(*name.split("/"))
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                existed = dest.is_file()
+                if existed:
+                    aside = saved.joinpath(*name.split("/"))
+                    aside.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(dest, aside)
+                os.replace(stage.joinpath(*name.split("/")), dest)
+                moved.append((name, existed))
+        except BaseException:
+            for name, existed in reversed(moved):  # best effort: a file that can't go back is the lesser harm
+                dest = root.joinpath(*name.split("/"))
+                try:
+                    shutil.copy2(saved.joinpath(*name.split("/")), dest) if existed else dest.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise
     finally:
-        shutil.rmtree(stage, ignore_errors=True)
+        for leftover in (stage, saved):
+            shutil.rmtree(leftover, ignore_errors=True)
     try:  # only files an update wrote: models, your own files and anything from before this list stay
         dropped = set((root / FILES).read_text(encoding="utf-8").splitlines()) - set(written)
     except OSError:

@@ -61,7 +61,9 @@ def pane(w, h, radius, tint, accent, back=None, opacity=OPACITY):
     radius = min(radius, w // 2, h // 2)
     base = Image.new("RGB", (w, h), tint)
     if back is not None and back.size == (w, h):
-        base = Image.blend(back, base, 0.72)  # a quarter of the backdrop's colour comes through the tint
+        # a quarter of the backdrop's colour comes through the tint, dimmed first: a white window behind the glass
+        # would otherwise lift it until the text on it is hard to read
+        base = Image.blend(back.point(lambda v: v * 0.55), base, 0.72)
     out = base.convert("RGBA")
     light = Image.new("RGBA", (w, h), (255, 255, 255, 0))  # light from above
     light.putalpha(_vgrad(w, h, 40, 0))

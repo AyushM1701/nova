@@ -47,6 +47,22 @@ def apply_devices(voice_cfg):
     sd.default.device = tuple(pick)
 
 
+def refresh_devices(voice_cfg):
+    """Read the system's devices again and pick the microphone and speaker again: a headset plugged in, or a USB
+    microphone that wasn't there when Nova started, is otherwise never heard (PortAudio keeps the list it had at start).
+    Only for a caller that knows no other sounddevice stream is open; the warm microphone is closed first. False when
+    it is being recorded from right now."""
+    with MIC.lock:  # held throughout: a shortcut press can't open a stream on a PortAudio being shut down
+        if MIC.recording:
+            return False
+        MIC._close()
+        with pa.LOCK:
+            sd._terminate()
+            sd._initialize()
+            apply_devices(voice_cfg)
+    return True
+
+
 def is_speech(rms, floor):
     return rms > max(MIN_SPEECH, floor * SPEECH_OVER_FLOOR)
 

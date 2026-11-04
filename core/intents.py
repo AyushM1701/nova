@@ -9,6 +9,8 @@ import os
 import re
 from urllib.parse import quote_plus
 
+from core.config import write_atomic
+
 # common sites people ask for by name; anything that looks like a domain ("github.com") works too
 SITES = {"youtube": "https://www.youtube.com", "gmail": "https://mail.google.com", "google": "https://www.google.com",
          "github": "https://github.com", "whatsapp": "https://web.whatsapp.com", "chatgpt": "https://chatgpt.com",
@@ -193,9 +195,7 @@ def _key(text):
 def _save(path, saved):
     """Whole file or nothing: a power cut mid-write leaves the old shortcuts, not half a file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix(".tmp")
-    temp.write_text(json.dumps(saved, indent=1), encoding="utf-8")
-    os.replace(temp, path)
+    write_atomic(path, json.dumps(saved, indent=1))
 
 
 def learn(path, said, intent):

@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 
 from core import diarize, loopback, models, pa
-from core.config import DATA, NOTES
+from core.config import DATA, NOTES, write_atomic
 
 STORE = DATA / "meetings"
 RATE = 16000
@@ -70,9 +70,7 @@ def load(mid):
 
 def save(m):
     STORE.mkdir(parents=True, exist_ok=True)
-    tmp = file(m["id"]).with_suffix(".tmp")
-    tmp.write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
-    tmp.replace(file(m["id"]))  # atomic: the window never reads half a file
+    write_atomic(file(m["id"]), json.dumps(m, ensure_ascii=False, indent=1))  # the window never reads half a file
 
 
 def update(mid, **fields):

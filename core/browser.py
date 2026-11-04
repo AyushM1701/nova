@@ -608,7 +608,10 @@ class Bridge:
             cid, future = self.next_id, self.loop.create_future()
             self.pending[cid] = future
             try:
-                await self.conns[bid].send(json.dumps({"type": "call", "id": cid, "tool": tool, "args": args}))
+                ws = self.conns.get(bid)
+                if ws is None:  # it closed since ensure() looked
+                    raise RuntimeError(f"{BROWSERS[bid][0]} disconnected. Try again in a moment.")
+                await ws.send(json.dumps({"type": "call", "id": cid, "tool": tool, "args": args}))
                 return await asyncio.wait_for(future, timeout)
             finally:  # no answer (the browser closed mid-action): don't keep its slot
                 self.pending.pop(cid, None)

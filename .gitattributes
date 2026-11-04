@@ -8,3 +8,6 @@ docs/media/** export-ignore
 docs/superpowers/** export-ignore
 docs/banner.png export-ignore
 docs/video/** export-ignore
+prototypes/** export-ignore
+agentic-os-blueprint.md export-ignore
+docs/audits/** export-ignore

@@ -6,8 +6,8 @@ import datetime as dt
 import re
 
 DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-NUMBERS = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "ten": 10, "fifteen": 15, "twenty": 20,
-           "thirty": 30, "forty five": 45, "forty-five": 45, "half an": 0.5, "half a": 0.5}
+NUMBERS = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+           "ten": 10, "eleven": 11, "twelve": 12, "fifteen": 15, "twenty": 20, "twenty five": 25, "twenty-five": 25, "thirty": 30, "forty five": 45, "forty-five": 45, "half an": 0.5, "half a": 0.5}
 NUMBER = r"\d+(?:\.\d+)?|" + "|".join(sorted(map(re.escape, NUMBERS), key=len, reverse=True))
 UNITS = {"minute": 1, "min": 1, "hour": 60, "hr": 60, "day": 1440}
 IN_RE = re.compile(rf"\bin ({NUMBER}) (minute|min|hour|hr|day)s?\b", re.I)
@@ -69,6 +69,8 @@ def find(text, now):
             if "tonight" in day.lower() or 1 <= h <= 6:
                 h = h % 12 + 12
         date = _day(day, now) if day else now.date()
+        if day and "tonight" in day.lower() and h == 12 and not half and not fixed:
+            h, date = 0, date + dt.timedelta(days=1)  # "tonight at 12" is midnight, the night's end
         if not half and not fixed and h <= 12 and not day:
             # no am/pm and no day: the next time the clock shows this
             options = sorted(dt.datetime.combine(date + dt.timedelta(days=d), dt.time(hh % 24, mi))

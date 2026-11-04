@@ -11,6 +11,8 @@ import time
 import urllib.parse
 from pathlib import Path
 
+from core.config import write_atomic
+
 WINGET_ID = "Obsidian.Obsidian"
 BREW_CASK = "obsidian"
 DOWNLOAD = "https://obsidian.md/download"
@@ -79,9 +81,7 @@ def register(vault, config=None):
         return False
     data.setdefault("vaults", {})[secrets.token_hex(8)] = {"path": str(vault), "ts": int(time.time() * 1000)}
     config.parent.mkdir(parents=True, exist_ok=True)
-    tmp = config.with_name(config.name + ".nova.tmp")
-    tmp.write_text(json.dumps(data), encoding="utf-8")
-    os.replace(tmp, config)
+    write_atomic(config, json.dumps(data))
     return True
 
 

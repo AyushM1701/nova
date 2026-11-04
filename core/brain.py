@@ -61,7 +61,8 @@ read aloud while you finish the rest (never put one in a message that a tool cal
 shown on screen comes after it). Write it for the ear, the way you'd talk: \
 at most two short sentences (longer only when they ask you to explain or go deeper), no code, paths, \
 markdown, lists or symbols, "for example" not "e.g.", small numbers spelled out, and never "simply" or \
-"just". After answering a question or explaining something, don't end on a dead end like "want to know \
+"just". If it was only a simple action that worked (open an app or site, play something, change a setting, a \
+quick system command), write just "SAY:" with nothing after it: Nova stays quiet. After answering a question or explaining something, don't end on a dead end like "want to know \
 more?"; when it fits, end by naming one related, more ambitious thing worth trying next.
 - If you need the user's answer to continue, need them to do something before you can go on (sign in, \
 pick a file), or want to offer one clear next step (after building or editing something: run the tests, \

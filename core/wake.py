@@ -152,6 +152,8 @@ class Detector:
     loudness gate to get past); when it hears "Hey Nova", the clip is raised to a normal level and Whisper checks it,
     so other talk can't wake Nova. feed() returns None, or ("wake", the request's audio after the name, or None)."""
 
+    stale = False  # the microphone in use isn't the one the user's tries are on: the device list may be old
+
     def __init__(self, transcribe, sensitivity="high", copies=STAGGER, gain=True, personal=None, played=None, mic=""):
         boost, threshold, self.similar = SENSITIVITY.get(sensitivity, SENSITIVITY["high"])
         self.transcribe, self.spotter, self.copies, self.gain = transcribe, spotter(boost, threshold), copies, gain
@@ -240,6 +242,7 @@ class Detector:
         why = "" if alike is not None and alike >= wakeword.VOICE else "not the enrolled voice"
         # a fan or a video across the room in a voice like theirs, or a microphone their level isn't known on
         why = why or wakeword.too_quiet(clip[:end], self.mic)
+        self.stale = self.stale or why == wakeword.UNKNOWN_MIC
         # the computer is playing something (a video, a call): its voices can sound like the user's, so the words
         # have to be the phrase too, as Whisper hears them
         if not why and self.played and self.played.recent() is not None and self.confirm(clip) is None:
@@ -301,16 +304,18 @@ def sounds_like(words, at_least):
     return end if best >= at_least else None
 
 
-def listen(transcribe, on_wake, enabled, running=lambda: True, sensitivity=lambda: "high", played=None):
+def listen(transcribe, on_wake, enabled, running=lambda: True, sensitivity=lambda: "high", played=None, refresh=None):
     """Run until `running()` is False (own thread). on_wake(None) = start listening, on_wake(audio) = this
     audio is the request. `enabled()` is False while Nova is busy, so its own voice can't wake it.
     Returning closes the microphone, so turning the wake word off really stops listening.
     Needs the keyword model (models.download("kws")); Nova fetches it before calling this. `played`: what the
-    computer is playing (loopback.Tail), so a voice from its own speakers can't wake Nova."""
+    computer is playing (loopback.Tail), so a voice from its own speakers can't wake Nova. `refresh()` is called, with
+    the microphone closed, when the device in use looks out of date (see Detector.stale, or a stream that stalled)."""
     failed = False
     while running():
         try:
-            _listen(transcribe, on_wake, enabled, running, sensitivity, played)
+            if _listen(transcribe, on_wake, enabled, running, sensitivity, played) == "stale" and refresh:
+                refresh()
             failed = False
         except Exception as e:  # no microphone this moment (unplugged, a headset reconnecting), or anything else: try again
             # shortcut: PortAudio keeps the device list from Nova's start; Windows' default input follows the system,
@@ -350,7 +355,7 @@ def _listen(transcribe, on_wake, enabled, running, sensitivity, played=None):
                 block = blocks.get(timeout=0.5)
             except queue.Empty:
                 if time.monotonic() - heard_at > STALLED_S:
-                    return
+                    return "stale"
                 continue
             heard_at = time.monotonic()
             if not enabled():
@@ -362,4 +367,6 @@ def _listen(transcribe, on_wake, enabled, running, sensitivity, played=None):
             hit = detector.feed(block)
             if hit:
                 on_wake(hit[1], hit[2])
+            if detector.stale:
+                return "stale"  # closes the stream; listen() refreshes the devices and opens a new one
 

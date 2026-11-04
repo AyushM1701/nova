@@ -611,15 +611,25 @@ def window_rect(target):
 
 
 OWN_WINDOWS = []  # Nova's bar, card and pointer: HWNDs on Windows, NSWindows on macOS (added by bar.Layered)
+_HIDERS, _HIDE_LOCK = 0, threading.Lock()  # how many captures want the windows out of the picture right now
 
 
 def _own_windows_hidden(hidden):
-    """Take Nova's own windows out of screen captures, or put them back. Only for the moment of Nova's own
-    screenshot: a permanent exclusion would also hide them from a recording or a screen share. Windows 10 2004+;
-    on older Windows the call fails and they stay visible (not WDA_MONITOR: that turns them into black boxes).
-    macOS (shortcut: untested, and ScreenCaptureKit on macOS 15+ may ignore sharingType): done on the main thread."""
-    if not OWN_WINDOWS:
-        return
+    """Take Nova's own windows out of screen captures, or put them back. Only for the moment of a capture (the AI's
+    screenshot, the glass's backdrop): a permanent exclusion would also hide them from a recording or a screen share.
+    Captures on different threads overlap, so this counts them: the windows go out for the first and come back with the
+    last. Windows 10 2004+; on older Windows the call fails and they stay visible (not WDA_MONITOR: that turns them
+    into black boxes). macOS (shortcut: untested, and ScreenCaptureKit on macOS 15+ may ignore sharingType): done on
+    the main thread."""
+    global _HIDERS
+    with _HIDE_LOCK:
+        _HIDERS = max(0, _HIDERS + (1 if hidden else -1))
+        if not OWN_WINDOWS or _HIDERS > (1 if hidden else 0):  # one still needs them out (or already is): nothing to do
+            return
+        _apply_hidden(hidden)
+
+
+def _apply_hidden(hidden):
     if not IS_MAC:
         for hwnd in OWN_WINDOWS:
             user32.SetWindowDisplayAffinity(hwnd, 0x11 if hidden else 0)  # WDA_EXCLUDEFROMCAPTURE / WDA_NONE
