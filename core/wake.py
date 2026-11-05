@@ -221,19 +221,18 @@ class Detector:
         return ("wake", after, self.floor) if not paused else ("wake", after if rest else None, None)
 
     def check(self, clip, mine, keyword):
-        """Stage 2. Each stage 1 has its own check: the personal model wakes only for the user's voice, and Whisper
-        (whose spelling check lets "Hey, no problem" or "ANOVA" through) only checks what the keyword model flagged."""
+        """Stage 2. Whisper checks what either model flagged; the personal model's flags must also be the user's
+        voice, at the user's loudness."""
         return (mine and self.yours(clip)) or (self.confirm(clip) if keyword else None)
 
     def yours(self, clip):
-        """Stage 2 when the personal model fired: the user's own voice, up to the last moment the model was sure, is
-        enough. Whisper isn't asked to hear the words (it writes many accents' "Hey Nova" as "you know what"), only
-        what came after. (the audio after the name, what Whisper heard after it), or None if it isn't their voice."""
+        """Stage 2 when the personal model fired: the user's own voice, loud enough, and Whisper hearing the phrase.
+        Without Whisper the model and voiceprint woke Nova on almost anything the user said near the mic (on the
+        user's saved clips, 0 of 34 such wakes held the phrase; Whisper heard 8 of about 11 real ones at Normal).
+        (the audio after the name, what Whisper heard after it), or None."""
         end = self.sure * BLOCK
-        # something must be said: on a quiet microphone the model can fire on near-silence, and the voiceprint
-        # (recorded through the same microphone) matched that room's silence at 0.9. Whisper hears no words there;
-        # sound too soft to be speech isn't worth asking it (about a second each on a CPU)
-        if float(np.abs(clip[:end]).max()) < MIN_SPEECH or not self.transcribe(clip[:end]):
+        # sound too soft to be speech isn't worth asking Whisper (about a second each on a CPU)
+        if float(np.abs(clip[:end]).max()) < MIN_SPEECH:
             if wakeword.shadow():
                 log("wake_shadow", spoken=False, would_wake=False)
             return None
@@ -243,10 +242,9 @@ class Detector:
         # a fan or a video across the room in a voice like theirs, or a microphone their level isn't known on
         why = why or wakeword.too_quiet(clip[:end], self.mic)
         self.stale = self.stale or why == wakeword.UNKNOWN_MIC
-        # the computer is playing something (a video, a call): its voices can sound like the user's, so the words
-        # have to be the phrase too, as Whisper hears them
-        if not why and self.played and self.played.recent() is not None and self.confirm(clip) is None:
-            why = "the computer is playing sound and Whisper didn't hear the phrase"
+        heard = None if why else self.confirm(clip)
+        if not why and heard is None:
+            why = "Whisper didn't hear the phrase"
         if not why and self.from_speakers(clip):
             why = "the computer's own audio"
         if wakeword.shadow():  # trying it out: never wake, keep what would have (to measure, then train against)
@@ -258,9 +256,7 @@ class Detector:
             return None
         # it wakes Nova: keep the clip too, so a wake the user didn't want can be found and trained against
         log("wake_check", by="personal model", alike=rounded, clip=wakeword.keep_shadow(clip, alike))
-        after = clip[end:]
-        rest = " ".join(w for w, _ in self.transcribe(after)) if len(after) > RATE // 4 else ""
-        return after, rest.strip(" .,!?")
+        return heard
 
     def from_speakers(self, clip):
         """True when the mic's loudness only followed what the computer was playing in these seconds: the voice came

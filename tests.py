@@ -2053,11 +2053,12 @@ if (wakeword.DIR / "embedding_model.onnx").exists():
     assert np.allclose(seen_windows[-1], batch[-wakeword.FRAMES:], atol=1e-4)
 else:
     print("note: the personal \"Hey Nova\" feature models aren't downloaded, so their check was skipped")
-# ...and when it fires, the user's own voice wakes Nova without Whisper hearing the words; another voice doesn't
+# ...and when it fires, the user's own voice wakes Nova once Whisper hears the phrase; another voice doesn't
 det = object.__new__(wake_mod.Detector)
 det.mark = det.sure = 60
 det.transcribe = lambda audio: [("play", 0.2), ("music", 0.5)]
 clip = np.random.default_rng(2).normal(0, 0.05, 60 * 480 + 16000).astype(np.float32)  # something audible
+det.confirm = lambda c: (c[60 * 480:], "play music")  # Whisper heard "Hey Nova, play music"
 heard_voice, kept = [], []
 det.personal = type("P", (), {"voice": type("V", (), {"similarity": lambda self, a: heard_voice.append(len(a)) or 0.99})()})()
 det.played, det.mic, saved_shadow, saved_keep = None, "Microphone (USB)", wakeword.shadow, wakeword.keep_shadow
@@ -2071,35 +2072,34 @@ assert len(after) == 16000 and words == "play music", (len(after), words)
 assert heard_voice == [60 * 480]  # the voice is checked on everything up to where the model was last sure
 assert kept == [0.99]  # a real wake keeps its clip too, so an unwanted one can be found and trained against
 kept.clear()
+# the user's voice, loud enough, but Whisper didn't hear the phrase ("Thank you.", "It's a form."): no wake
+heard_phrase = det.confirm
+det.confirm = lambda c: None
+assert det.yours(clip) is None and not kept and wake_log[-1] == ("wake_ignored", "Whisper didn't hear the phrase")
+det.confirm = heard_phrase
 det.personal.voice.similarity = lambda a: 0.4
 assert det.yours(clip) is None
 det.personal.voice.similarity = lambda a: None  # no voiceprint yet
 assert det.yours(clip) is None
-# silence the model fired on, even in a matching "voice" (the microphone's own room sound): nothing said, no wake
-det.personal.voice.similarity, said = (lambda a: 0.99), det.transcribe
-det.transcribe = lambda audio: []
-assert det.yours(clip) is None
-det.transcribe = said
+det.personal.voice.similarity = lambda a: 0.99
 asked_whisper = []  # a silent clip (a muted or very quiet mic) is turned away before Whisper is asked
-det.transcribe = lambda audio: asked_whisper.append(1) or said(audio)
+det.confirm = lambda c: asked_whisper.append(1) or heard_phrase(c)
 assert det.yours(np.zeros_like(clip)) is None and not asked_whisper
-det.transcribe = said
+det.confirm = heard_phrase
 # a night with a fan on and a video across the room: the voiceprint matched that noise (0.86-0.95), but it was far
 # quieter than the user saying it to this microphone, so it doesn't wake Nova
 wakeword.too_quiet = lambda audio, mic: "too quiet for the user at the microphone"
 kept.clear()
 assert det.yours(clip) is None and not kept and wake_log[-1] == ("wake_ignored", "too quiet for the user at the microphone")
 wakeword.too_quiet = lambda audio, mic: ""
-# while the computer plays sound (a video, a call), its voices can sound like the user's: Whisper must hear the phrase
-det.played = type("T", (), {"recent": lambda self: np.ones(1600, np.float32)})()
-det.confirm = lambda c: None
-assert det.yours(clip) is None and "playing sound" in wake_log[-1][1]
-det.confirm = lambda c: (c, "")
-assert det.yours(clip) is not None  # the user really said it over the video
-det.played = type("T", (), {"recent": lambda self: None})()  # nothing audible playing: the voice is enough
-det.confirm = lambda c: None
-assert det.yours(clip) is not None
-del det.confirm
+# Whisper must hear the phrase whether or not the computer plays sound (a video, a call)
+for playing in (np.ones(1600, np.float32), None):
+    det.played = type("T", (), {"recent": lambda self, p=playing: p})()
+    det.confirm = lambda c: None
+    assert det.yours(clip) is None and wake_log[-1][1] == "Whisper didn't hear the phrase"
+    det.confirm = lambda c: (c, "")
+    assert det.yours(clip) is not None  # the user really said it (over the video)
+det.confirm = heard_phrase
 det.played = None
 kept.clear()
 # shadow mode (try-out): a would-be wake never wakes Nova, but its clip is kept to train against, and it counts only
@@ -7061,14 +7061,15 @@ assert _refreshed == [1, 1], _refreshed                                         
 _det = object.__new__(wake_mod.Detector)
 _det.sure, _det.transcribe, _det.mic, _det.played, _det.stale = 3, (lambda clip: [("hey", 0.1)]), "Headset", None, False
 _det.personal = types.SimpleNamespace(voice=types.SimpleNamespace(similarity=lambda clip: 0.99))
-_det.from_speakers = lambda clip: False
-_real = (wakeword.levels, wakeword.shadow, wake_mod.log)
+_det.from_speakers, _det.confirm = (lambda clip: False), (lambda clip: (clip, ""))
+_real = (wakeword.levels, wakeword.shadow, wake_mod.log, wakeword.keep_shadow)
 wakeword.levels, wakeword.shadow, wake_mod.log = (lambda: {"USB mic": 0.2}), (lambda: False), (lambda *a, **k: None)
+wakeword.keep_shadow = lambda clip, alike: "x.wav"  # a wake here must not save a clip into this computer's real data
 assert _det.yours(np.full(wake_mod.BLOCK * 4, 0.5, np.float32)) is None and _det.stale is True  # their voice, on a microphone their tries aren't on
 _det.stale, _det.mic = False, "USB mic"
 _det.yours(np.full(wake_mod.BLOCK * 4, 0.5, np.float32))
 assert _det.stale is False                                                                    # the right microphone: nothing to refresh
-wakeword.levels, wakeword.shadow, wake_mod.log = _real
+wakeword.levels, wakeword.shadow, wake_mod.log, wakeword.keep_shadow = _real
 assert "weren't recorded on" in wakeword.UNKNOWN_MIC and "Settings" in wakeword.UNKNOWN_MIC
 _dev = []
 _real_sd, audio.sd = audio.sd, types.SimpleNamespace(_terminate=lambda: _dev.append("end"), _initialize=lambda: _dev.append("start"))
