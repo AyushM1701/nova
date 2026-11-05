@@ -520,6 +520,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .big-keys kbd { font-size: 19px; padding: 8px 16px; border-radius: 10px; border-bottom-width: 3px; min-width: 56px; }
 .big-keys .plus { color: var(--faint); font-size: 19px; }
 .recording kbd { border-color: var(--accent); color: var(--accent-text); }
+.setup { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.setup-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .callout { margin-top: 20px; padding: 14px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); display: flex; gap: 12px; align-items: flex-start; }
 .callout svg { color: var(--accent); margin-top: 2px; }
 .callout.good svg { color: var(--ok); }
@@ -735,6 +737,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
               <button data-go="settings:general"><span class="k">“Hey Nova”</span><span class="v"><i class="dot" id="stWakeDot"></i><span id="stWake">…</span></span></button>
             </div>
             <button class="btn sm" id="walkOpen">Take the 2-minute walkthrough</button>
+            <div class="setup" id="setupList" hidden></div>
           </section>
           <section class="hud-panel" aria-labelledby="capRecent">
             <h2 class="cap" id="capRecent">Recent</h2>
@@ -1759,6 +1762,7 @@ const CAN = [["Rewrite what you selected", "Select text, press the shortcut and 
   ["Sketch the answer", "Ask a short factual question and a paper note draws the answer on screen while Nova says it.", "settings:cursor"],
   ["Change Nova by asking", "“Use Ctrl+Shift+N as my shortcut” or “keep replies up for 10 seconds”.", "settings:general"]];
 function renderHome() {
+  renderChecklist();
   $("#canDo").replaceChildren(...CAN.map(([what, line, where]) => h("li", {}, h("button", { class: "phrase", "data-go": where },
     h("span", {}, h("b", {}, what), h("span", { class: "muted" }, local(line))), h("span", { html: I.arrow, style: "flex:none" })))));
   const hr = new Date().getHours();
@@ -3156,10 +3160,39 @@ const SCENES = {
 };
 
 const SCENE_TITLES = { talk: "Talk to Nova", work: "It does the work, and asks first", dictate: "Or dictate into any app", screen: "It sees what you see" };
-const STEPS = ["welcome", "talk", "work", "brain", "dictate", "screen", "mic", ...(S_BROWSERS_STEP ? ["browsers"] : []), "keys", "done"];
-let onbAt = 0;
-function openOnboarding() { onbAt = 0; $("#onb").hidden = false; $("#app").inert = true; renderOnb(); }
-function closeOnboarding() { stopMic(); clearInterval(pollTimer); $("#onb").hidden = true; $("#app").inert = false; set("onboarded", true); save(true); go("home"); if (!get("walked")) openWalk(); }
+const STEPS = ["welcome", "talk", "work", "brain", "dictate", "screen", "mic", ...(S_BROWSERS_STEP ? ["browsers"] : []), "email", "apps", "notes", "keys", "done"];
+let onbAt = 0, onbOnly = false;  // onbOnly: opened from Home's checklist for one step, which closes when it's done
+function openOnboarding(at) { onbAt = Math.max(0, STEPS.indexOf(at)); onbOnly = !!at; $("#onb").hidden = false; $("#app").inert = true; renderOnb(); }
+function closeOnboarding() {
+  stopMic(); clearInterval(pollTimer); $("#onb").hidden = true; $("#app").inert = false;
+  if (onbOnly) return renderChecklist();
+  set("onboarded", true); save(true); go("home"); if (!get("walked")) openWalk();
+}
+const APPS = [["linear", "Linear", "https://mcp.linear.app/mcp"], ["notion", "Notion", "https://mcp.notion.com/mcp"],
+  ["jira", "Jira", "https://mcp.atlassian.com/v1/mcp"], ["github", "GitHub", "https://api.githubcopilot.com/mcp/"]];  // core/mcp.py PRESETS
+const onbRow = (title, text, ...how) => h("div", { class: "row" }, h("div", { class: "what" }, h("h2", {}, title), h("p", {}, text)), h("div", { class: "how" }, ...how));
+async function addServer(name, url) { await fresh("mcp.servers"); set("mcp.servers", { ...(get("mcp.servers") || {}), [name]: url }); save(true); }
+const appsSignin = () => api().apps_signin().then(r => r === "ok" ? toast("In the window that opened, type /mcp and sign in") : fail(new Error(r))).catch(fail);
+
+/* ---------- Home: "Finish setting up Nova", for the setups a first run skipped (or that came after it) ---------- */
+const SETUP = [
+  ["Your AI", "brain", () => !!S.state.brain],
+  ...(S_BROWSERS_STEP ? [["Your browser", "browsers", () => (get("browser.enabled") || []).length > 0]] : []),
+  ["Your email", "email", () => (get("browser.enabled") || []).length > 0 || ["gmail", "outlook"].some(k => (get("mcp.servers") || {})[k])],
+  ["Your apps", "apps", () => Object.keys(get("mcp.servers") || {}).some(k => k !== "gmail" && k !== "outlook")],
+  ["Claude Code tells you when it's done", "apps", () => !!S.claudeHook],
+  ["Notes in Obsidian", "notes", () => !!get("notes.folder")],
+];
+function renderChecklist() {
+  const box = $("#setupList"), todo = SETUP.filter(([, , done]) => !done());
+  box.hidden = !get("onboarded") || get("setup_hidden") || !todo.length;
+  if (box.hidden) return;
+  const hide = h("button", { class: "btn sm ghost", onclick: () => { set("setup_hidden", true); save(true); renderChecklist(); } }, "Hide");
+  box.replaceChildren(h("h2", { class: "cap" }, "Finish setting up Nova"),
+    h("ul", { class: "setup-list" }, ...SETUP.map(([title, at, done]) => h("li", {}, done()
+      ? h("span", { class: "tag ok", html: I.check + `<span>${esc(title)}</span>` })
+      : h("button", { class: "btn sm", onclick: () => openOnboarding(at) }, title)))), hide);
+}
 
 /* ---------- the walkthrough: a clip per chapter, then a "your turn" step that waits for the real event ---------- */
 function holdKeys() {
@@ -3255,7 +3288,7 @@ $("#walkReplay").addEventListener("click", () => {
 function renderOnb() {
   const id = STEPS[onbAt], body = $("#onbBody"), next = $("#onbNext");
   $("#onbProgress").replaceChildren(...STEPS.map((_, i) => h("i", { class: i <= onbAt ? "on" : "" })));
-  $("#onbBack").style.visibility = onbAt ? "visible" : "hidden";
+  $("#onbBack").style.visibility = onbAt && !onbOnly ? "visible" : "hidden";
   next.disabled = false; next.textContent = "Continue"; next.classList.add("primary");
   $("#onbSkip").hidden = !(SCENES[id] || id === "welcome");
   if (id !== "mic") stopMic();
@@ -3291,6 +3324,76 @@ function renderOnb() {
     step.append(h("h1", {}, "Use Nova in your browser"), h("p", { class: "lede" }, "Nova can open tabs, read pages, click and type for you in the browsers you pick, with your own logins. It asks before clicks and keys that look like submitting, buying, posting or sending (it judges by the button, so a page can disguise one), and never types passwords or card numbers."), box, log);
     loadBrowsers(box, log, true);
     next.textContent = "Set up and continue";
+  } else if (id === "email") {
+    const browser = (get("browser.enabled") || []).length > 0, servers = get("mcp.servers") || {};
+    const update = () => { const ok = browser || ["gmail", "outlook"].some(k => (get("mcp.servers") || {})[k]); next.classList.toggle("primary", ok); next.textContent = ok ? "Continue" : "Set up later"; };
+    const link = (name, label) => {
+      const input = h("input", { class: "input", type: "url", placeholder: "https://…", "aria-label": `${label} link from Composio` });
+      const add = h("button", { class: "btn sm" }, servers[name] ? "Replace" : "Add");
+      add.addEventListener("click", async () => {
+        const url = input.value.trim();
+        if (!/^https:\/\/\S+$/.test(url)) return failAt(input, "Paste the https:// link Composio gives you.");
+        await addServer(name, url); input.value = ""; add.textContent = "Added"; toast(`${label} added`); update();
+      });
+      return onbRow(label, servers[name] ? "Connected through Composio. Paste a new link to replace it." : `Paste the MCP link Composio gives you for ${label}.`, input, add);
+    };
+    step.append(h("h1", {}, "Your email"),
+      h("p", { class: "lede" }, "Nova can read, sort and draft your Gmail and Outlook mail. Pick one way, or both. Sending always asks you first."),
+      h("div", { class: "rows list-rows" },
+        onbRow("In your browser", "No new account. Nova works in Gmail and Outlook on the web inside your own browser, with your own logins. Try “open my Gmail and summarise the unread”.",
+          browser ? h("span", { class: "tag ok", html: I.check + "<span>Ready</span>" })
+            : S_BROWSERS_STEP ? h("button", { class: "btn sm", onclick: () => { onbAt = STEPS.indexOf("browsers"); renderOnb(); } }, "Set up a browser")
+            : h("span", { class: "muted small" }, "Not on this computer"))),
+      h("h2", { style: "margin-top:24px" }, "Or through Composio"),
+      h("p", { class: "muted" }, "Better for questions about lots of mail at once. Composio is a separate service with its own free account, and your mail passes through it. Claude Code only. Each link works like a password: keep it to yourself."),
+      h("div", { class: "rows list-rows" },
+        onbRow("Composio", "Make a Gmail or Outlook connection there and copy its MCP link.", h("button", { class: "btn sm", onclick: () => api().open_composio().catch(fail) }, "Open Composio")),
+        link("gmail", "Gmail"), link("outlook", "Outlook"),
+        onbRow("Sign in", "If Composio asks you to sign in, type /mcp in the Claude Code window that opens.", h("button", { class: "btn sm", onclick: appsSignin }, "Sign in"))));
+    update();
+  } else if (id === "apps") {
+    const claude = S.cfg.brain.engine === "claude", servers = get("mcp.servers") || {};
+    const update = () => { const ok = SETUP.some(([, at, done]) => at === "apps" && done()); next.classList.toggle("primary", ok); next.textContent = ok ? "Continue" : "Set up later"; };
+    const hook = h("button", { class: "switch", role: "switch", "aria-checked": !!S.claudeHook, "aria-label": "Tell me when Claude Code finishes" });
+    hook.addEventListener("click", async () => { try { S.claudeHook = await api().claude_hook(!S.claudeHook); hook.setAttribute("aria-checked", S.claudeHook); update(); } catch (e) { fail(e); } });
+    const notesBtn = h("button", { class: "btn sm" }, "Add to Claude Code");
+    notesBtn.addEventListener("click", () => api().mcp_install("claude").then(r => { if (r !== "ok") return fail(new Error(r)); notesBtn.textContent = "Added"; notesBtn.disabled = true; }).catch(fail));
+    const presets = APPS.map(([name, label, url]) => {
+      const b = h("button", { class: "btn sm", disabled: !!servers[name] }, servers[name] ? `${label} added` : `+ ${label}`);
+      b.addEventListener("click", async () => { await addServer(name, url); b.textContent = `${label} added`; b.disabled = true; update(); toast(`${label} added. Press Sign in to connect your account`); });
+      return b;
+    });
+    step.append(h("h1", {}, "Your apps and Claude Code"),
+      h("p", { class: "lede" }, claude ? "Let the AI use the apps you work in, and let Claude Code work with Nova." : "These need Claude Code as your AI. Pick it in the step before, or set these up later in Settings → AI."),
+      h("div", { class: "rows list-rows" },
+        onbRow("Apps", "Linear, Notion, Jira or GitHub. Reading is automatic; anything that changes an app asks you first, every time.", ...presets,
+          h("button", { class: "btn sm primary", onclick: appsSignin }, "Sign in")),
+        onbRow("Tell me when Claude Code finishes", "For tasks you start yourself in a terminal: Nova says when Claude is done.", hook),
+        onbRow("Your notes in Claude Code", "Claude Code can search your Nova notes, meetings and memory in any session. Only the notes folder.", notesBtn)));
+    update();
+  } else if (id === "notes") {
+    const how = h("div", { class: "how" }), note = h("p", {}, "Looking for Obsidian…"), log = h("div", { class: "log mono", hidden: true });
+    const draw = async () => {
+      let o; try { o = await api().obsidian_info(); } catch (e) { return fail(e); }
+      note.textContent = o.found ? `Nova keeps its memory, skills and meeting notes in a vault at ${o.vault}, so Obsidian shows them. It never touches a vault you already have.`
+        : "Obsidian is a separate, free notes app made by someone else (check its terms). Nova can keep its notes in an Obsidian vault so you can read and search them there.";
+      const install = h("button", { class: "btn sm primary" }, o.can_install ? "Install Obsidian" : "Get Obsidian");
+      install.addEventListener("click", async () => {
+        install.disabled = true; install.textContent = "Installing…"; log.hidden = false; log.textContent = ""; S.installLog = log;
+        try { await api().install_obsidian(); } catch (e) { fail(e); } draw();
+      });
+      const vault = h("button", { class: o.found ? "btn sm primary" : "btn sm" }, o.vault_exists ? "Use my Nova vault" : "Set up a vault for Nova");
+      vault.addEventListener("click", async () => {
+        vault.disabled = true;
+        try { const r = await api().setup_obsidian_vault(); (S.cfg.notes ??= {}).folder = r.notes; note.textContent = `Done: your notes go to ${r.notes} from Nova's next start.`; next.classList.add("primary"); next.textContent = "Continue"; }
+        catch (e) { fail(e); vault.disabled = false; }
+      });
+      how.replaceChildren(...(o.found ? [] : [install]), vault);
+    };
+    step.append(h("h1", {}, "Your notes in Obsidian"), h("p", { class: "lede" }, "Optional. Read and search everything Nova remembers in Obsidian, on this computer and, with your own sync, on your phone."),
+      h("div", { class: "rows list-rows" }, h("div", { class: "row" }, h("div", { class: "what" }, h("h2", {}, "Obsidian"), note), how)), log);
+    if (!get("notes.folder")) { next.classList.remove("primary"); next.textContent = "Set up later"; }
+    draw();
   } else if (id === "keys") {
     const tap = h("div", { class: "big-keys", html: talkKeys() });
     const caps = h("span", { class: "keys" }); keycaps(hotkey(), caps);
@@ -3323,7 +3426,7 @@ function renderOnb() {
   next.focus({ preventScroll: true });
 }
 $("#onbNext").addEventListener("click", async () => {
-  if (STEPS[onbAt] === "browsers" && S.browserPicks) { $("#onbNext").disabled = true; $("#onbNext").textContent = "Setting up…"; await applyBrowserPicks(); } if (onbAt >= STEPS.length - 1) return closeOnboarding(); onbAt++; renderOnb(); });
+  if (STEPS[onbAt] === "browsers" && S.browserPicks) { $("#onbNext").disabled = true; $("#onbNext").textContent = "Setting up…"; await applyBrowserPicks(); } if (onbOnly || onbAt >= STEPS.length - 1) return closeOnboarding(); onbAt++; renderOnb(); });
 $("#onbBack").addEventListener("click", () => { if (onbAt) { onbAt--; renderOnb(); } });
 $("#onbSkip").addEventListener("click", () => { do onbAt++; while (SCENES[STEPS[onbAt]]); renderOnb(); });  // on to the next setup step
 
@@ -3337,7 +3440,7 @@ const handlers = {
     S.state = ev; S.gone = false; if (ev.phase === "idle" && !ev.paused && S.bar !== "idle" && S.bar !== "paused") S.bar = "idle";
     if (ev.paused) S.bar = "paused";
     if (wasBusy && ev.phase === "idle") endWork();
-    renderLive(); renderPhoneStatus(); renderRecording();
+    renderLive(); renderPhoneStatus(); renderRecording(); renderChecklist();
     if (ev.asking && !S.asks.some(a => a.askId === ev.asking.id)) handlers.asking(ev.asking);  // opened mid-approval
   },
   meetings() { if (S.page === "meetings") { if (MT.id) refreshMeeting(); else loadMeetings(); } },

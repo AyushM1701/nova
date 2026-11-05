@@ -191,9 +191,15 @@ Nova then shows its own first-run screens:
 
 1. **Microphone:** a live level meter shows that Nova hears you.
 2. **Brain:** pick **Claude Code** or **Codex**. If it isn't installed, one click installs it (and Node.js if needed); **Sign in** opens its login (your Claude or ChatGPT account). Skip it and dictation still works.
-3. **Shortcut:** see the shortcuts (hold Ctrl+` to talk, tap Ctrl three times for hands-free) and turn "Hey Nova" on or off.
-4. **Start at login**, and a first try.
-5. **A 2-minute walkthrough:** a short video for each thing Nova does (talking, dictation, rewriting a selection, questions about your screen, approvals), each followed by a "your turn" step that waits until you've really tried it. Skip any step, or take it again from Home. The clips (about 1.5 MB) download the first time it opens and are checked against the release's checksum.
+3. **Browsers** (Windows and Mac): pick the browsers Nova may work in, with your own logins.
+4. **Email:** Gmail and Outlook, either in your own browser (no new account) or through Composio (a separate service with its own account, for questions about lots of mail at once; you paste the link it gives you, and your mail passes through it).
+5. **Apps and Claude Code:** add Linear, Notion, Jira or GitHub and sign in; "tell me when Claude Code finishes"; your Nova notes inside Claude Code.
+6. **Notes in Obsidian** (optional): install Obsidian and make a vault for Nova's notes.
+7. **Shortcut:** see the shortcuts (hold Ctrl+` to talk, tap Ctrl three times for hands-free) and turn "Hey Nova" on or off.
+8. **Start at login**, and a first try.
+9. **A 2-minute walkthrough:** a short video for each thing Nova does (talking, dictation, rewriting a selection, questions about your screen, approvals), each followed by a "your turn" step that waits until you've really tried it. Skip any step, or take it again from Home. The clips (about 1.5 MB) download the first time it opens and are checked against the release's checksum.
+
+Every step can be skipped with **Set up later**. Until each is done, Home shows a **Finish setting up Nova** list; click a line to do just that step, or **Hide** it. People who set Nova up before these steps existed see the list too.
 
 **On a Mac**, the last screen lists the permissions Nova uses (Microphone, Input Monitoring, Accessibility, Screen Recording) and shows which ones macOS allows right now. **Allow** shows macOS's own prompt the first time and opens that page of System Settings → Privacy & Security after that; the row turns to *Allowed* as soon as you switch Nova on. Then click **Restart Nova** (macOS applies some of these only to a fresh start). If Nova isn't in a list, **Show Nova in Finder** and drag it in. Screen Recording is only needed for questions about your screen, and Nova asks for it the first time. The same list is at the top of Settings → General, and if a permission is turned off later, Nova says so when it starts.
 
@@ -343,6 +349,7 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 | `brain.clipboard_history` | `true` | Remember your last 20 copies, in memory only |
 | `browser.blocked_sites` | `[]` | Sites the AI must not open, follow a link to, read or act on, in any mode: `chase.com` (subdomains count). Set in Settings → Browsers, one per line |
 | `browser.default` / `browser.enabled` | `opera-gx` / none | Which browsers Nova is set up in; say "in Brave" for one request, "add Vivaldi" / "stop using Brave" to change |
+| `setup_hidden` | `false` | Hide Home's "Finish setting up Nova" list (it also goes once everything on it is set up) |
 | `schedules` | `[]` | Routines run on a timetable, added by voice ("every weekday at 9, run start my day") and removed in Settings → Routines |
 | `routines` | `{}` | Spoken routines, e.g. `{"deep code mode": "pause music, open VS Code in portfolio"}` |
 | `brain.fallback_model` | `gemini-flash-latest` | The backup brain's Gemini model (the key itself lives in `data/fallback.key`) |

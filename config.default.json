@@ -106,6 +106,7 @@
     "folder": ""
   },
   "schedules": [],
+  "setup_hidden": false,
   "browser": {
     "default": "opera-gx",
     "agent_window": true,

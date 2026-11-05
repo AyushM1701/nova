@@ -303,6 +303,11 @@ class Api:
         system.open_url("https://aistudio.google.com/apikey")
         return True
 
+    def open_composio(self):
+        """First-run setup, email: where a Gmail or Outlook MCP link is made (a separate service with its own account)."""
+        system.open_url("https://composio.dev")
+        return True
+
     # ---------- speech engines: cloud keys (core/cloud_stt.py, core/deepgram.py) and models (core/models.py) ----------
     def stt_key_status(self, provider):
         return {"set": bool(cloud_stt.key(provider))}

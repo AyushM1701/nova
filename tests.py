@@ -619,6 +619,14 @@ if os.name == "nt" and shutil.which("powershell"):
 app_js = Path("core/app.html").read_text(encoding="utf-8")
 for name in set(re.findall(r"\bS\.(\w+)\s*=(?!=)", app_js)):
     assert re.search(r"\bS\.%s\b(?!\s*=(?!=))" % name, app_js), f"S.{name} is set but never read"
+# every first-run step draws something (a step missing from renderOnb is a blank screen), and every line of Home's
+# "Finish setting up" list opens a real step
+_steps = set(re.findall(r'"(\w+)"', re.search(r"const STEPS = \[(.*?)\];", app_js).group(1)))
+_scenes = set(re.findall(r"(\w+):", re.search(r"const SCENE_TITLES = \{(.*?)\};", app_js).group(1)))
+for _id in _steps - _scenes:
+    assert f'id === "{_id}"' in app_js, f"first-run step {_id} isn't drawn"
+for _at in re.findall(r'\["[^"]+", "(\w+)", \(\) =>', re.search(r"const SETUP = \[(.*?)\n\];", app_js, re.S).group(1)):
+    assert _at in _steps, f"the setup list opens {_at}, which isn't a step"
 
 # History lists the whole 30 days the logs keep, not just the newest 600 entries (about 11 days of real use)
 import core.app as app_mod  # noqa: E402
