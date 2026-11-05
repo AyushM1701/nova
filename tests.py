@@ -3186,6 +3186,10 @@ with tempfile.TemporaryDirectory() as tmp:
         asked.clear()
         walkthrough.clip("02-dictate", fake)
         assert asked == []                                          # downloaded once, then kept
+        (Path(tmp) / "data" / "walkthrough.version").write_text("0.0.1", encoding="utf-8")
+        walkthrough.clip("02-dictate", fake)
+        assert asked, "clips from an older Nova are fetched again: an update can bring new ones"
+        asked.clear()
         for bad in ("../config", "nova", "01-talk.mp4", ""):
             try:
                 walkthrough.clip(bad, fake)

@@ -317,14 +317,197 @@ def s_end(i, S, D, finish=False):
 
 HERO = [("intro", s_intro, {}), ("ask", s_ask, {}), ("dictate", s_dictate, {}), ("rewrite", s_rewrite, {}), ("screen", s_screen, {}),
         ("meeting", s_meeting, {}), ("safe", s_safe, {}), ("more", s_more, {}), ("install", s_install, {}), ("end", s_end, {})]
-CLIPS = [("00-welcome", "w_welcome", s_intro, {"welcome": True}),
-         ("01-talk", "w_talk", s_ask, {"ask": "What time is it?", "steps": ("Checking the clock", "Writing the answer"), "reply": "It's 7:42 PM.",
-                                       "title": "Talk to Nova.", "sub": "Say “Hey Nova”, or press your shortcut."}),
-         ("02-dictate", "w_dictate", s_dictate, {"title": "Dictate into|any app.", "sub": "Hold the key until you hear the chime."}),
-         ("03-rewrite", "w_rewrite", s_rewrite, {"title": "Rewrite what|you selected.", "sub": "Say how you want it changed."}),
-         ("04-screen", "w_screen", s_screen, {"title": "Ask about|your screen.", "sub": "Nova looks at the window you're in."}),
-         ("05-safety", "w_safe", s_safe, {"title": "Risky commands|wait for you.", "sub": "No answer in 30 seconds means no."}),
-         ("06-finish", "w_finish", s_end, {"finish": True})]
+CLIPS = [("00-welcome", "w_welcome", "c_welcome"), ("01-talk", "w_talk", "c_talk"), ("02-dictate", "w_dictate", "c_dictate"),
+         ("03-rewrite", "w_rewrite", "c_rewrite"), ("04-screen", "w_screen", "c_screen"), ("05-safety", "w_safe", "c_safe"),
+         ("06-finish", "w_finish", "c_finish")]  # builders by name: defined below, in the Nova window's own look (DECK)
+
+
+# ---------- the walkthrough clips, in the Nova window's own look (DESIGN.md "The Command Deck") ----------
+# A dark navy desktop with Nova's bar where it really lives: a pane of indigo glass at the top centre, out of sight until
+# called. What you say shows as the violet bubble under it, and the reply card grows out of the bar, as on a real screen.
+DECK = """
+:root{--ground:#080a15;--panel:#0f1226;--raised:#151833;--ink:#e8eaff;--mute:#a3a9d2;--faint:#8a90bd;--line:rgba(143,149,230,.16);
+ --line2:rgba(143,149,230,.30);--accent:#6d5ff7;--lilac:#b9b1ff;--amber:#ffba3c;--ok:#3ecf8e}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden;background:var(--ground);font-family:Inter,sans-serif;color:var(--ink)}
+#root{position:relative;width:1920px;height:1080px;overflow:hidden;background:radial-gradient(1100px 760px at 72% 46%,#171a38 0%,rgba(23,26,56,0) 70%),var(--ground)}
+.scene{position:absolute;left:0;top:0;width:1920px;height:1080px}.inner{position:absolute;inset:0}
+.head{position:absolute;left:130px;top:350px;width:640px}
+h2{font-size:92px;line-height:1;font-weight:900;letter-spacing:-.04em}
+.sub{font-size:32px;color:var(--mute);margin-top:28px;line-height:1.35;font-weight:400}
+.w{display:inline-block}.ch{opacity:0}.mono{font-family:'JetBrains Mono',monospace}
+.desk{position:absolute;left:820px;top:150px;width:980px;height:780px;border-radius:30px;overflow:hidden;border:1px solid var(--line);
+ background:radial-gradient(700px 420px at 50% 0%,rgba(123,109,255,.14),rgba(123,109,255,0) 70%),linear-gradient(160deg,#121531,#070914);
+ box-shadow:0 2px 4px rgba(0,0,0,.5),0 40px 90px -30px rgba(0,0,0,.8)}
+.win{position:absolute;left:70px;top:190px;width:840px;height:520px;border-radius:18px;background:var(--panel);border:1px solid var(--line);overflow:hidden;
+ box-shadow:0 24px 50px -18px rgba(0,0,0,.7)}
+.wtop{height:48px;display:flex;align-items:center;gap:10px;padding:0 20px;font-size:19px;font-weight:700;color:var(--faint);border-bottom:1px solid var(--line)}
+.wtop i{width:12px;height:12px;border-radius:50%;background:var(--line2)}
+.body{padding:24px 30px;font-size:28px;line-height:1.55}
+.ln{height:13px;border-radius:7px;background:var(--raised);margin:20px 0}
+.edge{position:absolute;left:290px;top:0;width:400px;height:90px;background:radial-gradient(ellipse 50% 100% at 50% 0,rgba(123,109,255,.75),rgba(123,109,255,0))}
+.glass{background:linear-gradient(180deg,rgba(46,40,108,.94),rgba(17,14,42,.95));border:1px solid rgba(185,177,255,.26);
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 18px 44px -14px rgba(0,0,0,.75)}
+.nbar{position:absolute;left:340px;top:26px;width:300px;height:66px;border-radius:33px;display:flex;align-items:center;gap:16px;padding:0 12px;font-size:22px;font-weight:700}
+.orbdot{width:44px;height:44px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#d9d4ff 0%,#7b6dff 45%,#2a2370 100%);box-shadow:0 0 22px rgba(123,109,255,.6)}
+.eq{display:flex;gap:6px;align-items:center;height:34px}.eq i{display:block;width:6px;height:26px;border-radius:3px;background:var(--lilac)}
+.heard{position:absolute;left:0;right:0;margin:0 auto;width:fit-content;max-width:760px;top:116px;padding:14px 26px;border-radius:24px;background:var(--accent);color:#fff;
+ font-size:25px;font-weight:700;box-shadow:0 14px 30px -12px rgba(0,0,0,.7)}
+.heard s{color:rgba(255,255,255,.8);font-weight:400;text-decoration-color:rgba(255,255,255,.9)}  /* 3:1 or better on the violet */
+.ncard{position:absolute;left:190px;top:26px;width:600px;border-radius:26px;padding:24px 28px;font-size:25px;line-height:1.45;color:#e2e1ff}
+.ncard .t{display:flex;align-items:center;gap:12px;font-size:19px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--lilac)}
+.ncard .t b{width:12px;height:12px;border-radius:50%;background:var(--lilac)}.ncard.amber .t{color:var(--amber)}.ncard.amber .t b{background:var(--amber)}
+.ncard .a{margin-top:12px;font-size:30px;font-weight:700;color:#fff}.ncard .d{margin-top:10px;font-size:22px;color:var(--mute)}
+.btns{display:flex;gap:14px;margin-top:20px}.btn{padding:13px 32px;border-radius:14px;font-weight:700;font-size:23px}
+.allow{background:var(--accent);color:#fff}.deny{background:rgba(255,255,255,.07);border:1px solid rgba(185,177,255,.22);color:#d9d7f5}
+.sel{background:rgba(123,109,255,.32);border-radius:6px}
+.menu{position:absolute;border-radius:14px;background:var(--raised);border:1px solid var(--line2);padding:8px;width:300px;box-shadow:0 18px 40px -10px rgba(0,0,0,.7)}
+.menu div{height:54px;line-height:54px;padding:0 18px;font-size:24px;border-radius:9px;color:var(--mute)}
+.ring{position:absolute;border:4px solid var(--lilac);border-radius:14px;box-shadow:0 0 0 8px rgba(185,177,255,.16)}
+.marker{position:absolute;display:flex;align-items:center;gap:12px}.marker .lab{height:46px;line-height:44px;border-radius:23px;padding:0 20px;font-size:22px;font-weight:700;white-space:nowrap}
+.big{position:absolute;left:0;width:1920px;text-align:center}.big .t{font-size:170px;font-weight:900;letter-spacing:-.05em;line-height:1}
+.big .s{font-size:42px;color:var(--mute);margin-top:18px}
+kbd{display:inline-block;border-radius:16px;padding:18px 28px;font:700 30px Inter,sans-serif;color:var(--ink);background:var(--panel);border:1px solid var(--line2);border-bottom-width:4px}
+.keys{display:flex;gap:16px}
+.mark{display:block}
+"""
+
+
+def eqbars(i):
+    return f'<div class="eq" id="{i}eq">' + "".join("<i></i>" for _ in range(7)) + "</div>"
+
+
+def desk(i, title, body, extra="", label="Listening…", amber=False, win=""):
+    """The desktop: one app window, the top-edge glow and Nova's bar (hidden until a builder brings it in)."""
+    state = f'<span style="color:var(--amber)">{label}</span>' if amber else f'{eqbars(i)}<span>{label}</span>'
+    return (f'<div class="desk" id="{i}s"><div class="win" style="{win}"><div class="wtop"><i></i><i></i><i></i>&nbsp;{title}</div>{body}</div>'
+            f'<div class="edge" id="{i}g"></div><div class="nbar glass" id="{i}p"><div class="orbdot"></div>{state}</div>'
+            f'{extra}</div>')
+
+
+def deck_in(i, S):
+    return [f'tl.from("#{i}s",{{y:50,opacity:0,scale:.97,duration:.9,ease:"power3.out"}},{S + .1:.2f});',
+            f'tl.set("#{i}p,#{i}g",{{opacity:0}},0);']
+
+
+def summon(i, t, listen=2.0):
+    """The glow at the top edge, the bar dropping in, then its bars moving with a voice for `listen` seconds."""
+    reps = max(1, int(listen / .7))
+    return [f'tl.to("#{i}g",{{opacity:1,duration:.35}},{t:.2f});',
+            f'tl.fromTo("#{i}p",{{y:-90,opacity:0}},{{y:0,opacity:1,duration:.6,ease:"back.out(1.5)"}},{t + .3:.2f});',
+            f'tl.to("#{i}g",{{opacity:0,duration:.5}},{t + .9:.2f});',
+            f'tl.fromTo("#{i}eq i",{{scaleY:.3}},{{scaleY:1.2,duration:.35,stagger:{{each:.05,from:"center"}},repeat:{reps * 2 - 1},yoyo:true,ease:"sine.inOut"}},{t + .8:.2f});']
+
+
+def grow(i, card, t):
+    """The bar grows into the reply card: the card opens from the bar's size at the same spot, the bar fades into it."""
+    return [f'tl.set("#{card}",{{opacity:0}},0);',
+            f'tl.to("#{i}p",{{opacity:0,duration:.25}},{t:.2f});',
+            f'tl.fromTo("#{card}",{{opacity:0,scaleX:.5,scaleY:.18,transformOrigin:"50% 0%"}},{{opacity:1,scaleX:1,scaleY:1,duration:.65,ease:"expo.out"}},{t:.2f});']
+
+
+def c_welcome(i, S, D):
+    body = (f'<div style="position:absolute;left:0;width:1920px;top:200px;text-align:center"><div id="{i}l" style="display:inline-block">{logo(170)}</div></div>'
+            f'<div class="big" style="top:420px" id="{i}b"><div class="t">Welcome</div><div class="s">Your two-minute tour of Nova.</div></div>'
+            f'<div style="position:absolute;left:0;width:1920px;top:740px;display:flex;justify-content:center"><div class="keys" id="{i}k">'
+            f'<kbd>Hey Nova</kbd><kbd>Ctrl&nbsp;×3</kbd><kbd>Hold Ctrl+Win</kbd></div></div>')
+    js = [f'tl.from("#{i}l",{{scale:.6,opacity:0,duration:.9,ease:"back.out(1.6)"}},{S + .1:.2f});',
+          f'tl.from("#{i}b .t",{{y:50,opacity:0,duration:.8,ease:"power3.out"}},{S + .4:.2f});',
+          f'tl.from("#{i}b .s",{{y:30,opacity:0,duration:.7,ease:"power3.out"}},{S + .9:.2f});',
+          f'tl.from("#{i}k kbd",{{y:40,opacity:0,duration:.6,ease:"power3.out",stagger:.14}},{S + 1.4:.2f});']
+    return scene_wrap(i, S, D, body, js)
+
+
+def c_talk(i, S, D):
+    h, hj = head(i, "Talk to Nova.", "Say “Hey Nova”, or press your shortcut. The bar waits at the top of your screen.", S)
+    lines = '<div class="body"><div class="ln" style="width:72%"></div><div class="ln" style="width:58%"></div><div class="ln" style="width:64%"></div></div>'
+    extra = (f'<div class="heard" id="{i}hd">{chars("What time is it?")}</div>'
+             f'<div class="ncard glass" id="{i}c"><div class="t"><b></b>Nova</div><div class="a">It\'s 7:42 PM.</div><div class="d">Instant: no AI, no quota.</div></div>')
+    body = h + desk(i, "Notes", lines, extra)
+    js = hj + deck_in(i, S) + summon(i, S + 1.0, 2.2) + [
+        f'tl.from("#{i}hd",{{y:-14,opacity:0,duration:.4,ease:"power3.out"}},{S + 1.7:.2f});', typing(f"#{i}hd", S + 1.8, 16, .06),
+        f'tl.to("#{i}hd",{{opacity:0,y:-10,duration:.3}},{S + D * .62:.2f});'] + grow(i, f"{i}c", S + D * .64)
+    return scene_wrap(i, S, D, body, js)
+
+
+def c_dictate(i, S, D):
+    h, hj = head(i, "Dictate into|any app.", "Hold the key until the chime, talk, let go. Clean text lands where your cursor is.", S)
+    mail = (f'<div class="body"><div style="color:var(--faint);font-size:23px;border-bottom:1px solid var(--line);padding-bottom:12px">To&nbsp;&nbsp;<b style="color:var(--ink)">Sam</b></div>'
+            f'<div style="margin-top:22px">Hey Sam,<br><span id="{i}t">{chars("So meet at 7 near the metro.")}</span></div></div>')
+    extra = f'<div class="heard" id="{i}hd"><s>um so</s> meet at <s>6, no wait,</s> 7 near the metro</div>'
+    body = h + desk(i, "New message", mail, extra)
+    js = hj + deck_in(i, S) + summon(i, S + .9, 2.6) + [
+        f'tl.from("#{i}hd",{{y:-14,opacity:0,duration:.45,ease:"power3.out"}},{S + 1.6:.2f});',
+        f'tl.to("#{i}hd",{{opacity:0,y:-10,duration:.3}},{S + D * .55:.2f});',
+        f'tl.to("#{i}p",{{opacity:0,y:-60,duration:.4,ease:"power2.in"}},{S + D * .56:.2f});',
+        typing(f"#{i}t", S + D * .58, 28, .045)]
+    return scene_wrap(i, S, D, body, js)
+
+
+def c_rewrite(i, S, D):
+    h, hj = head(i, "Rewrite what|you selected.", "Select text, say how you want it. It changes right where it sits.", S)
+    note = (f'<div class="body" style="padding-top:44px"><div style="position:relative;height:100px"><span id="{i}old" class="sel" style="position:absolute;left:0;top:0">hey can u send the report asap</span>'
+            f'<span id="{i}new" style="position:absolute;left:0;top:0;opacity:0">Could you please send the report as soon as possible?</span></div>'
+            f'<div class="ln" style="margin-top:120px;width:70%"></div><div class="ln" style="width:55%"></div></div>')
+    extra = f'<div class="heard" id="{i}hd">“make this more formal”</div>'
+    body = h + desk(i, "Notes", note, extra)
+    js = hj + deck_in(i, S) + summon(i, S + 1.0, 1.8) + [
+        f'tl.from("#{i}hd",{{y:-14,opacity:0,duration:.45,ease:"power3.out"}},{S + 1.6:.2f});',
+        f'tl.to("#{i}hd,#{i}p",{{opacity:0,duration:.3}},{S + D * .55:.2f});',
+        f'tl.to("#{i}old",{{opacity:0,duration:.35}},{S + D * .58:.2f});',
+        f'tl.to("#{i}new",{{opacity:1,duration:.6}},{S + D * .62:.2f});']
+    return scene_wrap(i, S, D, body, js)
+
+
+def c_screen(i, S, D):
+    """Window at (70, 190) in the desk; its menu row is y 238-298 (desk coordinates), File 84 px wide from x 94."""
+    h, hj = head(i, "Ask about|your screen.", "Nova looks, then its marker flies to the spot, one step at a time.", S)
+    items = "".join(f'<span style="display:inline-block;width:{w}px;text-align:center;{"color:var(--ink)" if n == 0 else ""}">{t}</span>'
+                    for n, (t, w) in enumerate((("File", 84), ("Edit", 84), ("View", 84), ("Insert", 100))))
+    doc = (f'<div style="height:60px;line-height:60px;padding-left:24px;font-size:24px;font-weight:700;color:var(--faint);border-bottom:1px solid var(--line);white-space:nowrap">{items}</div>'
+           f'<div class="ln" style="width:64%;margin:300px 0 0 30px"></div><div class="ln" style="width:48%;margin-left:30px"></div>')
+    rows = "".join(f'<div style="{"background:rgba(123,109,255,.2);color:var(--ink);" if t == "Export as PDF" else ""}">{t}</div>' for t in ("New", "Open…", "Save", "Export as PDF", "Print…"))
+    marker = lambda n, x, y, label: (f'<div class="marker" id="{i}k{n}" style="left:{x}px;top:{y}px">{logo(46)}<span class="lab glass">{label}</span></div>')
+    extra = (f'<div class="heard" id="{i}hd">Where do I export as PDF?</div>'
+             f'<div class="menu" id="{i}m" style="left:94px;top:300px">{rows}</div>'
+             f'<div class="ring" id="{i}r1" style="left:92px;top:242px;width:88px;height:52px"></div>{marker(1, 96, 304, "Click File")}'
+             f'<div class="ring" id="{i}r2" style="left:98px;top:470px;width:296px;height:62px"></div>{marker(2, 410, 478, "Export as PDF")}')
+    body = h + desk(i, "Q3 report", doc, extra)
+    js = hj + deck_in(i, S) + summon(i, S + .9, 1.6) + [
+        f'tl.set("#{i}m,#{i}r1,#{i}k1,#{i}r2,#{i}k2",{{opacity:0}},0);',
+        f'tl.from("#{i}hd",{{y:-14,opacity:0,duration:.45,ease:"power3.out"}},{S + 1.5:.2f});',
+        f'tl.to("#{i}hd,#{i}p",{{opacity:0,duration:.3}},{S + D * .36:.2f});',
+        # the marker flies in from the bar, then each ring is drawn
+        f'tl.fromTo("#{i}k1",{{x:340,y:-250,opacity:0}},{{x:0,y:0,opacity:1,duration:.75,ease:"expo.out"}},{S + D * .38:.2f});',
+        f'tl.fromTo("#{i}r1",{{opacity:0,scale:1.25}},{{opacity:1,scale:1,duration:.4,ease:"power3.out"}},{S + D * .46:.2f});',
+        f'tl.to("#{i}m",{{opacity:1,duration:.35}},{S + D * .58:.2f});',
+        f'tl.to("#{i}k1,#{i}r1",{{opacity:0,duration:.25}},{S + D * .6:.2f});',
+        f'tl.fromTo("#{i}k2",{{x:-314,y:-174,opacity:0}},{{x:0,y:0,opacity:1,duration:.75,ease:"expo.out"}},{S + D * .62:.2f});',
+        f'tl.fromTo("#{i}r2",{{opacity:0,scale:1.15}},{{opacity:1,scale:1,duration:.4,ease:"power3.out"}},{S + D * .7:.2f});']
+    return scene_wrap(i, S, D, body, js)
+
+
+def c_safe(i, S, D):
+    h, hj = head(i, "Risky steps|wait for you.", "The card shows the exact command. No answer in 30 seconds means no.", S)
+    term = ('<div class="body mono" style="font-size:24px;line-height:1.7;color:var(--mute)"><div><span style="color:var(--lilac)">my-site $</span> ls</div>'
+            '<div>dist&nbsp;&nbsp;src&nbsp;&nbsp;package.json</div><div><span style="color:var(--lilac)">my-site $</span> <span style="color:#ff9b9b">rm -rf dist</span></div></div>')
+    extra = (f'<div class="ncard glass amber" id="{i}c"><div class="t"><b></b>Needs your OK</div><div class="a mono" style="font-size:28px">rm -rf dist</div>'
+             f'<div class="d">Deletes the dist folder in my-site (14 files)</div><div class="btns"><div class="btn allow" id="{i}al">Allow</div><div class="btn deny">Deny</div></div></div>')
+    body = h + desk(i, "Terminal", term, extra, label="Needs OK", amber=True, win="top:320px;height:400px")  # under the card
+    js = hj + deck_in(i, S) + summon(i, S + 1.0, .4)[:3] + grow(i, f"{i}c", S + D * .3) + [  # no voice bars: it's waiting on you
+        f'tl.to("#{i}al",{{scale:1.08,duration:.3,yoyo:true,repeat:1,ease:"sine.inOut"}},{S + D * .72:.2f});']
+    return scene_wrap(i, S, D, body, js)
+
+
+def c_finish(i, S, D):
+    body = (f'<div style="position:absolute;left:0;width:1920px;top:210px;text-align:center"><div id="{i}l" style="display:inline-block">{logo(160)}</div></div>'
+            f'<div class="big" style="top:420px" id="{i}b"><div class="t">You\'re ready.</div><div class="s">Nova lives in your tray. Say “Hey Nova” any time.</div></div>'
+            f'<div style="position:absolute;left:0;width:1920px;top:760px;display:flex;justify-content:center"><div class="keys" id="{i}k"><kbd>Hey Nova</kbd><kbd>Ctrl&nbsp;×3</kbd></div></div>')
+    js = [f'tl.from("#{i}l",{{scale:.6,opacity:0,duration:.9,ease:"back.out(1.6)"}},{S + .1:.2f});',
+          f'tl.from("#{i}b .t",{{y:50,opacity:0,duration:.8,ease:"power3.out"}},{S + .4:.2f});',
+          f'tl.from("#{i}b .s",{{y:30,opacity:0,duration:.7,ease:"power3.out"}},{S + .9:.2f});',
+          f'tl.from("#{i}k kbd",{{y:40,opacity:0,duration:.6,ease:"power3.out",stagger:.14}},{S + 1.4:.2f});']
+    return scene_wrap(i, S, D, body, js)
 
 
 # ---------- plumbing ----------
@@ -354,7 +537,7 @@ def seconds(name):
         return w.getnframes() / w.getframerate()
 
 
-def project(name, scenes):
+def project(name, scenes, css=CSS):
     """scenes: [(scene_id, narration_key, builder, kwargs, min_seconds)] -> a HyperFrames project; returns its folder."""
     folder = WORK / name
     shutil.rmtree(folder, ignore_errors=True)
@@ -370,7 +553,7 @@ def project(name, scenes):
         audio.append(f'<audio id="a{n}" class="clip" src="assets/{key}.wav" data-start="{t + .5:.2f}" data-duration="{seconds(key):.2f}" data-track-index="{10 + n}"></audio>')
         t += d
     page = (f'<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=1920, height=1080">'
-            f'<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script><style>{CSS}</style></head><body>'
+            f'<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script><style>{css}</style></head><body>'
             f'<div id="root" data-composition-id="main" data-start="0" data-duration="{t:.2f}" data-width="1920" data-height="1080">{"".join(html)}{"".join(audio)}</div>'
             f'<script>window.__timelines=window.__timelines||{{}};const tl=gsap.timeline({{paused:true}});{"".join(js)}window.__timelines["main"]=tl;tl.seek(0);</script></body></html>')
     (folder / "index.html").write_text(page, encoding="utf-8")
@@ -421,12 +604,23 @@ def snap():
 def clips():
     out = MEDIA / "walkthrough"
     out.mkdir(parents=True, exist_ok=True)
-    for name, key, fn, kw in CLIPS:
+    for name, key, fn in CLIPS:
         if sys.argv[2:] and name not in sys.argv[2:]:  # python build.py clips 03-rewrite 04-screen: just those
             continue
-        folder = project(f"clip-{name}", [(name.split("-")[1], key, fn, kw, 5.0)])
+        folder = project(f"clip-{name}", [(name.split("-")[1], key, globals()[fn], {}, 6.0)], css=DECK)
         render(folder, WORK / f"{name}-raw.mp4")
         encode(WORK / f"{name}-raw.mp4", out / f"{name}.mp4", width=1280, crf=31, audio="40k")
+
+
+def clipsnap():
+    """Build the clip projects and take stills along each, to look at before rendering: python build.py clipsnap [names]."""
+    for name, key, fn in CLIPS:
+        if sys.argv[2:] and name not in sys.argv[2:]:
+            continue
+        folder = project(f"clip-{name}", [(name.split("-")[1], key, globals()[fn], {}, 6.0)], css=DECK)
+        length = max(6.0, seconds(key) + 1.5)
+        times = ",".join(f"{length * f:.1f}" for f in (.25, .45, .7, .9))
+        run(["npx", "-y", "hyperframes", "snapshot", "--at", times], cwd=folder, shell=sys.platform == "win32")
 
 
 def banner():
@@ -451,4 +645,4 @@ def banner():
 
 
 if __name__ == "__main__":
-    {"narrate": narrate, "snap": snap, "hero": hero, "clips": clips, "banner": banner, "gif": gif}[sys.argv[1]]()
+    {"narrate": narrate, "snap": snap, "clipsnap": clipsnap, "hero": hero, "clips": clips, "banner": banner, "gif": gif}[sys.argv[1]]()

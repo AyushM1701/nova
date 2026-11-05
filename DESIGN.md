@@ -244,6 +244,11 @@ Sits above the request box, 10px radius, strong hairline on near-black. Approval
 ### The Orb (signature)
 A 600-point cloud joined to its 3 nearest neighbours, drawn on canvas in violet (hue 248), sized to about 36% of the stage's short side. State drives it: listening tightens (spread .88) and follows the microphone; thinking spreads loose (1.18) and spins fastest; speaking is brightest and pulses with the level; approval and paused are still and dim; "working" maps to thinking. Calm states redraw at 20 fps (idle) or 10 fps (approval, paused, gone); the loop stops when Home is hidden. Reduced motion freezes twinkle and keeps only a slow small swell while speaking. The orb has no chrome around it.
 
+### First-run setup
+Two columns inside the full-window overlay (max 1180px): what to do on the left (title 30px, lede, rows and controls), and on the right the stage. The stage holds Nova's bar (the `pill()` canvas, 196px wide), the orb (the same singleton, moved onto the setup while it's open and handed back to Home on close) and a mono readout of what's set up (Mic, AI, browser, email, apps, Obsidian), green dots when done. The stage stays in view while a long step scrolls. The orb acts out the step: it plays Nova's four states on the welcome, follows the microphone level on the mic step, and answers (speaking, 1.8s) when a step becomes ready. Tour steps put their live scene in the stage instead. Progress is five named chapters (Hello, Try it, Your AI, Your apps, Ready) in mono caps with a tick per step, not a row of dashes. A setup step's main button says "Set up later", unhighlighted, until something is set up, then Continue. Under 960px the stage sits above the step, the orb at 19vh and without the bar.
+
+The walkthrough clips (`docs/video/build.py`, DECK) use the same world at 1920×1080: navy ground with a violet field behind a dark desktop, the bar as indigo glass at the desktop's top centre that drops in after a glow at the top edge, the heard bubble in Signal Violet, and the reply or approval card growing out of the bar.
+
 ## Do's and Don'ts
 
 ### Do:

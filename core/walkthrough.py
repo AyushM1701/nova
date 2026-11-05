@@ -25,13 +25,19 @@ def folder(fetch=update.fetch):
     """Where the clips are, downloading them once if needed. ValueError if the download doesn't match its checksum."""
     if _have(LOCAL):
         return LOCAL
-    if not _have(DIR):
+    stamp = DIR.with_name(DIR.name + ".version")  # which Nova the clips came with: an update can bring new ones
+    try:
+        fresh = stamp.read_text(encoding="utf-8").strip() == update.current()
+    except OSError:
+        fresh = False
+    if not (_have(DIR) and fresh):
         base = f"https://github.com/{update.REPO}/releases/download/v{update.current()}/"
         archive = update.verified(fetch(base + ASSET), update.signed_sums(base + update.SUMS, base + update.SIG, fetch), ASSET)
         DIR.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(io.BytesIO(archive)) as z:
             for name in CLIPS:  # only the known clips, by name: nothing else in the zip is written anywhere
                 (DIR / f"{name}.mp4").write_bytes(z.read(f"{name}.mp4"))
+        stamp.write_text(update.current(), encoding="utf-8")
     return DIR
 
 
