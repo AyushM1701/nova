@@ -189,15 +189,17 @@ Setup:
 
 Nova then shows its own first-run screens:
 
-1. **Microphone:** a live level meter shows that Nova hears you.
-2. **Brain:** pick **Claude Code** or **Codex**. If it isn't installed, one click installs it (and Node.js if needed); **Sign in** opens its login (your Claude or ChatGPT account). Skip it and dictation still works.
-3. **Browsers** (Windows and Mac): pick the browsers Nova may work in, with your own logins.
-4. **Email:** Gmail and Outlook, either in your own browser (no new account) or through Composio (a separate service with its own account, for questions about lots of mail at once; you paste the link it gives you, and your mail passes through it).
-5. **Apps and Claude Code:** add Linear, Notion, Jira or GitHub and sign in; "tell me when Claude Code finishes"; your Nova notes inside Claude Code.
-6. **Notes in Obsidian** (optional): install Obsidian and make a vault for Nova's notes.
-7. **Shortcut:** see the shortcuts (hold Ctrl+` to talk, tap Ctrl three times for hands-free) and turn "Hey Nova" on or off.
-8. **Start at login**, and a first try.
-9. **A 2-minute walkthrough:** a short video for each thing Nova does (talking, dictation, rewriting a selection, questions about your screen, approvals), each followed by a "your turn" step that waits until you've really tried it. Skip any step, or take it again from Home. The clips (about 1.5 MB) download the first time it opens and are checked against the release's checksum.
+1. **Microphone:** Nova's bar moves with your voice, so you can see Nova hears you.
+2. **Try it for real:** a short tour where each step is the real thing. Point at the top edge to make the bar appear, press the shortcut and ask "what time is it?" (the answer appears in the tour as Nova gives it), then hold the dictation keys and talk, and Nova types into an email right there. **Show me instead** plays an acted version.
+3. **Brain:** pick **Claude Code** or **Codex**. If it isn't installed, one click installs it (and Node.js if needed); **Sign in** opens its login (your Claude or ChatGPT account). Skip it and dictation still works.
+4. **Asks first, and sees your screen:** Allow or Deny a risky step, and, with your AI connected, press **Show me on my real screen**: Nova looks at your screen and its marker flies to something on it.
+5. **Browsers** (Windows and Mac): pick the browsers Nova may work in, with your own logins.
+6. **Email:** Gmail and Outlook, either in your own browser (no new account) or through Composio (a separate service with its own account, for questions about lots of mail at once; you paste the link it gives you, and your mail passes through it).
+7. **Apps and Claude Code:** add Linear, Notion, Jira or GitHub and sign in; "tell me when Claude Code finishes"; your Nova notes inside Claude Code.
+8. **Notes in Obsidian** (optional): install Obsidian and make a vault for Nova's notes.
+9. **Shortcut:** see the shortcuts (hold Ctrl+` to talk, tap Ctrl three times for hands-free) and turn "Hey Nova" on or off.
+10. **Start at login**, and a first try.
+11. **A 2-minute walkthrough** (opens by itself only if you skipped the tour; it's always on Home): a short video for each thing Nova does (talking, dictation, rewriting a selection, questions about your screen, approvals), each followed by a "your turn" step that waits until you've really tried it. Skip any step, or take it again from Home. The clips (about 1.5 MB) download the first time it opens and are checked against the release's checksum.
 
 Every step can be skipped with **Set up later**. Until each is done, Home shows a **Finish setting up Nova** list; click a line to do just that step, or **Hide** it. People who set Nova up before these steps existed see the list too.
 

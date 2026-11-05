@@ -538,7 +538,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .scene { position: relative; width: min(100%, 64vh); aspect-ratio: 16 / 10; margin: 2px 0 12px; border-radius: 14px; overflow: hidden; container-type: inline-size;
   background: linear-gradient(160deg, var(--raised), var(--sunk)); border: 1px solid var(--line); box-shadow: var(--shadow);
   font-size: 12px; font-size: clamp(9.5px, 2.15cqw, 12.5px); -webkit-user-select: none; user-select: none; }
-.scene .win { position: absolute; left: 5%; top: 6%; width: 66%; height: 70%; border-radius: 9px; background: var(--surface);
+.scene .win { position: absolute; left: 5%; top: 17%; width: 66%; height: 66%; border-radius: 9px; background: var(--surface);
   border: 1px solid var(--line); box-shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 10px 26px rgba(0, 0, 0, .10); overflow: hidden; }
 .scene .win-top { height: 2.3em; display: flex; align-items: center; gap: .5em; padding: 0 .9em; border-bottom: 1px solid var(--line); color: var(--muted); font-weight: 550; }
 .scene .win-top i { width: .62em; height: .62em; border-radius: 50%; background: var(--line-strong); }
@@ -552,17 +552,28 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .scene .typed { min-height: 3.2em; }
 .scene .caret { display: inline-block; width: 1.5px; height: 1.1em; vertical-align: -.2em; background: var(--accent); animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
-.scene canvas.bar { position: absolute; left: 50%; bottom: 3.5%; width: 23%; aspect-ratio: 312 / 106; transform: translateX(-50%); pointer-events: none; }
-.scene .bar-hit { position: absolute; left: 50%; bottom: 3.5%; width: 17%; height: 9%; transform: translateX(-50%); border: 0; border-radius: 99px; background: transparent; padding: 0; }
-.scene .heard { position: absolute; left: 50%; bottom: 15%; max-width: 70%; transform: translate(-50%, 6px); opacity: 0; padding: .45em .85em; border-radius: 1em;
+.scene canvas.bar { position: absolute; left: 50%; top: 1%; width: 23%; aspect-ratio: 312 / 106; transform: translateX(-50%); pointer-events: none;
+  transition: opacity .25s, transform .5s cubic-bezier(.34, 1.56, .64, 1); }
+.scene.tucked canvas.bar { opacity: 0; transform: translate(-50%, -75%) scale(.8); }
+.scene .bar-hit { position: absolute; left: 50%; top: 1%; width: 17%; height: 9%; transform: translateX(-50%); border: 0; border-radius: 99px; background: transparent; padding: 0; }
+.scene .edge { position: absolute; left: 25%; right: 25%; top: 0; height: 3.2em; pointer-events: none; opacity: 0; transition: opacity .25s;
+  background: radial-gradient(ellipse 50% 100% at 50% 0, rgba(123, 109, 255, .7), rgba(123, 109, 255, 0)); }
+.scene.near .edge { opacity: 1; }
+.scene .top-zone { position: absolute; left: 0; right: 0; top: 0; height: 13%; }
+.scene textarea.live { width: 100%; min-height: 4.6em; resize: none; border: 1px dashed var(--line-strong); border-radius: .5em; background: transparent;
+  color: var(--text); padding: .5em .6em; font: inherit; -webkit-user-select: text; user-select: text; }
+.scene textarea.live:focus { outline: none; border-color: var(--accent); border-style: solid; }
+.scene-acts { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 10px; }
+.scene-acts:empty { display: none; }
+.scene .heard { position: absolute; left: 50%; top: 13.5%; max-width: 70%; transform: translate(-50%, 6px); opacity: 0; padding: .45em .85em; border-radius: 1em;
   background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); color: var(--muted); font-style: italic; text-align: center;
   transition: opacity .25s, transform .45s cubic-bezier(.16, 1, .3, 1); pointer-events: none; }
 .scene .heard.on { opacity: 1; transform: translate(-50%, 0); }
 .scene .heard s { color: var(--faint); text-decoration-color: var(--danger); }
-.scene .card { position: absolute; right: 3%; bottom: 17%; width: 52%; padding: .85em 1em; border-radius: .9em; background: rgba(13, 15, 26, .97); color: #d4d7e8;
+.scene .card { position: absolute; left: 50%; top: 2%; width: 58%; transform-origin: 50% 0; padding: .85em 1em; border-radius: .9em; background: rgba(13, 15, 26, .97); color: #d4d7e8;
   border: 1px solid rgba(255, 255, 255, .12); box-shadow: 0 2px 4px rgba(0, 0, 0, .2), 0 14px 32px rgba(8, 10, 20, .35);
-  opacity: 0; transform: translateY(8px) scale(.98); filter: blur(3px); transition: opacity .25s, transform .45s cubic-bezier(.16, 1, .3, 1), filter .25s; }
-.scene .card.on { opacity: 1; transform: none; filter: none; }
+  opacity: 0; transform: translateX(-50%) scale(.38, .22); filter: blur(3px); transition: opacity .25s, transform .5s cubic-bezier(.34, 1.3, .64, 1), filter .25s; }
+.scene .card.on { opacity: 1; transform: translateX(-50%); filter: none; }  /* grows out of the bar, like the real reply card */
 .scene .card .t { display: flex; align-items: center; gap: .5em; color: #f0f2fa; font-weight: 600; }
 .scene .card .t i { width: .55em; height: .55em; border-radius: 50%; background: #7b6dff; }
 .scene .card.amber .t i { background: #ffba3c; }
@@ -579,7 +590,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .scene .ptr span { margin-top: 1.05em; padding: .3em .75em; border-radius: 1em; background: rgba(13, 15, 26, .93); color: #f0f2fa; font-weight: 550; white-space: nowrap;
   opacity: 0; transform: scale(.85); transform-origin: left center; transition: opacity .25s, transform .25s cubic-bezier(.16, 1, .3, 1); }
 .scene .ptr.landed span { opacity: 1; transform: none; }
-.scene .ask { position: absolute; left: 50%; bottom: 15%; transform: translateX(-50%); padding: .5em 1em; border-radius: 1em; border: 1px solid var(--accent);
+.scene .ask { position: absolute; left: 50%; bottom: 5%; transform: translateX(-50%); padding: .5em 1em; border-radius: 1em; border: 1px solid var(--accent);
   background: var(--surface); color: var(--accent-text); font-size: 1.05em; font-weight: 600; white-space: nowrap; transition: opacity .25s; }
 .scene .poke { animation: poke 1.6s cubic-bezier(.16, 1, .3, 1) infinite; }
 @keyframes poke { 0% { box-shadow: 0 0 0 0 rgba(123, 109, 255, .55); } 100% { box-shadow: 0 0 0 1.1em rgba(123, 109, 255, 0); } }
@@ -2994,15 +3005,17 @@ function macPerms(box) {
 }
 
 /* ---------- walkthrough scenes ----------
-   Each scene is a short script acting out one feature on a small desktop: the bar (drawn by pill(), like the real
-   one), the reply card and the pointer. It plays like a clip with captions, pauses for one thing the user does
-   (click the bar, Allow, ask), and can be paused and replayed. */
+   Each scene acts out one feature on a small desktop: the bar at the top (drawn by pill(), like the real one), the reply
+   card that grows out of it, and the pointer. It plays like a clip with captions and waits for what the user does. While
+   Nova is running, the live parts follow the real Nova: the bar shows its real state and your real voice, and what Nova
+   hears and answers appears in the scene as it happens (k.mirror, k.live). "Show me instead" plays the acted version. */
 const STOP = Symbol("stop");
 const PTR_SVG = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 2 18 9.5 10 11 8.5 18Z" fill="#7b6dff" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>';
 
 function sceneView(scene) {
   const stage = h("div", { class: "scene", role: "group", "aria-label": scene.label });
   const cap = h("p", { class: "scene-cap", "aria-live": "polite" });
+  const acts = h("div", { class: "scene-acts" });
   const fill = h("i"), playBtn = h("button", { class: "btn sm ghost", "aria-label": "Pause", html: I.pause });
   const ctl = h("div", { class: "scene-ctl" }, playBtn, h("div", { class: "track", "aria-hidden": "true" }, fill),
     h("button", { class: "btn sm ghost", onclick: () => start() }, "Replay"));
@@ -3025,10 +3038,12 @@ function sceneView(scene) {
       }
     };
     const bar = { state: "idle", levels: new Array(15).fill(0) };
-    const canvas = h("canvas", { class: "bar", width: 312, height: 106, "aria-hidden": "true" }); pill(canvas, () => bar);
+    let source = () => bar;  // the acted bar, or the real Nova's (k.mirror)
+    const canvas = h("canvas", { class: "bar", width: 312, height: 106, "aria-hidden": "true" }); pill(canvas, () => source());
     const card = h("div", { class: "card", "aria-hidden": "true" }), heard = h("div", { class: "heard", "aria-hidden": "true" });
     const ptr = h("div", { class: "ptr", "aria-hidden": "true", html: PTR_SVG }, h("span"));
-    stage.replaceChildren(...scene.desk(), canvas, heard, card, ptr);
+    stage.replaceChildren(...scene.desk(), h("div", { class: "edge" }), canvas, heard, card, ptr);
+    stage.classList.remove("tucked", "near"); acts.replaceChildren(); S.sceneTap = null;
     fill.style.transform = "scaleX(0)";
     const k = {
       wait,
@@ -3037,7 +3052,31 @@ function sceneView(scene) {
         bar.state = state; clearInterval(timer);
         if (state === "listening") timer = setInterval(() => { if (!paused) { bar.levels.push(.15 + Math.random() * .6); bar.levels.shift(); } }, 70);
       },
-      heard: html => { heard.innerHTML = html || ""; heard.classList.toggle("on", !!html); },
+      heard: html => { heard.innerHTML = html || ""; heard.classList.toggle("on", !!html); },  // authored, or esc()'d real words
+      mirror: on => { source = on ? liveSource : () => bar; },
+      tuck: on => stage.classList.toggle("tucked", on),
+      // like the real bar at the top of the screen: hidden until the pointer rests at the top edge (a glow first)
+      reveal: () => new Promise((resolve, reject) => {
+        const zone = h("div", { class: "top-zone" }), hit = h("button", { class: "bar-hit", "aria-label": "Show Nova's bar" });
+        stage.append(zone, hit); hit.classList.add("poke");
+        let t = null;
+        const done = () => { clearInterval(check); clearTimeout(t); zone.remove(); hit.remove(); stage.classList.remove("near"); stage.classList.remove("tucked"); resolve(); };
+        zone.addEventListener("pointerenter", () => { stage.classList.add("near"); t = setTimeout(done, reduced ? 0 : 450); });
+        zone.addEventListener("pointerleave", () => { stage.classList.remove("near"); clearTimeout(t); });
+        hit.addEventListener("click", done); hit.addEventListener("focus", () => stage.classList.add("near"));
+        const check = setInterval(() => { if (!live()) { clearInterval(check); reject(STOP); } }, 200);
+      }),
+      // buttons under the caption for this moment of the scene (k.actions() clears them)
+      actions: (...btns) => acts.replaceChildren(...btns),
+      // follow the real Nova: `onEvent` sees each event Nova sends (heard, reply, note, dictation...) and returns true when
+      // the user has done the thing; "Show me instead" resolves "demo" for the acted version
+      live: (onEvent, demoLabel = "Show me instead") => new Promise((resolve, reject) => {
+        const demo = h("button", { class: "btn sm ghost" }, demoLabel);
+        const done = r => { clearInterval(check); if (S.sceneTap === tap) S.sceneTap = null; acts.replaceChildren(); resolve(r); };
+        const tap = ev => { if (!paused && onEvent(ev)) done("real"); };
+        S.sceneTap = tap; demo.addEventListener("click", () => done("demo")); acts.replaceChildren(demo);
+        const check = setInterval(() => { if (!live()) { clearInterval(check); if (S.sceneTap === tap) S.sceneTap = null; reject(STOP); } }, 200);
+      }),
       card(title, { body = "", quote = "", detail = "", amber = false, buttons = null } = {}) {
         card.classList.toggle("amber", amber);
         card.replaceChildren(...[h("div", { class: "t" }, h("i"), title), quote && h("div", { class: "q" }, `“${quote}”`),
@@ -3053,7 +3092,7 @@ function sceneView(scene) {
       },
       // fly from the bar along an arc to (x, y) in % of the desktop, then show the label
       point: async (x, y, label) => {
-        const W = stage.clientWidth, H = stage.clientHeight, from = [W * .5, H * .86], to = [W * x / 100, H * y / 100];
+        const W = stage.clientWidth, H = stage.clientHeight, from = [W * .5, H * .08], to = [W * x / 100, H * y / 100];
         const lift = Math.min(Math.hypot(to[0] - from[0], to[1] - from[1]) * .25, H * .2);
         const mid = [(from[0] + to[0]) / 2, (from[1] + to[1]) / 2 - lift];
         const at = t => [0, 1].map(i => (1 - t) ** 2 * from[i] + 2 * (1 - t) * t * mid[i] + t * t * to[i]);
@@ -3076,22 +3115,43 @@ function sceneView(scene) {
     try {
       await scene.play(k);
       fill.style.transform = "scaleX(1)"; ended = true; setPaused(true);
-    } catch (e) { if (e !== STOP) throw e; } finally { if (id === run) clearInterval(timer); }
+    } catch (e) { if (e !== STOP) throw e; } finally { if (id === run) { clearInterval(timer); source = () => bar; } }
   }
   setTimeout(start, 250);  // after the step's entrance
-  return [stage, cap, ctl];
+  return [stage, cap, acts, ctl];
 }
 
 const deskWin = (title, ...body) => h("div", { class: "win" }, h("div", { class: "win-top" }, h("i"), h("i"), h("i"), h("span", {}, title)), ...body);
-const barButton = () => h("button", { class: "bar-hit", "aria-label": "Click the bar to talk" });
+// the key that dictates: the hold key when there is one, else the dictation chord (Ctrl+Win by default)
+const dictateKeys = () => S.cfg.hold_key ? holdKeys() : `<span class="keys">${prettyKeys(S.cfg.dictate || "ctrl+win").map(k => `<kbd>${esc(k)}</kbd>`).join("")}</span>`;
 const SCENES = {
   talk: {
-    label: "Nova's bar at the bottom of a desktop. Clicking it, you ask a question out loud and Nova answers in a card.",
+    label: "Nova's bar waits at the top of a desktop. You call Nova, ask out loud, and the answer grows out of the bar.",
     length: 9000,
-    desk: () => [deskWin("Notes", h("div", { class: "win-body" }, h("div", { class: "line", style: "width:70%" }), h("div", { class: "line", style: "width:55%" }), h("div", { class: "line", style: "width:62%" }))), barButton()],
+    desk: () => [deskWin("Notes", h("div", { class: "win-body" }, h("div", { class: "line", style: "width:70%" }), h("div", { class: "line", style: "width:55%" }), h("div", { class: "line", style: "width:62%" })))],
     async play(k) {
-      k.say(`This is Nova's bar. It sits at the bottom of your screen. <b>Click it to talk</b>, or press ${talkKeys()}, or say “Hey Nova”.`);
-      await k.until(k.$(".bar-hit"));
+      k.tuck(true);
+      k.say("Nova's bar waits out of sight at the <b>top of your screen</b>. Rest your pointer at the top edge of this one.");
+      await k.reveal();
+      k.say("There it is. It also shows by itself whenever Nova listens, thinks or talks, and never covers a full-screen game.");
+      await k.wait(2600);
+      if (!S.gone) {  // Nova is running: the rest is the real thing
+        k.mirror(true);
+        k.say(`Now for real. Press ${talkKeys()} or say “Hey Nova”, then ask <b>“What time is it?”</b>`);
+        let asked = "";
+        const how = await k.live(ev => {
+          if (ev.event === "heard" && ev.source === "voice" && ev.text) { asked = ev.text; k.heard(esc(ev.text)); }
+          if (asked && (ev.event === "note" || ev.event === "reply")) {
+            k.heard(""); k.card("Nova", { quote: asked, body: ev.text || ev.say || ev.reply || "" }); return true;
+          }
+        });
+        if (how === "real") {
+          k.say("That was the real Nova, listening on this computer. Simple things like the time, volume or opening an app are instant and use <b>no AI at all</b>.");
+          await k.wait(5200); k.hideCard(); k.mirror(false);
+          return;
+        }
+        k.mirror(false);
+      }
       k.bar("listening"); k.say("Then just say what you want, the way you'd ask a person.");
       await k.wait(700); k.heard("What's on my calendar today?"); await k.wait(1800);
       k.heard(""); k.bar("thinking"); k.card("Thinking", { quote: "What's on my calendar today?", detail: "Checking your calendar" });
@@ -3128,8 +3188,22 @@ const SCENES = {
   dictate: {
     label: "Dictation: you speak with fillers and a correction, and clean text appears in an email.",
     length: 9500,
-    desk: () => [deskWin("New email", h("div", { class: "win-body" }, h("div", { style: "color:var(--muted)" }, "To: Sam"), h("div", { class: "line", style: "width:30%" }), h("div", { class: "typed" })))],
+    desk: () => [deskWin("New email", h("div", { class: "win-body" }, h("div", { style: "color:var(--muted)" }, "To: Sam"), h("div", { class: "line", style: "width:30%" }),
+      S.gone ? h("div", { class: "typed" }) : h("textarea", { class: "live", "aria-label": "Dictate into this email", placeholder: "Your words land here" })))],
     async play(k) {
+      const box = k.$("textarea.live");
+      if (box) {  // Nova is running: dictate into this box for real (Nova types into whatever has the cursor, this window too)
+        k.mirror(true); box.focus();
+        k.say(`Your turn. The cursor is in this email. <b>Hold ${dictateKeys()}</b> until you hear the chime, say a sentence, “um”s and all (try “meet at 6, no wait, 7”), then let go.`);
+        const how = await k.live(ev => ev.event === "dictation" || ev.event === "snippet");
+        k.mirror(false);
+        if (how === "real") {
+          k.say("Clean text, typed by Nova: the “um”s are gone and the correction is kept. It works the same in any app: email, chat, code, documents.");
+          await k.wait(5000);
+          return;
+        }
+        box.replaceWith(h("div", { class: "typed" }));
+      }
       k.say("Switch to <b>dictation</b> and Nova types for you, in whatever app you're in.");
       await k.wait(900); k.bar("listening"); await k.wait(500);
       k.heard("<s>um so</s> let's meet at <s>6, no wait,</s> 7 near the metro");
@@ -3155,18 +3229,31 @@ const SCENES = {
       exp.classList.add("hit"); k.bar("speaking"); k.card("Nova", { body: "Top right, next to Share." });
       k.say("It points right at it. Nova takes a screenshot only when you ask about the screen.");
       await k.wait(3200); k.bar("idle"); k.hideCard();
+      if (!S.gone && S.state.brain) {  // the real thing, on the user's own screen
+        const go = h("button", { class: "btn primary" }, "Show me on my real screen");
+        k.say("Now on <b>your</b> screen: Nova looks at it, picks something and its marker flies right there.");
+        k.actions(go);
+        await k.until(go); k.actions();
+        api().demo().catch(fail);
+        k.say("Watch your screen. Come back here when Nova has spoken.");
+        await k.wait(4000);
+      }
     },
   },
 };
 
 const SCENE_TITLES = { talk: "Talk to Nova", work: "It does the work, and asks first", dictate: "Or dictate into any app", screen: "It sees what you see" };
-const STEPS = ["welcome", "talk", "work", "brain", "dictate", "screen", "mic", ...(S_BROWSERS_STEP ? ["browsers"] : []), "email", "apps", "notes", "keys", "done"];
+// the microphone first, so the tour can be tried for real; the screen after the AI, which the real "Show me" needs
+const STEPS = ["welcome", "mic", "talk", "dictate", "brain", "work", "screen", ...(S_BROWSERS_STEP ? ["browsers"] : []), "email", "apps", "notes", "keys", "done"];
 let onbAt = 0, onbOnly = false;  // onbOnly: opened from Home's checklist for one step, which closes when it's done
 function openOnboarding(at) { onbAt = Math.max(0, STEPS.indexOf(at)); onbOnly = !!at; $("#onb").hidden = false; $("#app").inert = true; renderOnb(); }
 function closeOnboarding() {
   stopMic(); clearInterval(pollTimer); $("#onb").hidden = true; $("#app").inert = false;
   if (onbOnly) return renderChecklist();
-  set("onboarded", true); save(true); go("home"); if (!get("walked")) openWalk();
+  set("onboarded", true); go("home");
+  // the tour was tried for real: the video walkthrough is only for those who skipped it (it stays on Home)
+  if (!get("walked") && S.skippedTour) openWalk(); else set("walked", true);
+  save(true);
 }
 const APPS = [["linear", "Linear", "https://mcp.linear.app/mcp"], ["notion", "Notion", "https://mcp.notion.com/mcp"],
   ["jira", "Jira", "https://mcp.atlassian.com/v1/mcp"], ["github", "GitHub", "https://api.githubcopilot.com/mcp/"]];  // core/mcp.py PRESETS
@@ -3304,13 +3391,13 @@ function renderOnb() {
     step.append(h("div", { class: "stage" }, c), h("h1", {}, "Talk to your computer"),
       h("p", { class: "lede" }, "Ask Nova to do things and it does them with Claude Code or Codex. Or dictate, and clean text appears in whatever app you're typing in."),
       h("div", { class: "callout" }, h("span", { html: I.shield }), h("p", { class: "muted" }, "Speech recognition runs on this computer. Nova asks before the AI deletes, installs or sends anything.")),
-      h("p", { class: "muted", style: "margin-top:18px" }, "A one-minute tour shows how it works, then Nova gets set up. Skip the tour any time."));
-    next.textContent = "Show me how it works";
+      h("p", { class: "muted", style: "margin-top:18px" }, "Next you try each thing for real, on this computer, then connect your AI and your apps. Skip the tour any time."));
+    next.textContent = "Let's go";
   } else if (id === "mic") {
     const c = h("canvas", { width: 520, height: 176 }); pill(c, micSource);
     const name = h("p", { class: "lede" }, "Say something. The bars should move as you talk.");
-    step.append(h("div", { class: "stage" }, c), h("h1", {}, "Check your microphone"), name);
-    startMic().then(n => name.textContent = `Using “${n}”. Say something; the bars should move as you talk.`)
+    step.append(h("div", { class: "stage" }, c), h("h1", {}, "Say hello"), name);
+    startMic().then(n => name.textContent = `This is Nova's bar, and those bars are your voice, through “${n}”. Say something: they should move as you talk.`)
       .catch(() => name.textContent = "Nova can't find a microphone. Plug one in, or allow microphone access in your privacy settings, then go back and try again.");
   } else if (id === "brain") {
     const box = h("div", { class: "engines", role: "radiogroup", "aria-label": "Brain" }), log = h("div", { class: "log mono", hidden: true });
@@ -3428,7 +3515,7 @@ function renderOnb() {
 $("#onbNext").addEventListener("click", async () => {
   if (STEPS[onbAt] === "browsers" && S.browserPicks) { $("#onbNext").disabled = true; $("#onbNext").textContent = "Setting up…"; await applyBrowserPicks(); } if (onbOnly || onbAt >= STEPS.length - 1) return closeOnboarding(); onbAt++; renderOnb(); });
 $("#onbBack").addEventListener("click", () => { if (onbAt) { onbAt--; renderOnb(); } });
-$("#onbSkip").addEventListener("click", () => { do onbAt++; while (SCENES[STEPS[onbAt]]); renderOnb(); });  // on to the next setup step
+$("#onbSkip").addEventListener("click", () => { S.skippedTour = true; do onbAt++; while (SCENES[STEPS[onbAt]]); renderOnb(); });  // on to the next setup step
 
 /* ---------- events from Nova ---------- */
 const handlers = {
@@ -3484,7 +3571,7 @@ const handlers = {
   focus(ev) { if (ev.page === "welcome") openOnboarding(); else if (ev.page) go(ev.page); },
   gone() { S.gone = true; S.bar = "idle"; endWork("Stopped"); stripSet(""); renderLive(); },
 };
-window.nova = { recv(ev) { ev.t ??= Date.now() / 1000; try { walkEvent(ev); (handlers[ev.event] || (() => {}))(ev); } catch (e) { console.error(e); } } };
+window.nova = { recv(ev) { ev.t ??= Date.now() / 1000; try { walkEvent(ev); S.sceneTap && S.sceneTap(ev); (handlers[ev.event] || (() => {}))(ev); } catch (e) { console.error(e); } } };
 
 async function boot() {
   const b = await api().hello();
