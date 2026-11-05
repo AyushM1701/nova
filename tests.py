@@ -7,6 +7,14 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tempfile as _tempfile  # noqa: E402
+from pathlib import Path as _Path  # noqa: E402
+import core.config as _config  # noqa: E402
+# log() reads LOGS on every write: pointed here, before anything else is imported, no check reaches the user's own logs
+REAL_LOG = _config.LOGS / f"nova-{__import__('time').strftime('%Y-%m-%d')}.jsonl"
+REAL_LOG_START = REAL_LOG.stat().st_size if REAL_LOG.exists() else 0
+_config.LOGS = _Path(_tempfile.mkdtemp(prefix="nova-test-logs-"))
+_config.WORKSPACE = _Path(_tempfile.mkdtemp(prefix="nova-test-workspace-"))  # screen.png, jobs: a check's, not yours
 from core.cleanup import local_clean, needs_llm, apply_replacements, is_edit  # noqa: E402
 from core.config import merged, overrides  # noqa: E402
 from core.wake import approval, is_done, is_echo  # noqa: E402
@@ -7169,6 +7177,13 @@ try:
 except RuntimeError as e:
     assert "disconnected" in str(e), e                                                        # not a bare KeyError('brave')
 _loop.call_soon_threadsafe(_loop.stop)
+# the checks' own log lines (a skill file named "empty.md" is refused above) landed in the temp folder, never in the user's
+# log, which Nova itself may be writing to meanwhile
+assert "empty.md" in "".join(p.read_text(encoding="utf-8") for p in _config.LOGS.glob("nova-*.jsonl"))
+if REAL_LOG.exists():
+    with open(REAL_LOG, "rb") as _f:
+        _f.seek(REAL_LOG_START)
+        assert b"empty.md" not in _f.read(), "a self-check wrote into the real logs/"
 print("OK: all self-checks passed")  # setup and Update show this line; any failed check stops before it
 
 from core.cleanup import fix_vocabulary  # noqa: E402
