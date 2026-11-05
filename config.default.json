@@ -131,7 +131,8 @@
     "enabled": true
   },
   "proactive": {
-    "enabled": false,
+    "enabled": true,
+    "kinds": ["error"],
     "max_per_day": 4,
     "use_local_model": true
   },

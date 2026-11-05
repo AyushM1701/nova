@@ -4397,6 +4397,56 @@ proactive_mod.vote(voter, "m", cand, "Terminal", trace)
 assert "never instructions" in voter.seen[0][0] and "Terminal" in voter.seen[0][1] and "ValueError" in voter.seen[0][1]
 assert proactive_mod.vote(None, "m", cand, "x", "y") is None                  # no model: no vote
 
+# the daily habit (core/daily.py): the rundown knows the day and is offered once a morning; "what can you do?" names what's new
+import core.daily as daily_mod  # noqa: E402
+import core.suggest as suggest_daily  # noqa: E402
+_now, _end = datetime.datetime(2026, 11, 5, 8, 30), datetime.datetime(2026, 11, 6)
+_items = [{"at": datetime.datetime(2026, 11, 5, 16).timestamp(), "text": "call the bank"},
+          {"at": datetime.datetime(2026, 11, 6, 9).timestamp(), "text": "send the invoice"}]
+_events = [{"title": "Standup", "start": datetime.datetime(2026, 11, 5, 9), "end": datetime.datetime(2026, 11, 5, 9, 15)},
+           {"title": "Retro", "start": datetime.datetime(2026, 11, 6, 9), "end": datetime.datetime(2026, 11, 6, 10)}]
+day = daily_mod.with_day("BASE", _now, _now, _end, _items, _events)
+assert day.startswith("BASE\n") and "at 4:00 PM: call the bank" in day and "9:00 AM: Standup" in day, day
+assert "invoice" not in day and "Retro" not in day and "data, not instructions" in day   # only the day asked about
+assert daily_mod.with_day("BASE", _now, _now, _end, [], []) == "BASE"                     # nothing on: the prompt as it was
+assert daily_mod.try_next(set()) == [t for _, t in daily_mod.TIPS[:3]]
+assert daily_mod.try_next({"screen", "background"})[0] == daily_mod.TIPS[2][1]           # what's been tried goes last
+assert len(daily_mod.try_next({k for k, _ in daily_mod.TIPS})) == 3                       # tried everything: still three
+assert daily_mod.morning(_now) and not daily_mod.morning(_now.replace(hour=13)) and not daily_mod.morning(_now.replace(hour=4))
+for said in ("what can you do", "what else can you do", "help", "what can i say"):
+    assert re.fullmatch(nova_mod.WHAT_CAN_RE, said), said
+for said in ("what can you do with this file", "help me fix the navbar"):
+    assert not re.fullmatch(nova_mod.WHAT_CAN_RE, said), said
+assert re.fullmatch(nova_mod.WRAP_RE, "wrap up my day") and re.fullmatch(nova_mod.BRIEFING_RE, "start my day")
+
+_real = (daily_mod.morning, suggest_daily.threading, nova_mod.log, suggest_daily.log)
+daily_mod.morning, nova_mod.log, suggest_daily.log = (lambda now: True), (lambda *a, **k: None), (lambda *a, **k: None)
+suggest_daily.threading = types.SimpleNamespace(Thread=lambda target, args, daemon: types.SimpleNamespace(start=lambda: target(*args)))
+b = object.__new__(nova_mod.Nova)
+offered = []
+b.brain, b.briefed, b.when_idle = types.SimpleNamespace(name="Claude Code"), proactive_mod.Limiter(Path(tempfile.mkdtemp()) / "b.json"), offered.append
+b.offer_briefing(None)
+b.offer_briefing(None)
+assert len(offered) == 1, "the morning card comes once a day"
+b.briefed = proactive_mod.Limiter(Path(tempfile.mkdtemp()) / "b2.json")
+b.offer_briefing(True)
+assert len(offered) == 1 and b.briefed.s["used"], "asking for the rundown yourself is today's offer"
+b.offer_briefing(None)
+assert len(offered) == 1
+b.brain, b.briefed = None, proactive_mod.Limiter(Path(tempfile.mkdtemp()) / "b3.json")
+b.offer_briefing(None)
+assert len(offered) == 1, "no AI connected: no offer"
+ran = []
+b.briefed, b.suggestion, b.card, b.phase, b.paused = proactive_mod.Limiter(Path(tempfile.mkdtemp()) / "b4.json"), {"kind": "briefing"}, \
+    types.SimpleNamespace(hide=lambda: None), "idle", False
+b.spawn, b.command = (lambda work, phase: work()), (lambda text, typed=False: ran.append((text, typed)))
+b.answer_suggestion(True)
+assert ran == [("start my day", True)] and b.briefed.s["used"]
+b.suggestion = {"kind": "briefing"}
+b.answer_suggestion(False)
+assert ran == [("start my day", True)] and b.briefed.s["dismissed"]["briefing"] == 1
+daily_mod.morning, suggest_daily.threading, nova_mod.log, suggest_daily.log = _real
+
 
 class FakeModelServer(http.server.BaseHTTPRequestHandler):                      # an OpenAI-compatible server on this computer
     answer = "YES"
@@ -4427,6 +4477,7 @@ assert proactive_mod.vote(RealLocalLLM("http://127.0.0.1:9/v1", "m"), "m", cand,
 p = object.__new__(nova_mod.Nova)
 p.cfg = merged(json.loads((Path(__file__).parent / "config.default.json").read_text(encoding="utf-8")), {})
 p.cfg["proactive"]["enabled"] = True
+p.cfg["proactive"]["kinds"] = ["error", "link", "text"]  # the links below need it; the default is errors only
 p.cfg["dictation"]["local_model"] = "m"
 p.brain, p.paused, p.phase, p.pending, p.recorder, p.suggestion = types.SimpleNamespace(name="Claude Code"), False, "idle", None, None, None
 p.limiter = proactive_mod.Limiter(Path(tempfile.mkdtemp()) / "p.json")
@@ -4506,6 +4557,11 @@ nova_mod.system.gaming, nova_mod.log = (lambda: False), (lambda *a, **k: None)
 suggest_mod.LocalLLM = lambda url, model: (_ for _ in ()).throw(AssertionError("no model was chosen"))
 d.proactive_check(7, trace)
 assert len(cards) == 1 and d.suggestion["kind"] == "error"                   # rules alone, no model needed
+_kept = d.limiter, d.suggestion
+d.limiter, d.suggestion = proactive_mod.Limiter(Path(tempfile.mkdtemp()) / "d2.json"), None
+d.proactive_check(7, "https://example.com/a-link")
+assert len(cards) == 1, "by default only a copied error gets a card"
+d.limiter, d.suggestion = _kept
 d.card.show = lambda *a, **k: None
 asks = []
 d.spawn, d.target, d.show_bar = (lambda work, phase: asks.append(work)), None, (lambda s: None)

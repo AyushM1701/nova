@@ -53,7 +53,7 @@ from core import corrections, theme  # noqa: E402
 from core.suggest import SuggestMixin  # noqa: E402
 from core.sketchpad import SketchPad  # noqa: E402
 from core import webimage  # noqa: E402
-from core import reminders  # noqa: E402
+from core import daily, reminders, runs  # noqa: E402
 from core.readguard import page_host  # noqa: E402
 from core.pointer import Pointer, last_step, rgb, take as take_point  # noqa: E402
 NOT_DONE_RE = re.compile(r"\b(?:couldn'?t|could not|can'?t|cannot|unable|didn'?t|did not|failed|wasn'?t able|not able|sorry|"
@@ -134,7 +134,7 @@ SELECTION_RE = re.compile(r"\b(?:selected|highlighted|this (?:function|method|cl
 # questions about what the computer was playing ("what did they just say?")
 AUDIO_RE = re.compile(r"\b(?:said|say|saying|says|speaker|talk|talked|talking|mention|mentioned|video|meeting|call|"
                       r"lecture|tutorial|podcast|transcript|they|he|she|hear|heard|playing|audio|song)\b", re.I)
-BRIEFING_RE = r"(?:start|begin) my day|(?:morning|daily) (?:briefing|rundown)|brief me|what'?s on (?:for )?today"
+BRIEFING_RE = daily.BRIEFING_RE
 # asked of spoken questions with a short factual answer, not of commands or screen questions (see context())
 SKETCH_HINT = ("if the answer is a short set of facts (a result, a ranking, a comparison, some numbers, steps, how "
                "something works) and a picture would help, also add a sketch note, which Nova draws on screen while "
@@ -169,8 +169,15 @@ STOP_RECORD_RE = re.compile(rf"(?:please )?stop recording(?: (?:this |the |our )
                             rf"|(?:end|stop) (?:the |this |our )?{_RECORDED} recording(?: now| please)*")
 BRIEFING = ("Give me a spoken rundown of about 20 seconds to start my day, without changing anything: for each known "
             "project, its current git branch and whether it has uncommitted changes; unfinished tasks or TODOs in my "
-            "notes folder from the last few days; and anything in your memory I asked to follow up on. Lead with "
-            "what needs attention first.")
+            "notes folder from the last few days; anything in your memory I asked to follow up on; and my reminders "
+            "and calendar events for the rest of today, if they are listed below. Lead with what needs attention first.")
+WRAP_RE = r"(?:wrap up|end|close out) my day|end of (?:the )?day (?:wrap(?: up)?|summary|rundown)"
+WRAP = ("Give me a spoken wrap-up of about 20 seconds to end my day, without changing anything: for each known project, "
+        "what was committed today and what is still uncommitted; background jobs in Nova's jobs folder that finished "
+        "today; and my reminders and calendar events for tomorrow, if they are listed below. Then ask whether there "
+        "is anything from today I want you to remember for tomorrow; don't write to memory unless I say yes.")
+# tier 1, no AI: three things the user hasn't tried yet (core/daily.py)
+WHAT_CAN_RE = r"what (?:else )?can you do|what are you able to do|what can i (?:ask|say)(?: you)?|help"
 # "turn what we just did into a skill", "save that as a skill called morning intel": the AI writes the skill file
 MAKE_SKILL_RE = re.compile(r"(?:please )?(?:(?:turn|convert|save|make) (?:what we (?:just )?did|what you (?:just )?did|that|this|it)"
                            r" (?:into|as) a skill|make (?:that|this|it) a skill)(?: (?:called|named) (?P<name>[a-z0-9 ]+))?"
@@ -323,6 +330,7 @@ class Nova(BackgroundMixin, SuggestMixin):
         self.unfinished, self.quitting = jobs.resumable(), False
         self.suggestion, self.limiter = None, proactive.Limiter()  # a proactive card on screen; how often one may appear
         self.habits, self.replied_at = corrections.Habits(), 0  # corrections Nova has noticed; when it last answered
+        self.briefed = proactive.Limiter(DATA / "briefing.json")  # the morning offer: once a day, quiet after 3 "Not now"s
         self.bg, self.asking_job = {}, False  # running background jobs (id -> thread, brain, cancel); a job asks now
         self.ask_event = None  # the open approval, so a phone or window that (re)connects can show its card too
         self.app_proc, self.wake_thread, self.level_t = None, None, 0.0
@@ -1571,7 +1579,17 @@ class Nova(BackgroundMixin, SuggestMixin):
                                                                                  "set up", "turn on", "use"))
             return True
         if re.fullmatch(BRIEFING_RE, n):
-            self.assist(BRIEFING)
+            now = datetime.datetime.now()
+            self.assist(self.day_prompt(BRIEFING, now, datetime.datetime.combine(now.date() + datetime.timedelta(days=1),
+                                                                                  datetime.time())))
+            return True
+        if re.fullmatch(WRAP_RE, n):
+            start = datetime.datetime.combine(datetime.date.today() + datetime.timedelta(days=1), datetime.time())
+            self.assist(self.day_prompt(WRAP, start, start + datetime.timedelta(days=1)))
+            return True
+        if re.fullmatch(WHAT_CAN_RE, n) and not self.asked:  # "help" in answer to Nova's own question is that answer
+            tips = daily.try_next(self.used_features())
+            self.note("What I can do", f"Try this: {tips[0]}. Or {tips[1]}. Or {tips[2]}.")
             return True
         make = MAKE_SKILL_RE.fullmatch(n)
         if make:
@@ -2358,6 +2376,27 @@ class Nova(BackgroundMixin, SuggestMixin):
         except OSError:
             return self.note("Event saved", f"I saved {title} as {path}, but no app opened it. Open the file to add it.")
         self.note("Event ready", f"I opened {title} in your calendar app. Press Save there to add it.")
+
+    def day_prompt(self, base, start, end):
+        """A rundown prompt with the reminders and calendar events between start and end (core/daily.py)."""
+        try:
+            events = calendar_ics.events(start, end)  # [] with no calendar address; may fetch it (a worker thread)
+        except Exception as e:
+            log("error", error=f"calendar for the rundown: {e!r}")
+            events = []
+        return daily.with_day(base, datetime.datetime.now(), start, end, reminders.load(), events)
+
+    def used_features(self):
+        """What the user has tried, told from what's on disk, for "what can you do?"."""
+        on = {"screen": (WORKSPACE / "screen.png").exists(),
+              "background": any((WORKSPACE / "jobs").glob("*")),
+              "briefing": self.briefed.s.get("used", False),
+              "reminders": reminders.FILE.exists(),
+              "skills": any(runs.DIR.glob("*")),
+              "meetings": any(meetings.STORE.glob("*")),
+              "routines": bool(self.cfg["routines"] or self.cfg["schedules"]),
+              "phone": self.cfg["phone"]["enabled"]}
+        return {k for k, v in on.items() if v}
 
     def run_due_reminders(self):
         """Say the first reminder that is due, once Nova is free (a busy Nova tries again in 30 s)."""

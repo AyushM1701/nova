@@ -1,9 +1,11 @@
 """Suggestion cards and follow-up chips: what happens when something is copied (core/proactive.py decides), and when a chip
 on a sketch note is tapped. A mixin of the Nova class (nova.py); it uses the Nova window's state (self.cfg, self.card...)."""
+import datetime
+import re
 import threading
 import time
 
-from core import clipboard, corrections, proactive, system
+from core import clipboard, corrections, daily, proactive, system
 from core.background import free
 from core.config import log
 from core.local_llm import LocalLLM
@@ -51,7 +53,7 @@ class SuggestMixin:
             p, d = self.cfg["proactive"], self.cfg["dictation"]
             llm = (LocalLLM(d["local_url"], d["local_model"])  # only when the user chose a local model (the shipped model
                    if p["use_local_model"] and d["cleanup_engine"] == "local" and d["local_model"] else None)  # name isn't a promise
-            if not cand or not self.limiter.allow(cand["kind"], text, p["max_per_day"] if llm else min(p["max_per_day"], 2)):
+            if not cand or cand["kind"] not in p["kinds"] or not self.limiter.allow(cand["kind"], text, p["max_per_day"] if llm else min(p["max_per_day"], 2)):
                 return
             if llm:  # rules alone would be more eager: with a model, no answer means no card
                 yes = proactive.vote(llm, d["local_model"], cand, system.window_title(system.foreground()), text)
@@ -78,6 +80,7 @@ class SuggestMixin:
     def noticed(self, text):
         """A request is about to run. If it corrects the answer just given, count it; the third time, on another day, offer to
         remember it, once Nova is idle again (shortcut: an offer that finds Nova busy for two minutes is dropped, and asked again in a week)."""
+        self.offer_briefing(re.fullmatch(daily.BRIEFING_RE, re.sub(r"[^\w\s]", "", text.lower()).strip()))
         if not self.cfg["habits"]["enabled"] or time.time() - self.replied_at > corrections.FOLLOW_UP_S:
             return
         try:
@@ -85,16 +88,16 @@ class SuggestMixin:
         except Exception as e:
             return log("error", error=f"habits: {e!r}")
         if offer:
-            threading.Thread(target=self.offer_habit, args=(offer,), daemon=True).start()
+            threading.Thread(target=self.when_idle, args=(lambda: self.show_habit(offer),), daemon=True).start()
 
-    def offer_habit(self, offer):
+    def when_idle(self, show):
         for _ in range(120):
             if self.phase == "idle" and not self.pending:
                 break
             time.sleep(1)
         else:
             return
-        self.ui(lambda: self.show_habit(offer))
+        self.ui(show)
 
     def show_habit(self, offer):
         if self.paused or self.suggesting() or self.phase != "idle":
@@ -102,9 +105,38 @@ class SuggestMixin:
         self.suggestion = {"kind": "habit", "habit": offer["kind"]}
         self.card.show(offer["title"], offer["body"], buttons=True, kind="suggest", labels=("Remember", "Not now"), hide_after=45)
 
+    # ---------- the morning rundown (core/daily.py): the first request of a morning, Nova offers "start my day" once ----------
+    def offer_briefing(self, asked):
+        """An assistant request is about to run (noticed). `asked`: it is the rundown itself, which counts as today's offer."""
+        today = datetime.date.today().isoformat()
+        if not daily.morning(datetime.datetime.now()) or not self.brain or not self.briefed.allow("briefing", today, 1):
+            return
+        self.briefed.shown("briefing", today)  # shortcut: an offer that finds Nova busy for two minutes is gone for the day
+        if asked:
+            self.briefed.s["used"] = True
+            return self.briefed.accepted("briefing")
+        threading.Thread(target=self.when_idle, args=(self.show_briefing,), daemon=True).start()
+
+    def show_briefing(self):
+        if self.paused or self.suggesting() or self.phase != "idle" or self.recorder or system.gaming():
+            return
+        self.suggestion = {"kind": "briefing"}
+        self.card.show("Good morning", "Want your day in 20 seconds? Your projects, reminders and calendar.", buttons=True,
+                       kind="suggest", labels=("Brief me", "Not now"), hide_after=45)
+
     def answer_suggestion(self, ok):
         cand, self.suggestion = self.suggestion, None
         self.card.hide()
+        if cand["kind"] == "briefing":
+            if not ok:
+                return self.briefed.dismissed("briefing")
+            self.briefed.s["used"] = True
+            self.briefed.accepted("briefing")
+            if self.phase == "idle" and not self.paused:
+                self.target, self.voice = system.foreground(), True
+                log("heard", mode="assistant", text="[suggestion: briefing]", source="suggestion")
+                self.spawn(lambda: self.command("start my day", typed=True), "busy")
+            return
         if cand.get("habit"):
             self.habits.answered(cand["habit"], ok)
             return self.card.show("Remembered", "Nova will answer that way from now on. You can change it in Memory.", hide_after=8) if ok else None
