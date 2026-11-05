@@ -7147,7 +7147,7 @@ _up = Path(tempfile.mkdtemp())
 try:
     update_mod.unpack(_zip_of("a.py", "b.py", "locked.py", "z.py"), _up)
     raise AssertionError("the move onto a locked file should have failed")
-except PermissionError:
+except (PermissionError, IsADirectoryError):  # the folder stand-in: Windows says PermissionError, macOS IsADirectoryError
     pass
 assert (_up / "a.py").read_text() == "OLD a" and (_up / "z.py").read_text() == "OLD z", "half-updated"
 assert not (_up / "b.py").exists() and not (_up / ".update-files").exists()                    # a new file is taken out again; no list of what was written
