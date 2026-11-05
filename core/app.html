@@ -495,12 +495,45 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .progress i.on { background: var(--accent); }
 .onb-body { overflow-y: auto; display: grid; place-items: center; padding: 12px 28px; }
 .onb-step { width: 100%; max-width: 560px; animation: rise .32s cubic-bezier(.2,.8,.2,1); }
+/* first-run setup: what to do on the left, Nova itself on the right (the bar, the orb, what's set up so far) */
+.onb-grid { width: 100%; max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: minmax(320px, 460px) minmax(0, 1fr); gap: clamp(28px, 5vw, 64px); align-items: center; }
+.onb-grid > .onb-step { max-width: none; }
+.onb-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: min(64vh, 540px);
+  position: sticky; top: 0; align-self: start;  /* stays in view while a long step scrolls */
+  background: radial-gradient(circle closest-side, #171a38, rgba(23, 26, 56, 0)); }
+.onb-stage canvas.stage-bar { width: 196px; aspect-ratio: 312 / 106; }
+.onb-stage .orb-wrap { width: min(100%, 46vh, 400px); aspect-ratio: 1; }
+.onb-stage canvas.orb { width: 100%; height: 100%; display: block; }
+.onb-stage.scene-stage { background: none; }
+.onb-stage.scene-stage .scene { width: min(100%, 72vh); margin: 0; }
+.readout { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px;
+  font: 11px/1.2 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.readout li { display: flex; align-items: center; gap: 7px; }
+.readout li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--faint); }
+.readout li.on { color: var(--text); }
+.readout li.on::before { background: var(--ok); border-color: var(--ok); }
+.onb-top .chaps { display: flex; gap: 22px; align-items: flex-end; }
+.chap { display: flex; flex-direction: column; gap: 6px; font: 11px/1.2 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
+.chap.now { color: var(--text); }
+.chap.past { color: var(--accent-text); }
+.chap .ticks { display: flex; gap: 4px; }
+.chap .ticks i { width: 16px; height: 3px; border-radius: 999px; background: var(--line-strong); transition: background .25s; }
+.chap .ticks i.on { background: var(--accent); }
+@media (max-width: 960px) {
+  .onb-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .onb-stage { order: -1; min-height: 0; position: static; }
+  .onb-stage .orb-wrap { width: min(50vw, 19vh); }
+  .onb-stage canvas.stage-bar { display: none; }  /* a short window: the orb alone, so the step's controls stay in view */
+  .onb-top .chaps { gap: 12px; }
+  .chap span { display: none; }
+}
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
 .onb-step h1 { font-size: 30px; }
 .onb-step .lede { font-size: 15.5px; }
 .stage { display: grid; place-items: center; margin: 8px 0 28px; height: 120px; }
 .stage canvas { width: 260px; height: 88px; }
-.onb-foot { display: flex; align-items: center; gap: 12px; padding: 18px 28px 24px; max-width: 616px; width: 100%; margin: 0 auto; }
+.onb-foot { display: flex; align-items: center; gap: 12px; padding: 18px 28px 24px; max-width: 1236px; width: 100%; margin: 0 auto; }  /* the grid's width, so Back and Continue line up with it */
 .onb-foot .grow { flex: 1; }
 /* the walkthrough: a chapter clip, then a "your turn" step that waits for the real thing */
 .walk-step { width: 100%; max-width: min(760px, calc((100vh - 360px) * 16 / 9)); }  /* video and its step both fit the window */
@@ -1560,7 +1593,7 @@ const micSource = () => ({ state: "listening", levels: micLevels });
 
 /* ---------- the orb on Home: it only draws while it can be seen ---------- */
 Orb.mount($("#orb"), { hue: 248 });  // the window's violet accent
-function syncOrb() { S.page === "home" && !document.hidden ? Orb.resume() : Orb.pause(); }
+function syncOrb() { (S.page === "home" || !$("#onb").hidden) && !document.hidden ? Orb.resume() : Orb.pause(); }
 document.addEventListener("visibilitychange", syncOrb);
 
 
@@ -3220,7 +3253,7 @@ const SCENES = {
     desk: () => [deskWin("Photos", h("div", { class: "tool" }, h("b", {}, "Crop"), h("b", {}, "Share"), h("b", { class: "export" }, "Export")), h("div", { class: "photo" })),
       h("button", { class: "ask" }, "“Where's the export button?”")],
     async play(k) {
-      k.say("Nova can see your screen when you ask about it. <b>Try it: ask the question below.</b>");
+      k.say("Nova can see your screen when you ask about it. <b>Try it: click the question in the picture.</b>");
       const ask = k.$(".ask"); await k.until(ask); ask.style.opacity = 0;
       k.bar("listening"); await k.wait(400); k.heard("Where's the export button?"); await k.wait(1300);
       k.heard(""); k.bar("thinking"); k.card("Thinking", { detail: "Looking at your screen" }); await k.wait(1500);
@@ -3246,14 +3279,55 @@ const SCENE_TITLES = { talk: "Talk to Nova", work: "It does the work, and asks f
 // the microphone first, so the tour can be tried for real; the screen after the AI, which the real "Show me" needs
 const STEPS = ["welcome", "mic", "talk", "dictate", "brain", "work", "screen", ...(S_BROWSERS_STEP ? ["browsers"] : []), "email", "apps", "notes", "keys", "done"];
 let onbAt = 0, onbOnly = false;  // onbOnly: opened from Home's checklist for one step, which closes when it's done
-function openOnboarding(at) { onbAt = Math.max(0, STEPS.indexOf(at)); onbOnly = !!at; $("#onb").hidden = false; $("#app").inert = true; renderOnb(); }
+function openOnboarding(at) {
+  onbAt = Math.max(0, STEPS.indexOf(at)); onbOnly = !!at; $("#onb").hidden = false; $("#app").inert = true;
+  Orb.mount(stageView().orb); Orb.resume();  // the one orb moves onto the setup's stage while it's open
+  renderOnb();
+}
 function closeOnboarding() {
-  stopMic(); clearInterval(pollTimer); $("#onb").hidden = true; $("#app").inert = false;
+  stopMic(); clearInterval(pollTimer); clearInterval(S.demoTimer); $("#onb").hidden = true; $("#app").inert = false;
+  Orb.mount($("#orb")); Orb.set(S.gone ? "gone" : S.bar); syncOrb();  // and back to Home
+
   if (onbOnly) return renderChecklist();
   set("onboarded", true); go("home");
   // the tour was tried for real: the video walkthrough is only for those who skipped it (it stays on Home)
   if (!get("walked") && S.skippedTour) openWalk(); else set("walked", true);
   save(true);
+}
+/* the setup's look: chapters on top, and on the right Nova itself (its bar, its orb, what's set up so far) */
+const CHAPTERS = [["Hello", ["welcome", "mic"]], ["Try it", ["talk", "dictate"]], ["Your AI", ["brain", "work", "screen"]],
+  ["Your apps", ["browsers", "email", "apps", "notes"]], ["Ready", ["keys", "done"]]];
+function renderProgress(id) {
+  const box = $("#onbProgress"); box.className = "progress chaps";
+  box.replaceChildren(...CHAPTERS.map(([name, ids]) => {
+    const mine = ids.filter(i => STEPS.includes(i)), past = mine.every(i => STEPS.indexOf(i) < onbAt);
+    return h("div", { class: "chap" + (mine.includes(id) ? " now" : past ? " past" : "") }, h("span", {}, name),
+      h("div", { class: "ticks" }, ...mine.map(i => h("i", { class: STEPS.indexOf(i) <= onbAt ? "on" : "" }))));
+  }));
+}
+let onbStage = null, stepIsReady = false, cueTimer = 0;
+function stageView() {  // made once: the orb's canvas and the bar keep running from step to step
+  if (onbStage) return onbStage;
+  const orb = h("canvas", { class: "orb", "aria-hidden": "true" }), bar = h("canvas", { class: "stage-bar", width: 312, height: 106, "aria-hidden": "true" });
+  const list = h("ul", { class: "readout", "aria-label": "What's set up" });
+  onbStage = { el: h("div", { class: "onb-stage" }, bar, h("div", { class: "orb-wrap" }, orb), list), orb, list, source: null };
+  pill(bar, () => (onbStage.source || liveSource)());
+  return onbStage;
+}
+// a moment on the orb (it answers when something gets connected), then back to what Nova is doing
+function orbCue(state, ms) {
+  Orb.set(state); clearTimeout(cueTimer);
+  if (ms) cueTimer = setTimeout(() => Orb.set(S.gone ? "idle" : S.bar || "idle"), ms);
+}
+function stepReady(ok) {  // a setup step: "Set up later" until something is set up, then Continue, and the orb answers
+  const next = $("#onbNext"); next.classList.toggle("primary", ok); next.textContent = ok ? "Continue" : "Set up later";
+  if (ok && !stepIsReady) { orbCue("speaking", 1800); renderReadout(); }
+  stepIsReady = ok;
+}
+function renderReadout() {
+  const rows = [["Mic", !!S.micOk], ...SETUP.filter(([, at], i) => at !== "apps" || SETUP.findIndex(r => r[1] === "apps") === i)
+    .map(([title, , done]) => [title.replace(/^Your /, "").replace("Notes in ", ""), done()])];
+  stageView().list.replaceChildren(...rows.map(([name, on]) => h("li", { class: on ? "on" : "" }, name, h("span", { class: "sr-only" }, on ? ", set up" : ", not yet"))));
 }
 const APPS = [["linear", "Linear", "https://mcp.linear.app/mcp"], ["notion", "Notion", "https://mcp.notion.com/mcp"],
   ["jira", "Jira", "https://mcp.atlassian.com/v1/mcp"], ["github", "GitHub", "https://api.githubcopilot.com/mcp/"]];  // core/mcp.py PRESETS
@@ -3374,37 +3448,46 @@ $("#walkReplay").addEventListener("click", () => {
 });
 function renderOnb() {
   const id = STEPS[onbAt], body = $("#onbBody"), next = $("#onbNext");
-  $("#onbProgress").replaceChildren(...STEPS.map((_, i) => h("i", { class: i <= onbAt ? "on" : "" })));
+  renderProgress(id);
   $("#onbBack").style.visibility = onbAt && !onbOnly ? "visible" : "hidden";
   next.disabled = false; next.textContent = "Continue"; next.classList.add("primary");
   $("#onbSkip").hidden = !(SCENES[id] || id === "welcome");
   if (id !== "mic") stopMic();
-  const step = h("div", { class: "onb-step" });
+  clearInterval(S.demoTimer); stepIsReady = false;
+  const step = h("div", { class: "onb-step" }), stage = stageView();
+  let right = stage.el;
+  stage.source = null; orbCue(S.gone ? "idle" : S.bar || "idle");
   if (SCENES[id]) {
-    step.append(h("h1", {}, SCENE_TITLES[id]), ...sceneView(SCENES[id]));
+    const [scene, ...rest] = sceneView(SCENES[id]);
+    step.append(h("h1", {}, SCENE_TITLES[id]), ...rest);
+    right = h("div", { class: "onb-stage scene-stage" }, scene);
   } else if (id === "welcome") {
-    const c = h("canvas", { width: 520, height: 176 }); const demo = { state: "idle", levels: new Array(15).fill(0) };
-    let k = 0; const cycle = ["idle", "listening", "thinking", "speaking"]; clearInterval(S.demoTimer);
-    S.demoTimer = setInterval(() => { if (!c.isConnected) return clearInterval(S.demoTimer); demo.state = cycle[++k % 4]; }, 1600);
-    const wobble = setInterval(() => { if (!c.isConnected) return clearInterval(wobble); if (demo.state === "listening") { demo.levels.push(.15 + Math.random() * .6); demo.levels.shift(); } }, 70);
-    pill(c, () => demo);
-    step.append(h("div", { class: "stage" }, c), h("h1", {}, "Talk to your computer"),
+    // the stage plays Nova's four states, the bar and the orb together
+    const demo = { state: "idle", levels: new Array(15).fill(0) }, cycle = ["idle", "listening", "thinking", "speaking"];
+    let k = 0; stage.source = () => demo; Orb.set("idle");
+    S.demoTimer = setInterval(() => {
+      if (!stage.el.isConnected) return clearInterval(S.demoTimer);
+      if (++k % 23 === 0) { demo.state = cycle[(k / 23) % 4]; Orb.set(demo.state); }
+      if (demo.state === "listening") { const v = .15 + Math.random() * .6; demo.levels.push(v); demo.levels.shift(); Orb.level(v); }
+    }, 70);
+    step.append(h("h1", {}, "Talk to your computer"),
       h("p", { class: "lede" }, "Ask Nova to do things and it does them with Claude Code or Codex. Or dictate, and clean text appears in whatever app you're typing in."),
       h("div", { class: "callout" }, h("span", { html: I.shield }), h("p", { class: "muted" }, "Speech recognition runs on this computer. Nova asks before the AI deletes, installs or sends anything.")),
-      h("p", { class: "muted", style: "margin-top:18px" }, "Next you try each thing for real, on this computer, then connect your AI and your apps. Skip the tour any time."));
+      h("p", { class: "muted", style: "margin-top:18px" }, "About five minutes. You try each thing for real on this computer, then connect your AI and your apps. Skip any part."));
     next.textContent = "Let's go";
   } else if (id === "mic") {
-    const c = h("canvas", { width: 520, height: 176 }); pill(c, micSource);
-    const name = h("p", { class: "lede" }, "Say something. The bars should move as you talk.");
-    step.append(h("div", { class: "stage" }, c), h("h1", {}, "Say hello"), name);
-    startMic().then(n => name.textContent = `This is Nova's bar, and those bars are your voice, through “${n}”. Say something: they should move as you talk.`)
+    const name = h("p", { class: "lede" }, "Say something. The bar and the orb should move as you talk.");
+    step.append(h("h1", {}, "Say hello"), name);
+    stage.source = micSource; Orb.set("listening");
+    S.demoTimer = setInterval(() => { if (!stage.el.isConnected) return clearInterval(S.demoTimer); Orb.level(Math.min(1, Math.max(...micLevels) * 1.5)); }, 70);
+    startMic().then(n => { name.textContent = `That's Nova's bar at the top and its orb, both moving with your voice through “${n}”. Say something to see them follow you.`; S.micOk = true; renderReadout(); stepReady(true); })
       .catch(() => name.textContent = "Nova can't find a microphone. Plug one in, or allow microphone access in your privacy settings, then go back and try again.");
   } else if (id === "brain") {
     const box = h("div", { class: "engines", role: "radiogroup", "aria-label": "Brain" }), log = h("div", { class: "log mono", hidden: true });
     const ready = h("div", { class: "callout good", hidden: true }, h("span", { html: I.check }), h("div", {}, h("h3", {}, "Nova is ready to go"), h("p", { class: "muted" }, "Requests you make by voice now go to this AI, under your own account.")));
     step.append(h("h1", {}, "Connect your AI"), h("p", { class: "lede" }, "Nova does the work with Claude Code or Codex, using the subscription you already have. Pick one: Nova installs it if it's missing, then you sign in in your browser. Nova never sees your password."), box, log, ready);
     // until it's ready, Sign in / Install is the main action on the page, not moving on
-    const update = () => { const st = S.engines && S.engines[S.cfg.brain.engine], ok = !!(st && st.signed_in); ready.hidden = !ok; next.classList.toggle("primary", ok); next.textContent = ok ? "Continue" : "Set up later"; };
+    const update = () => { const st = S.engines && S.engines[S.cfg.brain.engine], ok = !!(st && st.signed_in); ready.hidden = !ok; stepReady(ok); };
     loadEngines(box, log, update); update();
   } else if (id === "browsers") {
     const box = h("div", { class: "engines" }), log = h("div", { class: "log mono", hidden: true });
@@ -3413,7 +3496,7 @@ function renderOnb() {
     next.textContent = "Set up and continue";
   } else if (id === "email") {
     const browser = (get("browser.enabled") || []).length > 0, servers = get("mcp.servers") || {};
-    const update = () => { const ok = browser || ["gmail", "outlook"].some(k => (get("mcp.servers") || {})[k]); next.classList.toggle("primary", ok); next.textContent = ok ? "Continue" : "Set up later"; };
+    const update = () => { const ok = browser || ["gmail", "outlook"].some(k => (get("mcp.servers") || {})[k]); stepReady(ok); };
     const link = (name, label) => {
       const input = h("input", { class: "input", type: "url", placeholder: "https://…", "aria-label": `${label} link from Composio` });
       const add = h("button", { class: "btn sm" }, servers[name] ? "Replace" : "Add");
@@ -3440,7 +3523,7 @@ function renderOnb() {
     update();
   } else if (id === "apps") {
     const claude = S.cfg.brain.engine === "claude", servers = get("mcp.servers") || {};
-    const update = () => { const ok = SETUP.some(([, at, done]) => at === "apps" && done()); next.classList.toggle("primary", ok); next.textContent = ok ? "Continue" : "Set up later"; };
+    const update = () => { const ok = SETUP.some(([, at, done]) => at === "apps" && done()); stepReady(ok); };
     const hook = h("button", { class: "switch", role: "switch", "aria-checked": !!S.claudeHook, "aria-label": "Tell me when Claude Code finishes" });
     hook.addEventListener("click", async () => { try { S.claudeHook = await api().claude_hook(!S.claudeHook); hook.setAttribute("aria-checked", S.claudeHook); update(); } catch (e) { fail(e); } });
     const notesBtn = h("button", { class: "btn sm" }, "Add to Claude Code");
@@ -3472,14 +3555,14 @@ function renderOnb() {
       const vault = h("button", { class: o.found ? "btn sm primary" : "btn sm" }, o.vault_exists ? "Use my Nova vault" : "Set up a vault for Nova");
       vault.addEventListener("click", async () => {
         vault.disabled = true;
-        try { const r = await api().setup_obsidian_vault(); (S.cfg.notes ??= {}).folder = r.notes; note.textContent = `Done: your notes go to ${r.notes} from Nova's next start.`; next.classList.add("primary"); next.textContent = "Continue"; }
+        try { const r = await api().setup_obsidian_vault(); (S.cfg.notes ??= {}).folder = r.notes; note.textContent = `Done: your notes go to ${r.notes} from Nova's next start.`; stepReady(true); }
         catch (e) { fail(e); vault.disabled = false; }
       });
       how.replaceChildren(...(o.found ? [] : [install]), vault);
     };
     step.append(h("h1", {}, "Your notes in Obsidian"), h("p", { class: "lede" }, "Optional. Read and search everything Nova remembers in Obsidian, on this computer and, with your own sync, on your phone."),
       h("div", { class: "rows list-rows" }, h("div", { class: "row" }, h("div", { class: "what" }, h("h2", {}, "Obsidian"), note), how)), log);
-    if (!get("notes.folder")) { next.classList.remove("primary"); next.textContent = "Set up later"; }
+    stepReady(!!get("notes.folder"));
     draw();
   } else if (id === "keys") {
     const tap = h("div", { class: "big-keys", html: talkKeys() });
@@ -3488,9 +3571,10 @@ function renderOnb() {
     change.addEventListener("click", () => recordHotkey(S.cfg.triple_tap ? caps : tap, change, combo => { set("hotkey", combo === S.defaultHotkey ? "" : combo); save(true); }));
     const wake = h("button", { class: "switch", role: "switch", "aria-checked": !!S.cfg.wake_word, "aria-label": "Listen for Hey Nova" });
     wake.addEventListener("click", () => { set("wake_word", !S.cfg.wake_word); wake.setAttribute("aria-checked", S.cfg.wake_word); save(); });
+    const bar = barHides() ? "rest the pointer at the top edge of your screen and click Nova's bar" : "click Nova's bar at the " + (get("overlay.position") === "bottom" ? "bottom" : "top") + " of your screen";
     step.append(h("h1", {}, "Your shortcut"), h("p", { class: "lede" }, local(S.cfg.triple_tap
-        ? "Tap Ctrl three times, in any app, to talk to Nova, and again to stop. You can also click the small bar at the bottom of your screen."
-        : "Press it anywhere to talk to Nova, and again to stop. You can also click the small bar at the bottom of your screen.")),
+        ? `Tap Ctrl three times, in any app, to talk to Nova, and again to stop. Or ${bar}.`
+        : `Press it anywhere to talk to Nova, and again to stop. Or ${bar}.`)),
       tap, ...(S.cfg.triple_tap ? [] : [change]),
       h("div", { class: "rows list-rows" }, S.cfg.triple_tap ? h("div", { class: "row" }, h("div", { class: "what" }, h("h2", {}, "Or press a shortcut"),
         h("p", {}, "Works the same. When Nova asks for your OK, it means “allow”.")), h("div", { class: "how" }, caps, change)) : null,
@@ -3498,18 +3582,18 @@ function renderOnb() {
   } else if (id === "done") {
     const auto = h("button", { class: "switch", role: "switch", "aria-checked": !!S.autostart, "aria-label": local("Open Nova when you sign in") });
     auto.addEventListener("click", async () => { try { S.autostart = await api().autostart(!S.autostart); auto.setAttribute("aria-checked", S.autostart); } catch (e) { fail(e); } });
-    const trial = h("div", { class: "callout", id: "trial" }, h("span", { html: I.mic }), h("div", {}, h("h3", {}, "Try it now"),
-      h("p", { class: "muted", html: `Press ${talkKeys()} and say “What time is it?”` })));
-    const see = h("div", { class: "callout" }, h("span", { html: I.info }), h("div", {}, h("h3", {}, "Nova can see your screen"),
-      h("p", { class: "muted" }, "Ask “where's the export button?” and an arrow points at it. Only when you ask about the screen."),
-      h("button", { class: "btn sm", style: "margin-top:10px", onclick: () => api().demo().catch(fail) }, "Show me")));
-    step.append(h("h1", {}, "You're all set"), h("p", { class: "lede" }, "Nova lives in the tray, next to the clock" + (S.platform === "mac" ? " (the menu bar on a Mac)" : " (click the ^ if you don't see it)") + ". Click its icon any time to open this window."),
+    const left = SETUP.filter(([, , done]) => !done()).length;
+    step.append(h("h1", {}, "Nova is ready"),
+      h("p", { class: "lede", html: `From any app, press ${talkKeys()} or say “Hey Nova”, and talk.` }),
+      h("p", { class: "muted", style: "margin-top:10px" }, "Nova lives in the tray, next to the clock" + (S.platform === "mac" ? " (the menu bar on a Mac)" : " (click the ^ if you don't see it)") + ". Click its icon any time to open this window." +
+        (left ? " What's still dim on the right waits for you on Home, under Finish setting up Nova." : "")),
       h("div", { class: "rows list-rows" }, h("div", { class: "row" }, h("div", { class: "what" }, h("h2", {}, local("Open Nova when you sign in")), h("p", {}, "So it's always ready.")), h("div", { class: "how" }, auto))),
-      ...(S.platform === "mac" ? [macPerms(h("div", { class: "rows list-rows" }))] : []),  // append() would print "null"
-      trial, see);
+      ...(S.platform === "mac" ? [macPerms(h("div", { class: "rows list-rows" }))] : []));  // append() would print "null"
+    orbCue("speaking", 2600);
     next.textContent = "Open Nova";
   }
-  body.replaceChildren(step);
+  renderReadout();
+  body.replaceChildren(h("div", { class: "onb-grid" }, step, right));
   next.focus({ preventScroll: true });
 }
 $("#onbNext").addEventListener("click", async () => {
