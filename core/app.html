@@ -105,6 +105,21 @@ kbd {
 .dock .seg { width: auto; }
 main { overflow-y: auto; min-width: 0; position: relative; }
 #pauseBtn { color: var(--text); }
+/* the frameless window's own controls and resize edges (Windows; the Mac keeps its traffic lights) */
+.winctl { display: flex; align-items: center; gap: 2px; padding-left: 10px; margin-left: 2px; border-left: 1px solid var(--line); }
+.winctl button { display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 7px; background: none; color: var(--muted); transition: background .15s, color .15s; }
+.winctl button:hover { background: var(--raised); color: var(--text); }
+.winctl button.x:hover { background: rgba(244, 63, 94, .2); color: #fb7185; }
+.winctl .i { width: 14px; height: 14px; }
+.edges i { position: fixed; z-index: 100; }
+.edges [data-edge=top] { top: 0; left: 8px; right: 8px; height: 5px; cursor: ns-resize; }
+.edges [data-edge=bottom] { bottom: 0; left: 8px; right: 8px; height: 5px; cursor: ns-resize; }
+.edges [data-edge=left] { left: 0; top: 8px; bottom: 8px; width: 5px; cursor: ew-resize; }
+.edges [data-edge=right] { right: 0; top: 8px; bottom: 8px; width: 5px; cursor: ew-resize; }
+.edges [data-edge=topleft] { top: 0; left: 0; width: 8px; height: 8px; cursor: nwse-resize; }
+.edges [data-edge=bottomright] { bottom: 0; right: 0; width: 8px; height: 8px; cursor: nwse-resize; }
+.edges [data-edge=topright] { top: 0; right: 0; width: 8px; height: 8px; cursor: nesw-resize; }
+.edges [data-edge=bottomleft] { bottom: 0; left: 0; width: 8px; height: 8px; cursor: nesw-resize; }
 
 /* ---------- Home: the agentic OS deck. Claude's real numbers on the left, the orb and your request in the middle,
    skills and your library on the right. Dark in every system theme; the type for data is mono, the rest is the window's. ---------- */
@@ -756,8 +771,14 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
         <button role="radio" data-mode="dictation" title="Dictation"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7V5h16v2M12 5v14M9 19h6"/></svg><span>Dictation</span></button>
       </div>
       <button class="btn ghost sm" id="pauseBtn" title="Pause Nova"><svg class="i" viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></svg><span>Pause Nova</span></button>
+      <div class="winctl" id="winctl" hidden>
+        <button data-win="minimize" title="Minimize" aria-label="Minimize"><svg class="i" viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button>
+        <button data-win="toggle_max" title="Maximize" aria-label="Maximize"><svg class="i" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></svg></button>
+        <button data-win="close" class="x" title="Close" aria-label="Close"><svg class="i" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7 7 17"/></svg></button>
+      </div>
     </div>
   </header>
+  <div class="edges" id="edges" hidden aria-hidden="true"><i data-edge="top"></i><i data-edge="bottom"></i><i data-edge="left"></i><i data-edge="right"></i><i data-edge="topleft"></i><i data-edge="topright"></i><i data-edge="bottomleft"></i><i data-edge="bottomright"></i></div>
 
   <main id="main">
     <!-- HOME -->
@@ -1447,6 +1468,18 @@ const MAC_WORDS = [
    "click Allow when macOS asks whether Python may accept incoming network connections"],
 ];
 function local(s) { return S.platform === "mac" ? MAC_WORDS.reduce((t, [win, mac]) => t.replaceAll(win, mac), s) : s; }
+function frameless() {  // Windows: no OS title bar, so the dock moves the window and the edges resize it
+  $("#winctl").hidden = $("#edges").hidden = false;
+  $("#winctl").addEventListener("click", async e => {
+    const b = e.target.closest("[data-win]"); if (!b) return;
+    const filled = await api()[b.dataset.win]();
+    if (b.dataset.win === "toggle_max") { $("#edges").hidden = filled; b.title = filled ? "Restore" : "Maximize"; b.setAttribute("aria-label", b.title); }
+  });
+  const dock = $(".dock");
+  dock.addEventListener("mousedown", e => { if (e.button === 0 && e.detail === 1 && !e.target.closest("button, a, input, label, nav, .seg, .live")) api().drag("caption"); });
+  dock.addEventListener("dblclick", e => { if (!e.target.closest("button, a, input, label, nav, .seg, .live")) $("[data-win=toggle_max]").click(); });
+  $("#edges").addEventListener("mousedown", e => { if (e.button === 0 && e.target.dataset.edge) api().drag(e.target.dataset.edge); });
+}
 function macify() {
   document.documentElement.classList.add("mac");
   // a Windows-only setting says so on a Mac, with what to do instead, rather than sitting there doing nothing
@@ -3661,6 +3694,7 @@ async function boot() {
   const b = await api().hello();
   Object.assign(S, { cfg: b.config, defaults: b.defaults, platform: b.platform, autostart: b.autostart, claudeHook: b.claude_hook, defaultHotkey: b.default_hotkey, languages: b.languages, paths: b.paths, gone: !b.connected, version: b.version });
   if (S.platform === "mac") { macify(); $("#setMacPerms").hidden = false; macPerms($("#setMacPerms")); }
+  else frameless();
   $("#versionNote").textContent = `You have Nova ${b.version}. ` + $("#versionNote").textContent;
   if (b.error) { $("#cfgError").hidden = false; $("#cfgError span").textContent = b.error; syncBanners(); }
   applyTheme(get("companion.color"));

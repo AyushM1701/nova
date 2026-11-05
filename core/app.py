@@ -265,6 +265,44 @@ class Api:
         """Cmd+W on a Mac: close the window, like its red button."""
         self._window.destroy()
 
+    # ---------- the frameless window's own controls (Windows; the Mac keeps its traffic lights) ----------
+    def minimize(self):
+        self._window.minimize()
+
+    def toggle_max(self):
+        """Fill the monitor's work area (a borderless window's own maximize would cover the taskbar), or go back."""
+        import ctypes
+        from ctypes import wintypes as w
+        u = ctypes.windll.user32
+        hwnd = int(self._window.native.Handle.ToInt64())
+        if getattr(self, "_restore", None):
+            x, y, cx, cy = self._restore
+            self._restore = None
+        else:
+            r = w.RECT()
+            u.GetWindowRect(hwnd, ctypes.byref(r))
+            self._restore = (r.left, r.top, r.right - r.left, r.bottom - r.top)
+
+            class MONITORINFO(ctypes.Structure):
+                _fields_ = [("cbSize", w.DWORD), ("rcMonitor", w.RECT), ("rcWork", w.RECT), ("dwFlags", w.DWORD)]
+            mi = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
+            u.GetMonitorInfoW(u.MonitorFromWindow(hwnd, 2), ctypes.byref(mi))  # MONITOR_DEFAULTTONEAREST
+            a = mi.rcWork
+            x, y, cx, cy = a.left, a.top, a.right - a.left, a.bottom - a.top
+        u.SetWindowPos(hwnd, 0, x, y, cx, cy, 0x0014)  # SWP_NOZORDER | SWP_NOACTIVATE
+        return bool(self._restore)
+
+    def drag(self, where):
+        """Hand a mouse-down on the dock or a window edge to Windows, which then moves or resizes the window itself."""
+        import ctypes
+        if getattr(self, "_restore", None):
+            self._restore = None  # dragging a filled window lets it go, like a maximized one
+        ht = {"caption": 2, "left": 10, "right": 11, "top": 12, "topleft": 13, "topright": 14, "bottom": 15,
+              "bottomleft": 16, "bottomright": 17}[where]
+        hwnd = int(self._window.native.Handle.ToInt64())
+        ctypes.windll.user32.ReleaseCapture()
+        ctypes.windll.user32.PostMessageW(hwnd, 0xA1, ht, 0)  # WM_NCLBUTTONDOWN: post, so this bridge call returns
+
     def demo(self):
         """First-run "Show me": this window gets out of the way, then Nova points at something on the screen."""
         self._window.minimize()
@@ -866,23 +904,14 @@ def set_window_icon(window):
         for size, which in ((16, 0), (32, 1)):  # ICON_SMALL (title bar), ICON_BIG (taskbar, Alt+Tab)
             icon = load(None, str(nova_icon()), 1, size, size, 0x10)  # IMAGE_ICON, LR_LOADFROMFILE
             ctypes.windll.user32.SendMessageW(hwnd, 0x80, which, ctypes.c_void_p(icon))  # WM_SETICON
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(ctypes.c_int(2)), 4)  # Windows 11 round corners
     except Exception as e:  # cosmetic: the window still works with the default icon
         log("error", error=f"window icon: {e!r}")
 
 
 def window_bg():
-    """The colour the window shows before the page paints: app.html's --bg for the system's light or dark mode."""
-    try:
-        if system.IS_MAC:
-            out = subprocess.run(["defaults", "read", "-g", "AppleInterfaceStyle"], capture_output=True, text=True, timeout=3)
-            dark = out.stdout.strip() == "Dark"
-        else:
-            import winreg
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as k:
-                dark = winreg.QueryValueEx(k, "AppsUseLightTheme")[0] == 0
-    except Exception:  # no setting saved means the system default, which is light
-        dark = False
-    return "#0d0f1a" if dark else "#f5f6fb"
+    """The colour the window shows before the page paints: app.html's --bg (the window is always dark)."""
+    return "#0a0a0c"
 
 
 PROBE_JS = """JSON.stringify({text: document.body.innerText.length, booted: typeof S !== "undefined" && !!S.cfg,
@@ -911,7 +940,8 @@ def main():
             log("error", error=f"dock icon: {e!r}")
     api = Api()
     window = webview.create_window("Nova", html=phone.page(HTML), js_api=api, width=1080, height=740,
-                                   min_size=(820, 580), background_color=window_bg())
+                                   min_size=(820, 580), background_color=window_bg(),
+                                   frameless=not system.IS_MAC, shadow=True)
     api._window = window
     window.events.closed += api.mic_stop
     if not system.IS_MAC:
