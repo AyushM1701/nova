@@ -2388,7 +2388,8 @@ class Nova(BackgroundMixin, SuggestMixin):
 
     def used_features(self):
         """What the user has tried, told from what's on disk, for "what can you do?"."""
-        on = {"screen": (WORKSPACE / "screen.png").exists(),
+        # screen.png is deleted at every start, so a screen question is found in what was said (the logs keep 30 days)
+        on = {"screen": any(SCREEN_RE.search(str(e.get("text", ""))) for e in read_history({"heard"}, 300)),
               "background": any((WORKSPACE / "jobs").glob("*")),
               "briefing": self.briefed.s.get("used", False),
               "reminders": reminders.FILE.exists(),

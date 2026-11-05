@@ -92,7 +92,7 @@ class SuggestMixin:
 
     def when_idle(self, show):
         for _ in range(120):
-            if self.phase == "idle" and not self.pending:
+            if self.phase == "idle" and not self.pending and not getattr(self.card, "visible", False):  # the reply read
                 break
             time.sleep(1)
         else:
@@ -109,13 +109,14 @@ class SuggestMixin:
     def offer_briefing(self, asked):
         """An assistant request is about to run (noticed). `asked`: it is the rundown itself, which counts as today's offer."""
         today = datetime.date.today().isoformat()
+        if asked and not self.briefed.s.get("used"):  # at any hour: "what can you do?" stops suggesting it
+            self.briefed.s["used"] = True
+            self.briefed.accepted("briefing")
         if not daily.morning(datetime.datetime.now()) or not self.brain or not self.briefed.allow("briefing", today, 1):
             return
         self.briefed.shown("briefing", today)  # shortcut: an offer that finds Nova busy for two minutes is gone for the day
-        if asked:
-            self.briefed.s["used"] = True
-            return self.briefed.accepted("briefing")
-        threading.Thread(target=self.when_idle, args=(self.show_briefing,), daemon=True).start()
+        if not asked:
+            threading.Thread(target=self.when_idle, args=(self.show_briefing,), daemon=True).start()
 
     def show_briefing(self):
         if self.paused or self.suggesting() or self.phase != "idle" or self.recorder or system.gaming():

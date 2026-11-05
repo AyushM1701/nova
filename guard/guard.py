@@ -483,10 +483,11 @@ def classify(tool, inp, cwd, roots, home, notes, mode="accept_edits"):
         return classify_mcp(tool, mode)
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         full = _real(cwd, path)
-        if home and (_under(full, os.path.join(home, "guard"))
-                     or _under(full, os.path.join(home, "config.json")) and "safety" in new_text(inp).lower()):
+        config = home and _under(full, os.path.join(home, "config.json"))
+        if home and _under(full, os.path.join(home, "guard")) or config and (
+                "safety" in new_text(inp).lower() or changes_section(full, tool, inp, "safety", r"safety")):
             return "block", NOVA_SAFETY
-        if home and _under(full, os.path.join(home, "config.json")) and changes_apps(full, tool, inp):
+        if config and changes_section(full, tool, inp, "mcp", r"mcp|\"servers\"|apps"):
             return "block", NOVA_APPS
         tier, why = _write(full, roots, home, notes)
         if mode == "plan":
@@ -501,9 +502,10 @@ def classify(tool, inp, cwd, roots, home, notes, mode="accept_edits"):
     return with_mode("confirm", f"unrecognised tool {tool}", mode)
 
 
-def changes_apps(full, tool, inp):
-    """True if this edit of config.json would change its `mcp` section (the apps the AI can reach), judged on the file
-    as it would be afterwards, not by which words the edit mentions. When that can't be worked out, it counts."""
+def changes_section(full, tool, inp, section, words):
+    """True if this edit of config.json would change one of its sections (`mcp`: the apps the AI can reach; `safety`),
+    judged on the file as it would be afterwards, not by which words the edit mentions ("mode": "auto" -> "bypass"
+    names no section). When that can't be worked out, it counts if the new text matches `words`."""
     try:
         with open(full, encoding="utf-8") as f:
             before = f.read()
@@ -519,9 +521,9 @@ def changes_apps(full, tool, inp):
                 if not old or old not in after:
                     raise ValueError("an edit that can't be applied here")
                 after = after.replace(old, new) if e.get("replace_all") else after.replace(old, new, 1)
-        return json.loads(after or "{}").get("mcp") != json.loads(before or "{}").get("mcp")
+        return json.loads(after or "{}").get(section) != json.loads(before or "{}").get(section)
     except (ValueError, AttributeError):
-        return bool(re.search(r"mcp|\"servers\"|apps", new_text(inp).lower()))
+        return bool(re.search(words, new_text(inp).lower()))
 
 
 def new_text(inp):

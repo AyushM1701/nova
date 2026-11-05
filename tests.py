@@ -1176,6 +1176,9 @@ assert user["voice"] == {"language": "auto", "silence_ms": 900}
 assert overrides(user, base) == {"voice": {"silence_ms": 900}, "dictation": {"replacements": {"wisper": "Wispr"}},
                                  "onboarded": True}
 assert overrides(base, base) == {}
+# ...but a value already in config.json stays when it matches the default, so a later default can't undo the user's choice
+assert overrides(base, base, {"hotkey": "", "voice": {"language": "auto"}}) == {"hotkey": "", "voice": {"language": "auto"}}
+assert overrides(base, base, {"voice": "broken"}) == {}
 
 COMMANDS = {
     "allow": [
@@ -2714,6 +2717,15 @@ for tool, inp in [("Write", {"file_path": f"{nova_home}/config.json", "content":
         assert classify(tool, inp, nova_home, [], nova_home, None, mode)[0] == "block", (tool, mode)
 assert classify("Edit", {"file_path": f"{nova_home}/config.json", "new_string": '"hotkey": "ctrl+shift+n"'},
                 nova_home, [], nova_home, None, "auto") == ("confirm", "changes Nova itself")
+# ...judged on the file afterwards: changing a value inside the safety section names no section, and is still refused
+_home = Path(tempfile.mkdtemp())
+(_home / "config.json").write_text(json.dumps({"safety": {"mode": "auto", "tainted_manual": True}, "hotkey": "x"}, indent=2),
+                                   encoding="utf-8")
+for old, new in (('"mode": "auto"', '"mode": "bypass"'), ('"tainted_manual": true', '"tainted_manual": false')):
+    assert classify("Edit", {"file_path": str(_home / "config.json"), "old_string": old, "new_string": new}, str(_home), [],
+                    str(_home), None, "auto")[0] == "block", new
+assert classify("Edit", {"file_path": str(_home / "config.json"), "old_string": '"hotkey": "x"', "new_string": '"hotkey": "y"'},
+                str(_home), [], str(_home), None, "auto") == ("confirm", "changes Nova itself")
 
 # a dictation's paste: the user's clipboard comes back a second later (a slow app still pastes the dictation, not
 # what was copied before), only if nothing new was copied meanwhile; two pastes in a row bring back the original
@@ -4453,6 +4465,23 @@ assert ran == [("start my day", True)] and b.briefed.s["used"]
 b.suggestion = {"kind": "briefing"}
 b.answer_suggestion(False)
 assert ran == [("start my day", True)] and b.briefed.s["dismissed"]["briefing"] == 1
+daily_mod.morning = lambda now: False                                    # afternoon: no card, but asking still counts
+b.briefed = proactive_mod.Limiter(Path(tempfile.mkdtemp()) / "b5.json")
+b.offer_briefing(True)
+assert b.briefed.s["used"] and proactive_mod.Limiter(b.briefed.path).s["used"], "said at any hour, it's been tried (and saved)"
+_real_sleep, waits, opened = suggest_daily.time.sleep, [], []
+b.phase, b.pending, b.ui = "idle", None, (lambda fn: fn())
+b.card = types.SimpleNamespace(visible=True)
+suggest_daily.time.sleep = lambda s: (waits.append(s), setattr(b.card, "visible", False))
+nova_mod.Nova.when_idle(b, lambda: opened.append(True))
+suggest_daily.time.sleep = _real_sleep
+assert waits == [1] and opened, "an offer waits for the reply card to go, not just for Nova to stop talking"
+_logs, _config.LOGS = _config.LOGS, Path(tempfile.mkdtemp())                # what was said, not screen.png (gone at every start)
+b.cfg = merged(json.loads((Path(__file__).parent / "config.default.json").read_text(encoding="utf-8")), {})
+assert "screen" not in nova_mod.Nova.used_features(b)
+_config.log("heard", mode="assistant", text="What's on my screen right now?", source="voice")
+assert "screen" in nova_mod.Nova.used_features(b) and "briefing" in nova_mod.Nova.used_features(b)
+_config.LOGS = _logs
 daily_mod.morning, suggest_daily.threading, nova_mod.log, suggest_daily.log = _real
 
 

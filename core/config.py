@@ -92,15 +92,17 @@ def merged(base, override):
     return out
 
 
-def overrides(cfg, base):
-    """Only the values that differ from the defaults."""
+def overrides(cfg, base, keep=None):
+    """Only the values that differ from the defaults, plus those already in `keep` (config.json as it is): a choice that
+    happens to match today's default still stands when a later version changes that default."""
+    keep = keep if isinstance(keep, dict) else {}
     out = {}
     for k, v in cfg.items():
         if isinstance(v, dict) and isinstance(base.get(k), dict):
-            sub = overrides(v, base[k])
+            sub = overrides(v, base[k], keep.get(k))
             if sub:
                 out[k] = sub
-        elif k not in base or base[k] != v:
+        elif k not in base or base[k] != v or k in keep:
             out[k] = v
     return out
 
@@ -261,9 +263,10 @@ def save_config(cfg):
 
 def _save(cfg):
     try:
-        user_config()
+        have = user_config()
     except ValueError:  # keep the hand-edited file the user may still want
+        have = {}
         CONFIG.replace(CONFIG.with_suffix(".broken.json"))
     tmp = CONFIG.with_suffix(f".{os.getpid()}.tmp")  # each program its own: a shared name collided
-    tmp.write_text(json.dumps(overrides(cfg, defaults()), indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.write_text(json.dumps(overrides(cfg, defaults(), have), indent=2, ensure_ascii=False), encoding="utf-8")
     _busy(lambda: tmp.replace(CONFIG))  # atomic: Nova's settings watcher never reads half a file
