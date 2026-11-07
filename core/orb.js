@@ -93,7 +93,7 @@ const Orb = (() => {
     const cx = W / 2, cy = H * .5, R = Math.min(W, H) * .36 * cur.scale * (1 + pulse);  // fills the stage it is given
     ctx.clearRect(0, 0, W, H);
     const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 1.9);
-    bg.addColorStop(0, `hsla(${hue},80%,50%,${.16 * cur.bright * (1 + env * .6)})`); bg.addColorStop(1, `hsla(${hue},80%,40%,0)`);
+    bg.addColorStop(0, `hsla(${hue},80%,50%,${.24 * cur.bright * (1 + env * .6)})`); bg.addColorStop(1, `hsla(${hue},80%,40%,0)`);
     ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
 
     const cyw = Math.cos(yaw), syw = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
@@ -106,7 +106,7 @@ const Orb = (() => {
 
     ctx.globalCompositeOperation = "lighter"; ctx.lineWidth = 1;
     for (let b = 0; b < 3; b++) { // lines in three depth buckets, so the far side stays faint
-      ctx.strokeStyle = `hsla(${hue},70%,66%,${Math.min(1, cur.edge * cur.bright * (.35 + .35 * b))})`;
+      ctx.strokeStyle = `hsla(${hue},70%,66%,${Math.min(1, cur.edge * cur.bright * (.16 + .16 * b))})`;  // faint threads: a soft cloud, not a wireframe
       ctx.beginPath();
       for (const [a, c] of E) {
         if (Math.min(2, Math.floor((pd[a] + pd[c]) * 1.5)) !== b) continue;

@@ -502,13 +502,15 @@ if shutil.which("node"):
       for (const c of ["#3380FF", "#9B5CFF", "#FF5C8A", "#FF6B3D", "#F5B800", "#22C55E", "#14B8A6", "#EDEDED", "#000000", "#ffffff", "#FF0000"]) {
         const t = themeTokens(c), sf = t["--surface"], rs = t["--raised"];
         out.rows[c] = { fill: cr(t["--accent"], t["--accent-ink"]), hover: cr(t["--accent-hover"], t["--accent-ink"]), link: Math.min(cr(t["--accent-text"], sf), cr(t["--accent-text"], rs)),
-          text: cr(t["--text"], sf), muted: Math.min(cr(t["--muted"], sf), cr(t["--muted"], rs)), faint: cr(t["--faint"], sf), danger: cr(t["--danger"], sf), dangerName: t["--danger"], bg: [t["--bg"], t["--side"], t["--surface"], t["--raised"], t["--sunk"]].every(x => /^#[0-9a-f]{6}$/.test(x)) };
+          text: cr(t["--text"], sf), muted: Math.min(cr(t["--muted"], sf), cr(t["--muted"], rs)), faint: cr(t["--faint"], sf), danger: cr(t["--danger"], sf), dangerName: t["--danger"], bg: [t["--bg"], t["--side"], t["--surface"], t["--raised"], t["--sunk"]].every(x => /^#[0-9a-f]{6}$/.test(x)),
+          neutral: [t["--bg"], t["--surface"], t["--raised"]].every(x => x.slice(1, 3) === x.slice(3, 5) && x.slice(3, 5) === x.slice(5, 7)) };
       }
       console.log(JSON.stringify(out));"""], capture_output=True, text=True, check=True, timeout=60).stdout)
     assert theme["nova"] is None and theme["bad"] is None, theme  # Nova's own violet, or a value that isn't a colour: the stylesheet stays
     for colour, r in theme["rows"].items():
         assert r["danger"] >= 4.5, (colour, r)  # the danger colour reads on the panels, and
         assert (r["dangerName"] != "#ff7a7a") == (colour in ("#FF5C8A", "#FF6B3D", "#FF0000")), (colour, r)  # a red, pink or orange pick gets a paler one
+        assert r["neutral"], (colour, r)  # the walls stay obsidian whatever the pick: the colour is the accent
         assert r["bg"] and r["fill"] >= 4.5 and r["hover"] >= 4.5 and r["link"] >= 4.5 and r["text"] >= 12 and r["muted"] >= 6 and r["faint"] >= 4.5, (colour, r)
 
 # the browser extension reconnects by itself: right away, backing off to 5 s, re-reading nova.json each time
@@ -6301,6 +6303,9 @@ finally:
 deck_page = phone_mod.page(Path("core/app.html"))
 assert 'id="claudeSkills"' in deck_page and "api().claude_skills()" in deck_page and "5-hour window" in deck_page
 assert 'class="dock"' in deck_page and 'class="side"' not in deck_page  # one dock on every page, no sidebar
+assert 'api().drag("caption")' in deck_page and 'id="winctl"' in deck_page and 'data-edge="bottomright"' in deck_page  # frameless: the dock moves it, edges resize
+assert all(f"def {_n}(self" in Path("core/app.py").read_text(encoding="utf-8") for _n in ("minimize", "toggle_max", "drag"))
+assert 'id="homeLede"' not in deck_page and 'id="deckInfo"' in deck_page  # no instructions on the deck; the footnote behind an (i)
 assert all(f'id="{i}"' in deck_page for i in ("homeStrip", "homeComposer", "homePrompt", "deckClaude", "library", "status", "recent", "gone", "updateBanner", "cfgError", "modeSeg", "pauseBtn", "live", "chatBadge"))
 assert all(f'data-page="{p}"' in deck_page for p in ("home", "chat", "history", "meetings", "dictionary", "skills", "memory", "settings"))
 

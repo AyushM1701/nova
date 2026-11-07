@@ -1,17 +1,19 @@
 ---
 name: Nova
-description: An always-dark command deck for a voice layer: Nova's state, Claude's real numbers and your skills around one living point-cloud orb.
+description: An always-dark obsidian command deck for a voice layer, and one morphing glass HUD: Nova's state, Claude's real numbers and your skills around one soft point-cloud orb.
 colors:
-  ground: "#080a15"
-  dock: "#0a0c19"
-  panel: "#0f1226"
-  raised: "#151833"
-  sunk: "#060812"
-  hairline: "rgba(143, 149, 230, .16)"
-  hairline-strong: "rgba(143, 149, 230, .30)"
-  text: "#e8eaff"
-  muted: "#a3a9d2"
-  faint: "#8a90bd"
+  ground: "#0a0a0c"
+  dock: "#0c0c10"
+  panel: "#111218"
+  raised: "#1a1b22"
+  sunk: "#07070a"
+  hairline: "rgba(255, 255, 255, .07)"
+  hairline-strong: "rgba(255, 255, 255, .13)"
+  specular: "inset 0 1px 0 rgba(255, 255, 255, .06)"
+  hud-glass: "rgba(12, 13, 18, .82)"
+  text: "#f3f4f6"
+  muted: "#a1a3ad"
+  faint: "#8b8d97"
   accent: "#6d5ff7"
   accent-hover: "#5e4ff0"
   accent-text: "#b9b1ff"
@@ -81,7 +83,7 @@ typography:
     fontSize: "11px"
     fontWeight: 400
     lineHeight: 1.2
-    letterSpacing: ".18em"
+    letterSpacing: ".08em"
 rounded:
   xs: "6px"
   sm: "8px"
@@ -138,18 +140,20 @@ components:
 
 **Creative North Star: "The Command Deck"**
 
-The Nova window is a deck, not a menu. Nova's state, Claude's real numbers, your skills and your next request sit around one living orb instead of a sidebar and a page of cards. It is always dark, whatever the system theme: deep navy ground, violet-tinted hairlines, one violet accent. The look is lent by a user-pinned reference (V.A.U.L.T. / Jarvis screens, "agentic OS"): it supplies mono for data and labels, the palette, the density and one signature (the orb). Navigation and controls stay standard.
+The Nova window is a deck, not a menu. Nova's state, Claude's real numbers, your skills and your next request sit around one living orb instead of a sidebar and a page of cards. It is always dark, whatever the system theme: neutral obsidian (#0a0a0c), hairlines of white at 7%, one accent. Mono carries data and labels; navigation and controls stay standard. It assumes you know how to use it: no instruction paragraphs on the deck, one-sentence descriptions in Settings.
 
-Density is high but calm. Data is mono, anything you read is the system sans. Panels are boxed on purpose (1px hairline, 12px corners); the reference's frameless look was considered and not adopted, because boxes keep each vital scannable at a glance and in a 820x580 window.
+Density is high but calm. Panels are quiet glass: a 1px white-7% hairline, 14px corners and a specular top edge (`--lit`, an inset white-6% line), so depth reads as light from above rather than as boxes. Captions are mono caps with no rule after them; whitespace separates sections.
 
-The violet is the default, not a fixed rule: Settings → Colour & cursor re-derives the accent, its hover and wash, the navy surfaces, hairlines and text tints, and the orb's hue from one picked colour (`themeTokens` in `core/app.html`; a grey pick gives neutral surfaces). Every pick keeps the contrast targets below (checked for each tile in `tests.py`): lettering on the accent at 4.5:1 or better (near-black when white can't reach it, as on yellow), accent text 7:1 on the panels. Read "violet" in this file as "the chosen colour".
+The colour picked in Settings → Colour & cursor is the accent only: fills, focus, violet text, the orb, the bar's sparkle, waveform and glow, and the five bars of the mark. Surfaces stay neutral for every pick (`themeTokens` in `core/app.html` and `core/theme.py` keep `k = 0`). Every pick keeps the contrast targets below (checked in `tests.py`): lettering on the accent at 4.5:1 or better (near-black when white can't reach it, as on yellow), accent text 7:1 on the panels. Read "violet" in this file as "the chosen colour".
 
-Nova's brand violet is #7b6dff (tray icon, orb). The bar and reply card default to indigo glass (#110e2a tint) with Signal Violet (#6d5ff7) fills so white lettering reaches 4.5:1, lilac-tinted wells and text tints drawn from the violet rather than grey; the screen behind the glass is dimmed before it tints it, so text stays legible over bright windows. The bar and reply card are one island of frosted glass at the top-centre of the screen, in the colour picked in Settings (the screen behind it, blurred, tinted with the theme's dark; a bright top rim; fine grain). The pill's orb, action button and stop button sit in lighter wells of the same glass; the accent fills only the live-mic button, the Allow button and the heard-text bubble, amber only Needs OK. The pill is hidden until the pointer rests at the top edge or Nova is working, and stays up (orb and Ask) while a card hangs 8px under it. A spoken answer leads the card in 16.5px type under the question's bubble (top right), with Ask more / Open in Nova as glass chips; other cards lead with their title. In this window the working accent is #6d5ff7 for fills and #b9b1ff for violet text and marks, so white button text and small violet text both stay legible on the navy ground.
+On Windows the window is frameless: the dock is the title bar (drag it to move, double-click to fill the work area) and ends in its own – □ × buttons; the edges resize it natively. The Mac keeps its traffic lights.
+
+**The HUD is one shape of frosted glass** at the top centre of the screen (or the bottom, above the taskbar): obsidian (12, 13, 18 at 82%) over the blurred, saturated screen behind it, a white-9% hairline with a brighter top line, a soft accent wash high on the left, a faint accent glow around it. The pill (168×42 at rest) holds Nova's mark, a word and what the state adds: ✦ Ask; the live voice as eight light-to-accent bars; a frameless stop square. When Nova thinks, speaks or has something to say, the pill grows into a card (440 wide) in the same window on a spring, and shrinks back after: never a second box under the pill, never the same status twice. The card leads with what matters: the question, quiet (white 50%, one line) above a hairline, then the step Nova is on with light sweeping across it, or the answer in crisp white; short notices ("Nova is ready", "Cancelled") stay one line, the pill's height. Amber is Needs your OK only; Allow is the HUD's one solid fill.
 
 **Key Characteristics:**
-- Always dark; three stacked `:root` token blocks in app.html, the third wins.
+- Always dark, neutral obsidian; three stacked `:root` token blocks in app.html, the third wins.
 - Mono for labels, numbers and the CORE / LINK / JOBS strip; system sans for prose.
-- Tonal layering and 1px violet hairlines for depth; one soft shadow on the central stage only.
+- Hairlines of white at 7% and a specular top edge for depth; the accent is a glow, never a tint.
 - One signature: the point-cloud orb, reactive to state.
 - Amber means waiting on you; green means ok; red is for failure and destruction only.
 
@@ -166,13 +170,13 @@ A navy ground with a single violet voice, amber reserved for "needs you".
 - **Waiting Amber** (#ffba3c): approvals and warnings only: the approval strip border and heading, tab badge dot, plan warning line.
 
 ### Neutral
-- **Deep Navy Ground** (#080a15): window and central stage base; the stage fades from #171a38 at the centre.
-- **Dock Navy** (#0a0c19): the top dock.
-- **Panel Navy** (#0f1226): HUD panels, drawn at 85% (details at 70%) over the ground.
-- **Raised Navy** (#151833): hover for neutral buttons and tabs.
-- **Sunk Navy** (#060812): inset wells: command buttons, search field, segmented control track.
-- **Hairline** (rgba(143, 149, 230, .16)) and **Strong Hairline** (.30): panel borders and the rule after each caption.
-- **Cloud White** (#e8eaff) text, **Mist** (#a3a9d2) secondary text and mono labels, **Dusk** (#8a90bd) placeholders and timestamps.
+- **Obsidian Ground** (#0a0a0c): window base; the stage fades from the panel colour at the centre, with an accent glow at 10% behind the orb.
+- **Dock** (#0c0c10): the top dock, which is also the title bar.
+- **Panel** (#111218): HUD panels, drawn at 65% over the ground.
+- **Raised** (#1a1b22): hover for neutral buttons and tabs.
+- **Sunk** (#07070a): inset wells: search field, segmented control track.
+- **Hairline** (white 7%) and **Strong Hairline** (white 13%): panel borders and dividers.
+- **Text** (#f3f4f6), **Muted** (#a1a3ad) secondary text and mono labels, **Faint** (#8b8d97) placeholders and timestamps.
 - **Go Green** (#3ecf8e) ok dots; **Alert Coral** (#ff7a7a) danger text.
 
 ### Named Rules
@@ -193,7 +197,7 @@ A navy ground with a single violet voice, amber reserved for "needs you".
 - **Greeting** (sans, 19px, 1.25): the Home greeting above the orb.
 - **Value** (mono 600, 15px): vitals values, one line, ellipsised.
 - **Body** (sans, 14px, 1.5): default; panel rows 12-13px, command buttons 12.5px.
-- **Label** (mono 400, 11px, +.18em, uppercase): section captions with a trailing rule, vitals keys (+.14em), deck status (+.16em), the closed "What Nova can do" summary. Skill rows are mono 500 12px, +.06em, uppercase.
+- **Label** (mono 400, 11px, +.08em, uppercase): section captions (no rule after them), vitals keys, deck status, the closed "What Nova can do" summary. Nova skill rows are mono 500 12px, +.06em, uppercase; Claude skills are one-line sans rows, ellipsised.
 
 ### Named Rules
 **The 11px Floor Rule.** No Home text is smaller than 11px; mono caps labels sit exactly at 11px, never below. (The walkthrough mock scene scales down to 9.5px as an illustration, which is not part of the deck.)
@@ -201,7 +205,7 @@ A navy ground with a single violet voice, amber reserved for "needs you".
 
 ## Layout
 
-The shell is a grid of a dock row and a scrolling main. Home is a three-column deck: `minmax(240px, 300px) | minmax(0, 1fr) | minmax(240px, 300px)`, 14px gaps, 14px 16px padding. Left: Claude vitals, System status, Recent. Middle: greeting and the CORE / LINK / JOBS strip, the orb filling the stage, the running-job card (176px wide, bottom-right of the stage), the reply or approval strip, the request box. Right: Nova skills, Claude skills (search, a two-column deck of 8 command buttons, "All N"), Library, a closed "What Nova can do". Columns scroll inside; the page never overflows. Panel rhythm is 12px between panels, 12-14px internal padding.
+The shell is a grid of a dock row and a scrolling main. Home is a three-column deck: `minmax(240px, 300px) | minmax(0, 1fr) | minmax(240px, 300px)`, 14px gaps, 14px 16px padding. Left: Claude vitals (plan line, the 5-hour hero and gauge, Today and 7 days side by side, a sparkline; where the numbers come from sits behind an ⓘ by the caption), System status and the walkthrough row, Recent (3). Middle: greeting and the CORE / LINK / JOBS strip, the orb filling the stage, the running-job card, the reply or approval strip, the request box ("Ask Nova anything…" with the talk keys as keycaps). Right: Nova skills, Claude skills (search, six one-line rows, "All N"), Library, a closed "What Nova can do". The page never overflows; a column scrolls only in a short window, its scrollbar hidden until you're on it. Panel rhythm is 12px between panels, 12-14px internal padding.
 
 Responsive: under 1000px the orb comes first and the panels sit under it, two across (`repeat(auto-fit, minmax(250px, 1fr))`). The dock sheds text in steps: under 1560px the live-state detail, Mode labels and Pause label go to icons; under 1180px only the active tab keeps its label; under 900px all tabs are icons and the brand and state text hide. Minimum window 820x580.
 
@@ -209,14 +213,14 @@ Inner pages (Chat, History, Meetings, Dictionary, Skills, Memory, Settings) keep
 
 ## Elevation & Depth
 
-Tonal layering plus hairlines. Surfaces are flat at rest: depth comes from navy steps (sunk, ground, panel, raised) and translucent panels over the stage. A soft shadow (`0 1px 2px rgba(0,0,0,.5), 0 12px 32px rgba(0,0,0,.4)`) exists as `--shadow` and is used on the central stage and the active segment of the Mode switch. Focus is a 3px violet ring (`0 0 0 3px rgba(123,109,255,.5)`).
+Light from above. Panels and the stage carry a specular top edge (`--lit`: `inset 0 1px 0 rgba(255,255,255,.06)`) over a white-7% hairline; tone steps (sunk, ground, panel, raised) do the rest. `--shadow` is kept for popovers (the ⓘ note) and the active segment of the Mode switch. Focus is a 2px accent-text outline.
 
 ### Named Rules
-**The Hairline Depth Rule.** Panels are separated by 1px violet-tinted lines and tone, not by shadows. The central stage is the one lifted object.
+**The Lit Edge Rule.** Panels are separated by white-7% hairlines, tone and a lit top edge, not by heavy shadows or tinted borders.
 
 ## Shapes
 
-Softly rounded rectangles. Corners are 12px on panels, 14px on the central stage, 10px on the strip and segmented control, 8-9px on buttons, fields and rows, 7px on tab/skill rows, 999px on chips. Status dots and the round send button are circles. Gauges are 4px tracks with a rounded fill. Boxed panels are intentional (see Overview).
+Softly rounded rectangles. Corners are 14px on panels and the central stage, 10px on the strip and segmented control, 8-9px on buttons, fields and rows, 7px on tab/skill rows, 999px on chips. Status dots and the round send button are circles. Gauges are 4px tracks with a rounded fill. Boxed panels are intentional (see Overview).
 
 ## Components
 
@@ -226,14 +230,14 @@ Softly rounded rectangles. Corners are 12px on panels, 14px on the central stage
 - **Default:** Panel Navy fill, strong hairline border; hover Raised Navy. **Ghost:** transparent, Mist text. **Danger:** coral text, solid coral when armed.
 - **Pressed:** 1px downward nudge; disabled at 50% opacity.
 
-### Command buttons (Claude skills deck)
-Sunk Navy wells, 8px radius, 1px hairline, 12.5px sans 500 text clamped to two lines, in a two-column grid with 6px gaps. Hover is the violet wash with a strong hairline. Beneath: a search field and an "All N" link.
+### Claude skills rows
+One column of one-line rows, 12.5px sans 500, ellipsised (the full name and description in the tooltip), no frame at rest; hover is the accent wash and a hairline. Above: a search field; beneath: an "All N" link.
 
 ### Panels
-`hud-panel`: 85% Panel Navy, 1px hairline, 12px radius, 12px 14px padding. Each opens with a mono caption and a trailing strong-hairline rule. Vitals rows end in a hairline divider: mono key, mono value, one mono detail line.
+`hud-panel`: Panel at 65%, white-7% hairline, the lit top edge, 14px radius, 12px 14px padding. Each opens with a mono caption (no rule). Vitals rows: mono key, mono value, one mono detail line.
 
 ### Dock and navigation
-Brand, live-state pill (mini canvas plus mono state and detail), centered tabs, Mode switch, Pause. Tabs are 8px-radius, Mist text, Raised Navy on hover; the active tab takes the violet wash, Cloud White text and a Lilac icon. A small amber dot badges a tab that needs you.
+Brand, live-state pill (mini canvas plus mono state and detail), centered tabs, Mode switch, Pause, then (Windows) – □ × after a hairline. Empty dock drags the window. Tabs are 8px-radius, Mist text, Raised Navy on hover; the active tab takes the violet wash, Cloud White text and a Lilac icon. A small amber dot badges a tab that needs you.
 
 ### Request box
 Translucent ground fill, 12px radius, strong hairline, borderless textarea (max 120px). Focus-within turns the border violet and shows the focus ring.
@@ -242,7 +246,7 @@ Translucent ground fill, 12px radius, strong hairline, borderless textarea (max 
 Sits above the request box, 10px radius, strong hairline on near-black. Approval mode: amber border, 9% amber tint, amber heading, actions in a wrapping row. Working state shows three blinking dots (static at reduced motion).
 
 ### The Orb (signature)
-A 600-point cloud joined to its 3 nearest neighbours, drawn on canvas in violet (hue 248), sized to about 36% of the stage's short side. State drives it: listening tightens (spread .88) and follows the microphone; thinking spreads loose (1.18) and spins fastest; speaking is brightest and pulses with the level; approval and paused are still and dim; "working" maps to thinking. Calm states redraw at 20 fps (idle) or 10 fps (approval, paused, gone); the loop stops when Home is hidden. Reduced motion freezes twinkle and keeps only a slow small swell while speaking. The orb has no chrome around it.
+A 600-point cloud joined to its 3 nearest neighbours by faint threads (a soft cloud, not a wireframe), drawn on canvas in violet (hue 248) over a soft glow, sized to about 36% of the stage's short side. State drives it: listening tightens (spread .88) and follows the microphone; thinking spreads loose (1.18) and spins fastest; speaking is brightest and pulses with the level; approval and paused are still and dim; "working" maps to thinking. Calm states redraw at 20 fps (idle) or 10 fps (approval, paused, gone); the loop stops when Home is hidden. Reduced motion freezes twinkle and keeps only a slow small swell while speaking. The orb has no chrome around it.
 
 ### First-run setup
 Two columns inside the full-window overlay (max 1180px): what to do on the left (title 30px, lede, rows and controls), and on the right the stage. The stage holds Nova's bar (the `pill()` canvas, 196px wide), the orb (the same singleton, moved onto the setup while it's open and handed back to Home on close) and a mono readout of what's set up (Mic, AI, browser, email, apps, Obsidian), green dots when done. The stage stays in view while a long step scrolls. The orb acts out the step: it plays Nova's four states on the welcome, follows the microphone level on the mic step, and answers (speaking, 1.8s) when a step becomes ready. Tour steps put their live scene in the stage instead. Progress is five named chapters (Hello, Try it, Your AI, Your apps, Ready) in mono caps with a tick per step, not a row of dashes. A setup step's main button says "Set up later", unhighlighted, until something is set up, then Continue. Under 960px the stage sits above the step, the orb at 19vh and without the bar.
@@ -253,18 +257,20 @@ The walkthrough clips (`docs/video/build.py`, DECK) use the same world at 1920×
 
 ### Do:
 - **Do** use the tokens (`--bg`, `--surface`, `--sunk`, `--line`, `--accent`, `--accent-text`); raw hex only where the stage gradient needs it.
-- **Do** set labels, numbers and statuses in `--mono`, 11px minimum, uppercase with wide tracking for captions.
-- **Do** end a section caption with the strong hairline rule.
+- **Do** set labels, numbers and statuses in `--mono`, 11px minimum, uppercase with .08em tracking for captions.
+- **Do** keep keycaps compact: mono 11px, 5px radius, white 6% on a white-10% edge.
 - **Do** use Lilac Ink (#b9b1ff) for violet text and Signal Violet (#6d5ff7) only for fills.
 - **Do** keep the app dark in every system theme, and honor reduced motion.
-- **Do** keep panels boxed (1px hairline, 12px radius) with the page never scrolling.
+- **Do** keep panels as quiet glass (hairline, lit top, 14px radius) with the page never scrolling.
+- **Do** keep the HUD one shape: grow the pill into the card; keep the heard text quiet (white 50%), text in the HUD at 50% white or brighter.
 
 ### Don't:
 - **Don't** use amber for anything but waiting on the user.
 - **Don't** set sentences or long prose in mono.
-- **Don't** add a second accent hue or a gradient fill on controls.
+- **Don't** add a second accent hue or a gradient fill on controls, or tint surfaces with the accent.
+- **Don't** put a rule after a caption, a box inside a box, or a well around the HUD's mark, words or stop.
 - **Don't** put text under 11px on the deck.
 - **Don't** start a theme by copying the first two `:root` blocks into new window UI; the phone page and browser panel still use them, tests.py compares only those two.
-- **Don't** put chrome (frame, ring, glow box) around the orb.
+- **Don't** put chrome (frame, ring, glow box) around the orb; the stage's soft accent glow is the only light behind it.
 
 **Exemption: the onboarding scene.** The walkthrough's `.scene` is a scaled illustration of the product (em-based radii, fluid type, its own small palette above). It is not part of the system's scale.
