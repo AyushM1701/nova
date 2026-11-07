@@ -6936,6 +6936,18 @@ _b.set("listening")
 assert _calls == ["grab", "show", "grab"] and _b.state == "listening", _calls                # Bar.set() itself shows a hidden bar for a working state
 _calls.clear(); _b.set("idle")
 assert _calls == ["hide"], _calls
+from core.bar import smooth_out as _so, in_out as _io, mark as _mk, QUICK as _QUICK
+assert _so(0) == 0 and _so(1) == 1 and _so(0.5) > 0.9 and _io(0.5) == 0.5 and _io(2) == 1    # the curves stay in 0..1
+_mi = Image.new("RGBA", (80, 50)); _mk(_mi, 10, 25, 2)
+assert _mi.getbbox() is not None                                                              # the logo draws
+_mi = Image.new("RGBA", (80, 50)); _mk(_mi, 10, 25, 2, born=0.0, t=0.0)
+assert _mi.getbbox() is None                                                                  # at its birth no bar has risen yet
+if not __import__("core.system", fromlist=["x"]).reduced_motion():                            # leaving, the window fades out before it hides
+    _b.win, _b._vis, _b._leave = object(), True, None
+    _calls.clear(); _b.state = "thinking"; _b.set("idle")
+    assert _calls == [] and _b._leave is not None and _b._vis is False, _calls
+    del _b.win
+    _b._leave = None
 assert note_top(0, 1000, 300.5, 300) == 308 and note_top(0, 1000, 300.5, 0) == 120           # the sketch note sits under a card at the top
 # the bar and card are frosted glass in the colour picked in Settings -> Colour & cursor
 from core import theme as _theme, glass as _glass
@@ -7004,7 +7016,9 @@ _rc.show("Nova", "A discounted cash flow model values a company by projecting it
          quote="What's a DCF model?", kind="reply")
 assert [a() for _, a in _rc.chips] == ["ask", "open"] and _rc.chips[0][0][2] < _rc.chips[1][0][0], _rc.chips
 assert all(r[3] <= _rc.size[1] for r, _ in _rc.chips) and _rc.base.size == _rc.size           # inside the card
-assert _rc.size[0] == overlay_mod.WIDTH and _rc.size[1] <= 400 and not _rc.live
+assert _rc.size[0] == overlay_mod.WIDTH and _rc.size[1] <= 400 and _rc.live                   # it moves as it arrives (mark, lines)...
+_rc.shown_at -= 5; _rc._reveal_at -= 5; _rc._reveal_end -= 5
+assert not _rc.live and _rc.frame().size == _rc.base.size                                    # ...then rests
 _rc.on_allow, _rc.on_deny = (lambda: "allow"), (lambda: "deny")
 _rc.show("Needs your OK", "Delete the build folder. " * 12, buttons=True, detail="Remove-Item -Recurse build " * 6)
 assert [a() for _, a in _rc.buttons] == ["allow", "deny"] and _rc.size[1] <= 400 and _rc.live

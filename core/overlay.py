@@ -13,8 +13,10 @@ import time
 from PIL import Image, ImageDraw
 
 from core import system, theme
-from core.bar import (AMBER, CAPSULE, MARK_W, Bar, dpi_scale, keycap, mark, mic, mono_font, shimmer, stop_square,
-                      ui_font, wave)
+from PIL import ImageFilter
+
+from core.bar import (AMBER, BLUR, CAPSULE, MARK_W, VERY_SLOW, Bar, dpi_scale, in_out, keycap, mark, mic, mono_font,
+                      shimmer, stop_square, ui_font, wave)
 
 SS = 2  # drawn 2x, then downscaled: smooth corners and text
 WIDTH, PX, PY = 440, 18, 14  # logical px: the card's width, and its padding across and down
@@ -70,7 +72,8 @@ def fit(text, font, width):
 class Card:
     """The card's content and what a click on it does. The bar (core/bar.py) draws it, in its own window, inside the
     glass it grows into. `size` is the card's size in logical px; `frame()` its content for this moment, in image px."""
-    bar, visible, kind, telemetry, base = None, False, "info", "", None
+    quiet = False
+    bar, visible, kind, telemetry, base, _body, _said, shown_at, _reveal_at, _reveal_end, _rows = None, False, "info", "", None, None, None, 0.0, 0.0, 0.0, ()
     size, buttons, chips, stop_box, _live = (WIDTH, CAPSULE), (), (), None, ()
 
     def __init__(self, root, on_allow, on_deny, on_open=None, hotkey="", position="bottom", on_ask=None):
@@ -92,7 +95,9 @@ class Card:
 
     @property
     def live(self):
-        return self.kind in LIVE
+        """Moving: a working kind, its mark still rising, or its answer still being revealed."""
+        t = time.monotonic()
+        return self.kind in LIVE or t - self.shown_at < 0.8 or (self._body is not None and t < self._reveal_end)
 
     def bottom(self):
         """The screen y of the card's bottom edge while it is up at the top of the screen, else 0 (nothing to avoid)."""
@@ -108,7 +113,15 @@ class Card:
         if self.bar is not None and self.bar.scale * self.bar.px != self.scale:
             self.scale = self.bar.scale * self.bar.px
             self._fonts()
-        self.kind = kind or ("approval" if buttons else "info")
+        kind = kind or ("approval" if buttons else "info")
+        now = time.monotonic()
+        said = plain(body) if kind in ("speaking", "reply") else None
+        self.quiet = said is not None and said == self._said  # the same answer, spoken then done: no swap, no reveal
+        if not self.visible or (kind != self.kind and not self.quiet):  # a card arriving, not an update: its mark rises in
+            self.shown_at = now
+        self.kind = kind
+        if said != self._said:  # new words: they rise in line by line
+            self._said, self._reveal_at = said, now
         self._render(title, plain(body), buttons, quote, detail, labels, toast, keys)
         self.visible = True
         if self.bar is not None:
@@ -118,7 +131,7 @@ class Card:
     def _render(self, title, body, buttons, quote, detail, labels=None, toast=False, keys=""):
         """The card at rest, at 1x: text, marks and buttons on transparent (the bar puts the glass under it). What
         moves (the sweep of light, the voice wave) is drawn per frame, from `_live`."""
-        self.buttons, self.chips, self.stop_box, self._live = [], [], None, []
+        self.buttons, self.chips, self.stop_box, self._live, self._body = [], [], None, [], None
         if toast or not (body or detail or buttons or self.kind in LIVE):
             return self._toast(title, body or (f"“{quote.strip()}”" if quote else ""), keys)
         if self.kind == "thinking":
@@ -136,6 +149,11 @@ class Card:
         self.size = (width, height)
         self.base = img.reduce(SS)
 
+    def _mark(self, x, cy, size, colors=None):
+        """Nova's logo here, drawn live each frame (core/bar.py mark): returns its width."""
+        self._live.append(("mark", x / SS, cy / SS, size, colors))
+        return MARK_W * size * self.scale * SS
+
     def _toast(self, title, sub, keys):
         """One line, as tall as the pill: the mark, the title, a quiet detail beside it and, maybe, a key."""
         s = self.scale * SS
@@ -148,7 +166,7 @@ class Card:
         img, d, s = self._canvas(width, CAPSULE)
         cy, x = CAPSULE / 2 * s, PX * s
         error = self.kind == "error"
-        x += mark(d, x, cy, s, .9, [RED] * 5 if error else None) + 10 * s
+        x += self._mark(x, cy, .9, [RED] * 5 if error else None) + 10 * s
         d.text((x, cy), title, font=self.f_label, fill=(255, 255, 255, W95), anchor="lm")
         x += self.f_label.getlength(title)
         if sub:
@@ -176,7 +194,7 @@ class Card:
             d.line((PX * s, y, right, y), fill=(255, 255, 255, W06), width=max(1, round(s)))
             y += 11 * s
         cy = y + 11 * s
-        x = PX * s + mark(d, PX * s, cy, s, .9) + 10 * s
+        x = PX * s + self._mark(PX * s, cy, .9) + 10 * s
         left = right
         if not row1:  # no question row for the stop button: it ends this one
             self._stop(d, right - 10 * s, cy, s)
@@ -202,7 +220,7 @@ class Card:
         img, d, s = self._canvas(WIDTH, height)
         right, y = (WIDTH - PX) * s, PY * s
         cy = y + 10 * s
-        x = PX * s + mark(d, PX * s, cy, s, .75) + 8 * s
+        x = PX * s + self._mark(PX * s, cy, .75) + 8 * s
         end = right
         if speaking:
             self._stop(d, right - 10 * s, cy, s)
@@ -213,13 +231,19 @@ class Card:
         y += 30 * s
         d.line((PX * s, y, right, y), fill=(255, 255, 255, W06), width=max(1, round(s)))
         y += 9 * s
-        for line in lines:
-            d.text((PX * s, y + lh * s / 2), line, font=self.f_body, fill=(255, 255, 255, W95), anchor="lm")
+        body, rows = Image.new("RGBA", img.size), []
+        bd = ImageDraw.Draw(body)
+        for line in lines:  # on a layer of their own: they rise in one after another (frame)
+            bd.text((PX * s, y + lh * s / 2), line, font=self.f_body, fill=(255, 255, 255, W95), anchor="lm")
+            rows.append((round(y / SS), round((y + lh * s) / SS)))
             y += lh * s
         if more:
             d.text((PX * s, y + 9 * s), "Click to see the full reply in Nova", font=self.f_small,
                    fill=theme.T["light"] + (255,), anchor="lm")
             y += 18 * s
+        if rows:
+            self._body, self._rows = body.reduce(SS), rows
+            self._reveal_end = self._reveal_at + 0.1 + 0.06 * len(rows) + VERY_SLOW
         if links:  # "Ask more", "Open in Nova": quiet text buttons under the answer
             y += 8 * s
             cx = PX * s
@@ -266,7 +290,7 @@ class Card:
             d.ellipse((PX * s + 2 * s, cy - r, PX * s + 2 * s + 2 * r, cy + r), fill=(AMBER if approval else RED) + (255,))
             x = (PX + 18) * s
         else:
-            x = PX * s + mark(d, PX * s, cy, s, .9) + 10 * s
+            x = PX * s + self._mark(PX * s, cy, .9) + 10 * s
         hint = "or say “allow” / “deny”" if approval else ""
         room = right - x
         if hint:
@@ -324,18 +348,38 @@ class Card:
     # ---------- each frame ----------
     def frame(self, t=None):
         """The content for this moment: the card at rest, with what moves drawn on it."""
-        if not self._live:
-            return self.base
         t = time.monotonic() if t is None else t
         still = system.reduced_motion()
         img, k = self.base.copy(), self.scale
+        if self._body is not None:
+            self._reveal(img, t, still)
+        state = {"thinking": "thinking", "speaking": "speaking"}.get(self.kind, "idle")
         for item in self._live:
-            if item[0] == "shimmer":
+            if item[0] == "mark":
+                mark(img, item[1], item[2], k, item[3], item[4], state, t, self.shown_at)
+            elif item[0] == "shimmer":
                 shimmer(img, item[1], item[2], item[3], self.f_step, SS, t, still)
             else:  # the voice, as four bars
                 heights = [(0.5 if still else 0.3 + 0.7 * abs(math.sin(t * 5 + i * 0.9))) * 12 * k for i in range(4)]
                 wave(img, item[1], item[2], heights, 2.5 * k, 3 * k, theme.T["accent"])
         return img
+
+    def _reveal(self, img, t, still):
+        """The answer's lines rise in, 60 ms apart, each from 6 px below through a soft blur (transitions.dev's texts
+        reveal and streaming text): then they simply stay."""
+        if still or t >= self._reveal_end:
+            img.alpha_composite(self._body)
+            return
+        k = self.scale
+        for i, (y0, y1) in enumerate(self._rows):
+            p = in_out((t - self._reveal_at - 0.1 - 0.06 * i) / VERY_SLOW)
+            if p <= 0:
+                continue
+            row = self._body.crop((0, y0, self._body.width, y1))
+            if p < 1:
+                row = row.filter(ImageFilter.GaussianBlur(BLUR * k * (1 - p)))
+                row.putalpha(row.getchannel("A").point(lambda v: round(v * p)))
+            img.alpha_composite(row, (0, min(img.height - row.height, y0 + round(6 * k * (1 - p)))))
 
     # ---------- input and lifetime ----------
     def _hit(self, event):
@@ -367,4 +411,4 @@ class Card:
     def hide(self):
         if self.visible and self.bar is not None:
             self.bar.attach(None)  # the glass shrinks back into the pill
-        self.visible = False
+        self.visible, self._said = False, None

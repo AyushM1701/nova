@@ -11,7 +11,16 @@ GLASS = (12, 13, 18)  # the HUD's obsidian, for every pick
 NOVA = {"accent": (109, 95, 247), "ink": (255, 255, 255), "light": (190, 182, 255), "tint": GLASS, "raised": (40, 41, 48),
         "text": (244, 244, 246), "body": (222, 223, 228), "muted": (172, 174, 182), "faint": (156, 158, 166)}
 T = dict(NOVA)  # what the bar and card draw with right now
-MARK = [(99, 102, 241), (56, 189, 248), (45, 212, 191), (168, 85, 247), (236, 72, 153)]  # Nova's own five bars
+# Nova's own five bars: the logo's gradient (violet, blue, cyan, pink) taken at each bar, as the tray icon has it
+RAMP = ((0.0, (123, 109, 255)), (0.31, (90, 140, 255)), (0.62, (63, 214, 230)), (1.0, (224, 71, 154)))
+
+
+def _ramp(t):
+    (t0, c0), (t1, c1) = next(pair for pair in zip(RAMP, RAMP[1:]) if t <= pair[1][0])
+    return tuple(round(c0[i] + (c1[i] - c0[i]) * (t - t0) / (t1 - t0)) for i in range(3))
+
+
+MARK = [_ramp((x + 2.5 - 8) / 32) for x in (8.3, 14.9, 21.5, 28.1, 34.7)]
 PICK = [None]  # the picked (r, g, b), or None for Nova's own
 
 
