@@ -438,13 +438,18 @@ class Nova(BackgroundMixin, SuggestMixin):
         if self.cfg_error:
             self.card.show("Check your settings", self.cfg_error, hide_after=10)
         else:
-            self.card.show("Nova is starting", "Loading the speech model…")
+            self.card.show("Nova is starting", "Loading speech model", toast=True)
         if not self.cfg.get("onboarded"):
             self.open_app("welcome")
         self.root.after(30, self.pump)
         self.root.after(1000, self.watch_config)
         self.root.after(2000, self.stay_awake)
         self.root.mainloop()
+
+    def telemetry(self):
+        """The quiet line under an answer: what Nova thinks with, and where its speech runs."""
+        device = getattr(getattr(self, "stt", None), "device", "")
+        self.card.telemetry = " · ".join(filter(None, (self.brain.name if self.brain else "", device and f"Voice {device}")))
 
     def load_stt(self):
         try:
@@ -456,10 +461,8 @@ class Nova(BackgroundMixin, SuggestMixin):
             log("error", error=f"speech model failed to load: {e!r}")
             message = f"{friendly(e)}\n\nRun Nova's setup again to download it."  # `e` is gone once except ends
             return self.ui(lambda: self.card.show("Speech model didn't load", message, hide_after=15, kind="error"))
-        hint = (f"Say \"Hey Nova\", hold {system.pretty_hotkey(self.cfg["push_to_talk"])} or {self.where_bar()}. Mode: {self.mode}. "
-                f"Brain: {self.brain.name if self.brain else 'none'}. Speech runs on the {self.stt.device}.")
-        if not self.brain:
-            hint += " No Claude Code or Codex found: open Nova's settings to connect one."
+        self.telemetry()
+        brain = self.brain.name if self.brain else "No AI"
         # what macOS hasn't allowed yet, checked at every start, so a permission turned off later doesn't fail silently
         # (Screen Recording is asked for the first time Nova needs it)
         missing = [system.MAC_NAMES[k] for k, ok in system.mac_permissions().items() if not ok and k != "screen"]
@@ -472,8 +475,12 @@ class Nova(BackgroundMixin, SuggestMixin):
             ask = self.unfinished["prompt"][:80]
             self.ui(lambda: self.card.show("Unfinished request", f"Nova closed while working on “{ask}”. "
                                            "Say “pick that up” to carry on.", hide_after=15))
+        elif self.cfg.get("onboarded") and not self.brain:  # needs doing, so a full card rather than a one-liner
+            self.ui(lambda: self.card.show("Nova is ready", "No Claude Code or Codex found: open Nova's settings to "
+                                           "connect one.", hide_after=10))
         elif self.cfg.get("onboarded"):
-            self.ui(lambda: self.card.show("Nova is ready", hint, hide_after=6))
+            self.ui(lambda: self.card.show("Nova is ready", f"{brain} · {self.stt.device} Speech", hide_after=6, toast=True,
+                                           keys=system.pretty_hotkey(self.cfg["push_to_talk"])))
         else:
             self.ui(self.card.hide)
         log("start", mode=self.mode, brain=self.brain and self.brain.exe, stt_device=self.stt.device)
@@ -690,11 +697,6 @@ class Nova(BackgroundMixin, SuggestMixin):
 
     def pretty(self):
         return system.pretty_hotkey(self.hotkey)
-
-    def where_bar(self):
-        """How to reach the bar, for the ready message: it hides at the top unless Settings keep it on screen."""
-        o = self.cfg["overlay"]
-        return "point at the top of the screen" if o["position"] == "top" and o["reveal"] == "hover" and not system.IS_MAC             else "click the bar"
 
     def hint(self):
         if self.cfg["triple_tap"]:  # the default way to talk: Ctrl (Cmd on a Mac) tapped three times
@@ -971,7 +973,7 @@ class Nova(BackgroundMixin, SuggestMixin):
             self.brain.cancel()
         self.canvas.hide()
         self.sketchpad.hide()
-        self.card.show("Cancelled", hide_after=2)
+        self.card.show("Cancelled", hide_after=2, toast=True)
         self.outbox.put({"event": "note", "title": "Cancelled", "text": "Cancelled."})
 
     def answer(self, ok, card=None):
@@ -1007,7 +1009,8 @@ class Nova(BackgroundMixin, SuggestMixin):
         self.brain = make_brain(self.cfg, str(WORKSPACE), self.env, self.settings, self.hook)
         self.icon.update_menu()
         self.push_state()
-        self.card.show("Brain", f"Nova now uses {self.brain.name}.", hide_after=2)
+        self.telemetry()
+        self.card.show("Brain", f"Nova now uses {self.brain.name}", hide_after=2, toast=True)
 
     def save_setting(self, path, value):
         """Change one setting now and on disk, without undoing what the window saved since Nova last read it."""

@@ -1,29 +1,27 @@
-"""The reply card: a pane of frosted glass in the theme's colour, drawn like the bar (smooth corners, soft shadow). It
-hangs just under the pill, which stays on screen above it.
+"""The card: what Nova heard, what it's doing and what it says, drawn inside the bar's own window. When a card comes up
+the pill grows into it (one shape of frosted glass that morphs), and shrinks back to the pill when it goes.
 
-It shows what Nova heard (in an accent bubble at the top right) and the step it's on while it thinks (with a light
-sweeping along its top edge), the answer itself in large type while it talks (with a live waveform) and after, Allow /
-Deny when it needs your OK, and, under a finished reply, glass chips to ask more or open it in Nova. It never takes
-focus. Click it to open the Nova window, where the full
-reply and the history are.
+Thinking: the question (quiet, on one line) over the step Nova is on, with light sweeping across it. Speaking and after:
+the answer in crisp white, the question above it. Needs your OK: Allow / Deny. Short notices ("Nova is ready",
+"Cancelled") are one line, the height of the pill. It never takes focus; click it to open the Nova window, where the
+full reply and the history are.
 """
-import functools
 import math
 import re
 import time
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
 
-from core import glass, icon, system, theme
-from core.bar import BOX, CAPSULE, Bar, Layered, _font, dpi_scale
+from core import system, theme
+from core.bar import (AMBER, CAPSULE, MARK_W, Bar, dpi_scale, keycap, mark, mic, mono_font, shimmer, stop_square,
+                      ui_font, wave)
 
 SS = 2  # drawn 2x, then downscaled: smooth corners and text
-WIDTH, PAD, RADIUS, SHADOW = 440, 18, 20, 20  # logical px; SHADOW is the transparent margin the shadow uses
-AMBER, RED = (255, 186, 60), (255, 122, 122)
-BACK_H = 400  # logical px of screen grabbed behind a card as it appears: room for the tallest reply
-FONTS = {"regular": ("segoeui.ttf", "/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc"),
-         "semibold": ("seguisb.ttf", "segoeui.ttf", "/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc"),
-         "mono": ("consola.ttf", "/System/Library/Fonts/Menlo.ttc", "/System/Library/Fonts/Monaco.ttf")}
+WIDTH, PX, PY = 440, 18, 14  # logical px: the card's width, and its padding across and down
+TOAST_MAX = 560  # the widest a one-line notice grows
+RED = (255, 122, 122)
+LIVE = ("thinking", "speaking", "approval")  # kinds that move, so the bar keeps drawing them
+W95, W85, W80, W70, W50, W40, W20, W06 = 242, 217, 204, 179, 128, 102, 51, 15  # white's alpha at 95%, 85%...
 
 
 def plain(text):
@@ -60,309 +58,299 @@ def wrap(text, font, width, max_lines):
     return lines, cut
 
 
-@functools.lru_cache(maxsize=8)
-def _shadow(W, H, m, s):
-    """The blurred drop shadow of a card of this size: the blur is the slow part, and cards of one size repeat."""
-    shadow = Image.new("RGBA", (W, H))
-    ImageDraw.Draw(shadow).rounded_rectangle((m, m + 6 * s, W - m, H - m + 6 * s), RADIUS * s, fill=(0, 0, 0, 120))
-    return shadow.filter(ImageFilter.GaussianBlur(12 * s)).resize((W // SS, H // SS), Image.LANCZOS)
+def fit(text, font, width):
+    """`text` on one line, ellipsized to `width` (drawing px)."""
+    if font.getlength(text) <= width:
+        return text
+    while text and font.getlength(text + "…") > width:
+        text = text[:-1]
+    return text.rstrip() + "…"
 
 
-@functools.lru_cache(maxsize=4)
-def _logo(size):
-    """Nova's icon (core/icon.py) at `size` px: drawn once, pasted on every frame."""
-    return icon.draw(size, tile=False)  # the bars alone, as in the pill above the card
-
-
-class Card(Layered):
-    bar, back, chips, _strip = None, None, (), None  # the pill it hangs under, the blurred screen behind it, the links under a reply, the sweep's light
+class Card:
+    """The card's content and what a click on it does. The bar (core/bar.py) draws it, in its own window, inside the
+    glass it grows into. `size` is the card's size in logical px; `frame()` its content for this moment, in image px."""
+    bar, visible, kind, telemetry, base = None, False, "info", "", None
+    size, buttons, chips, stop_box, _live = (WIDTH, CAPSULE), (), (), None, ()
 
     def __init__(self, root, on_allow, on_deny, on_open=None, hotkey="", position="bottom", on_ask=None):
-        target = self._init_surface(root, level=25)
-        self.logical = dpi_scale(root)  # screen pixels per design pixel (Windows display scaling)
-        self.scale = self.logical * self.px  # image pixels per design pixel (x2 more on a Retina Mac)
-        self.top = position == "top"
+        self.root = root
+        self.scale = dpi_scale(root)  # image px per logical px; the bar's (x2 on a Retina Mac) once it is set
         self.on_allow, self.on_deny, self.on_open, self.on_ask = on_allow, on_deny, on_open, on_ask
+        self.hotkey, self._hide_job = hotkey, None
         self._fonts()
-        self.hotkey, self.visible, self.base, self.buttons = hotkey, False, None, []
-        self._hide_job, self._tick_job, self.shown_at = None, None, 0.0
-        target.bind("<Button-1>", self._click)
-        target.bind("<Motion>", lambda e: target.config(cursor="hand2" if self._hit(e) or self.on_open else ""))
-        # Windows rejects every later paint (error 87) if a layered window is hidden before its first one
-        self._present(Image.new("RGBA", (1, 1)), 0, 0)
-        self.hide()
 
     def _fonts(self):
         px = lambda size: int(size * self.scale * SS)
-        self.f_title, self.f_body = _font(px(14.5), FONTS["semibold"]), _font(px(13.5), FONTS["regular"])
-        self.f_lead = _font(px(16.5), FONTS["regular"])  # the answer itself: the biggest thing on the card
-        self.f_small, self.f_mono = _font(px(12), FONTS["regular"]), _font(px(12), FONTS["mono"])
-        self.f_button, self.f_chip = _font(px(13), FONTS["semibold"]), _font(px(12.5), FONTS["regular"])
+        self.f_label, self.f_title, self.f_step = ui_font(px(12), 500), ui_font(px(13), 600), ui_font(px(13), 500)
+        self.f_body, self.f_quote, self.f_small = ui_font(px(13.5)), ui_font(px(12), italic=True), ui_font(px(11))
+        self.f_mono, self.f_kbd = mono_font(px(11)), mono_font(px(11))
+        self.f_button, self.f_link = ui_font(px(12.5), 600), ui_font(px(12), 500)
 
     def set_hotkey(self, hotkey):
         self.hotkey = hotkey
 
+    @property
+    def live(self):
+        return self.kind in LIVE
+
     def bottom(self):
-        """The screen y of the panel's bottom edge while a card hangs at the top of the screen, else 0 (nothing to avoid)."""
-        if not (self.top and self.visible and self.base):
+        """The screen y of the card's bottom edge while it is up at the top of the screen, else 0 (nothing to avoid)."""
+        bar = self.bar
+        if not (self.visible and bar is not None and bar.top):
             return 0
-        return int(self.y + self.base.height / self.px - SHADOW * self.logical)
+        return int(bar.anchor + self.size[1] * bar.scale)
 
     # ---------- content ----------
-    def show(self, title, body="", buttons=False, hide_after=None, kind=None, quote="", detail="", labels=None):
+    def show(self, title, body="", buttons=False, hide_after=None, kind=None, quote="", detail="", labels=None,
+             toast=False, keys=""):
+        """`toast`: one line, `body` beside the title and `keys` as a keycap. Title-only notices are toasts too."""
+        if self.bar is not None and self.bar.scale * self.bar.px != self.scale:
+            self.scale = self.bar.scale * self.bar.px
+            self._fonts()
         self.kind = kind or ("approval" if buttons else "info")
-        self._render(title, plain(body), buttons, quote, detail, labels)
-        left, top, right, bottom = system.work_area()
-        width, height, k = self._text.width / self.px, self._text.height / self.px, self.logical
-        self.x = int((left + right - width) / 2)
-        if self.top:  # under the notch, or just under the pill, which stays on screen above it
-            notch_h = system.notch()[1]
-            self.y = int(((notch_h + 50) * k if notch_h else top + (6 + CAPSULE + 8) * k) - SHADOW * k)
-        else:  # dock above the bar (its window is BOX tall), letting the shadow margin overlap it
-            self.y = int(bottom - (BOX[1] - 2 + 4) * k - height + SHADOW * k)
-        fresh = not self.visible
-        if fresh:
-            self.visible, self.shown_at = True, time.monotonic()
-            m = round(self.panel[0])  # the glass takes its backdrop from where the panel will be, before it is there
-            self.back = None if (not self.top or system.IS_MAC) else glass.backdrop(
-                (self.x + m, self.y + m, self.x + self.panel[2], self.y + m + BACK_H * k))
-        self.base = self._compose()
-        self._frame()
-        if fresh:
-            self._show()
-            if self.bar is not None:
-                self.bar.cover(True)  # the pill stays up (orb and Ask) while the card hangs under it
-        if not self._tick_job:
-            self._tick()
+        self._render(title, plain(body), buttons, quote, detail, labels, toast, keys)
+        self.visible = True
+        if self.bar is not None:
+            self.bar.attach(self)
         self.hide_later(hide_after)
 
-    def _render(self, title, body, buttons, quote, detail, labels=None):
-        """The card at rest as two layers, at 1x: its shadow, and its text and buttons. The glass goes between them
-        (_compose); the animated bits go on top per frame. A spoken answer leads with the answer, large, under the
-        question it answers; other cards lead with their title."""
-        T, s, kind = theme.T, self.scale * SS, self.kind
-        answer = kind in ("speaking", "reply")
-        inner = (WIDTH - 2 * PAD) * s
-        m = SHADOW * s
-        x0, right = m + PAD * s, m + (WIDTH - PAD) * s
-        heading = "" if answer and title == "Nova" else title  # "Nova" over Nova's own answer says nothing
-        title_font = self.f_chip if answer else self.f_title
-        head_w = 26 * s + (title_font.getlength(heading) if heading else 0)
+    def _render(self, title, body, buttons, quote, detail, labels=None, toast=False, keys=""):
+        """The card at rest, at 1x: text, marks and buttons on transparent (the bar puts the glass under it). What
+        moves (the sweep of light, the voice wave) is drawn per frame, from `_live`."""
+        self.buttons, self.chips, self.stop_box, self._live = [], [], None, []
+        if toast or not (body or detail or buttons or self.kind in LIVE):
+            return self._toast(title, body or (f"“{quote.strip()}”" if quote else ""), keys)
+        if self.kind == "thinking":
+            return self._thinking(title, quote, detail)
+        if self.kind in ("speaking", "reply"):
+            return self._answer(title, body, quote)
+        return self._notice(title, body, buttons, detail, labels)
 
-        # the question, as a bubble at the top right like a message you sent: on the title row when it fits
-        bubble, bubble_row = None, False
-        if quote:
-            room = inner - head_w - 16 * s
-            bubble_row = room >= 150 * s
-            width = (room if bubble_row else inner * 0.8) - 24 * s
-            bubble = wrap(quote.strip(), self.f_chip, width, 1 if bubble_row or answer else 2)[0]
-        caps, hint = self._hint_parts()
-        hint_row = bool(caps or hint) and not bubble_row  # else the hint goes under the card's content
+    def _canvas(self, width, height):
+        s = self.scale * SS
+        img = Image.new("RGBA", (round(width * s), round(height * s)))
+        return img, ImageDraw.Draw(img), s
 
-        blocks = []  # (kind, lines, font, colour, line height)
-        if bubble and not bubble_row:
-            blocks.append(("bubble", bubble, self.f_chip, T["ink"], 18 * s))
-        body_cut = False
-        if body:
-            font, lh, n = (self.f_lead, 24 * s, 6) if answer else (self.f_body, 20 * s, 7)
-            lines, body_cut = wrap(body, font, inner, n)
-            blocks.append(("text", lines, font, T["text"] if answer else T["body"], lh))
-        if detail:
-            lines, _ = wrap(detail, self.f_mono, inner - 20 * s, 3 if buttons else 1)
-            blocks.append(("mono", lines, self.f_mono, T["text"] if buttons else T["faint"], 18 * s))
-        links = [(label, icon, action) for label, icon, action in (("Ask more", "spark", self.on_ask), ("Open in Nova", "arrow", self.on_open))
-                 if action] if kind == "reply" else []
-        if body_cut and not links:
-            blocks.append(("text", ["Click to see the full reply in Nova"], self.f_small, T["light"], 18 * s))
-        heights = [len(lines) * lh + (6 * s if b == "bubble" else 8 * s if b == "mono" and buttons else 0)
-                   for b, lines, _, _, lh in blocks]
-        gap = 10 * s
-        footer = 44 * s if buttons else 42 * s if links else 30 * s if (caps or hint) and not hint_row else 0
-        height = PAD * s + 24 * s + sum(h + gap for h in heights) + footer + PAD * s
-        W, H = int(WIDTH * s + 2 * m), int(height + 2 * m)
+    def _done(self, img, width, height):
+        self.size = (width, height)
+        self.base = img.reduce(SS)
 
-        img = Image.new("RGBA", (W, H))  # text and buttons only: the shadow and the glass are other layers
-        d = ImageDraw.Draw(img)
-        cy = m + PAD * s + 12 * s
-        if heading:
-            d.text((x0 + 26 * s, cy), heading, font=title_font, fill=(T["muted"] if answer else T["text"]) + (255,), anchor="lm")
-        if bubble_row:
-            self._bubble(d, right, cy - 12 * s, bubble, s)
-        elif hint_row:
-            self._hint(d, right, cy, s, caps, hint)
-        y = m + PAD * s + 24 * s
-        for (b, lines, font, color, lh), block_h in zip(blocks, heights):
-            y += gap
-            if b == "bubble":
-                self._bubble(d, right, y, lines, s)
-            else:
-                ix = x0
-                if b == "mono" and buttons:  # the command waiting for an OK sits in its own well
-                    d.rounded_rectangle((x0, y, right, y + block_h), 10 * s, fill=(0, 0, 0, 90),
-                                        outline=(255, 255, 255, 28), width=max(1, round(s)))
-                    ix += 10 * s
-                top = y + (4 * s if b == "mono" and buttons else 0)
-                for i, line in enumerate(lines):
-                    d.text((ix, top + i * lh), line, font=font, fill=color + (255,))
-            y += block_h
-        self.buttons, self.chips = [], []
-        if buttons:
-            y += 10 * s
-            bx = x0
-            yes, no = labels or (f"Allow   {self.hotkey}" if self.hotkey else "Allow", "Deny   Esc")
-            for n, (label, action) in enumerate(((yes, self.on_allow), (no, self.on_deny))):
-                bw = self.f_button.getlength(label) + 30 * s
-                box = (bx, y, bx + bw, y + 34 * s)
-                if n:
-                    self._chip_well(d, box, s)
-                else:
-                    d.rounded_rectangle(box, 17 * s, fill=T["accent"] + (255,), outline=(255, 255, 255, 55), width=max(1, round(s)))
-                d.text((bx + bw / 2, y + 17 * s), label, font=self.f_button, fill=(T["text"] if n else T["ink"]) + (255,), anchor="mm")
-                self.buttons.append((tuple(v / SS for v in box), action))
-                bx += bw + 10 * s
-        elif links:  # "Ask more", "Open in Nova": glass chips under the answer
-            y += 12 * s
-            cx = x0
+    def _toast(self, title, sub, keys):
+        """One line, as tall as the pill: the mark, the title, a quiet detail beside it and, maybe, a key."""
+        s = self.scale * SS
+        sep = "  ·  "
+        kw = (self.f_kbd.getlength(keys) / s + 12 + 14) if keys else 0
+        fixed = PX + MARK_W * .9 + 10 + self.f_label.getlength(title) / s + kw + PX
+        if sub:
+            sub = fit(sub, self.f_label, (TOAST_MAX - fixed) * s - self.f_label.getlength(sep))
+        width = max(168, round(fixed + (self.f_label.getlength(sep + sub) / s if sub else 0)))
+        img, d, s = self._canvas(width, CAPSULE)
+        cy, x = CAPSULE / 2 * s, PX * s
+        error = self.kind == "error"
+        x += mark(d, x, cy, s, .9, [RED] * 5 if error else None) + 10 * s
+        d.text((x, cy), title, font=self.f_label, fill=(255, 255, 255, W95), anchor="lm")
+        x += self.f_label.getlength(title)
+        if sub:
+            d.text((x, cy), sep, font=self.f_label, fill=(255, 255, 255, W20), anchor="lm")
+            x += self.f_label.getlength(sep)
+            d.text((x, cy), sub, font=self.f_label, fill=(255, 255, 255, W50), anchor="lm")
+        if keys:
+            keycap(d, (width - PX) * s, cy, s, keys, self.f_kbd)
+        self.kind = "error" if error else "toast"
+        self._done(img, width, CAPSULE)
+
+    def _thinking(self, title, quote, detail):
+        """The question, quiet, over what Nova is doing: that line has light sweeping across it."""
+        row1 = bool(quote)
+        height = PY + (20 + 10 + 1 + 10 if row1 else 0) + 22 + PY
+        img, d, s = self._canvas(WIDTH, height)
+        right, y = (WIDTH - PX) * s, PY * s
+        if row1:
+            cy = y + 10 * s
+            mic(d, (PX + 7) * s, cy, s, (255, 255, 255, W40))
+            d.text(((PX + 22) * s, cy), fit(f"“{quote.strip()}”", self.f_quote, right - (PX + 22 + 30) * s),
+                   font=self.f_quote, fill=(255, 255, 255, W50), anchor="lm")
+            self._stop(d, right - 10 * s, cy, s)
+            y += 30 * s
+            d.line((PX * s, y, right, y), fill=(255, 255, 255, W06), width=max(1, round(s)))
+            y += 11 * s
+        cy = y + 11 * s
+        x = PX * s + mark(d, PX * s, cy, s, .9) + 10 * s
+        left = right
+        if not row1:  # no question row for the stop button: it ends this one
+            self._stop(d, right - 10 * s, cy, s)
+            left -= 30 * s
+        caps = "+".join(c for c in self.hotkey.split("+") if c)
+        if caps:  # Esc doesn't stop a request at work (it may be meant for another app): the shortcut does
+            d.text((left, cy), "to stop", font=self.f_small, fill=(255, 255, 255, W50), anchor="rm")
+            left = keycap(d, left - self.f_small.getlength("to stop") - 6 * s, cy, s, caps, self.f_kbd) - 12 * s
+        step = detail or (title if title.endswith(("…", "...")) else f"{title}…")
+        self._live.append(("shimmer", x / SS, cy / SS, fit(step, self.f_step, left - x)))
+        self._done(img, WIDTH, height)
+
+    def _answer(self, title, body, quote):
+        """Nova's answer in crisp white, the question quiet above it, the voice wave while it talks."""
+        speaking = self.kind == "speaking"
+        lead = f"“{quote.strip()}”" if quote else ("" if title == "Nova" else title)
+        lines, cut = wrap(body, self.f_body, (WIDTH - 2 * PX) * self.scale * SS, 6) if body else ([], False)
+        links = [(label, icon, action) for label, icon, action in (("Ask more", "spark", self.on_ask),
+                 ("Open in Nova", "arrow", self.on_open)) if action] if self.kind == "reply" else []
+        more, foot, lh = cut and not links, bool(self.telemetry or speaking), 21.6
+        height = round(PY + 20 + 10 + 1 + 8 + len(lines) * lh + (18 if more else 0) + (34 if links else 0)
+                       + (26 if foot else 0) + PY)
+        img, d, s = self._canvas(WIDTH, height)
+        right, y = (WIDTH - PX) * s, PY * s
+        cy = y + 10 * s
+        x = PX * s + mark(d, PX * s, cy, s, .75) + 8 * s
+        end = right
+        if speaking:
+            self._stop(d, right - 10 * s, cy, s)
+            self._live.append(("wave", (right - 28 * s - 19 * s) / SS, cy / SS))
+            end -= 56 * s
+        if lead:
+            d.text((x, cy), fit(lead, self.f_label, end - x), font=self.f_label, fill=(255, 255, 255, W50), anchor="lm")
+        y += 30 * s
+        d.line((PX * s, y, right, y), fill=(255, 255, 255, W06), width=max(1, round(s)))
+        y += 9 * s
+        for line in lines:
+            d.text((PX * s, y + lh * s / 2), line, font=self.f_body, fill=(255, 255, 255, W95), anchor="lm")
+            y += lh * s
+        if more:
+            d.text((PX * s, y + 9 * s), "Click to see the full reply in Nova", font=self.f_small,
+                   fill=theme.T["light"] + (255,), anchor="lm")
+            y += 18 * s
+        if links:  # "Ask more", "Open in Nova": quiet text buttons under the answer
+            y += 8 * s
+            cx = PX * s
             for label, icon, action in links:
-                cw = 33 * s + self.f_chip.getlength(label) + 14 * s
-                box = (cx, y, cx + cw, y + 30 * s)
-                self._chip_well(d, box, s)
-                ic, mid = cx + 19 * s, y + 15 * s
+                cw = 32 * s + self.f_link.getlength(label)
+                box = (cx, y, cx + cw, y + 26 * s)
+                d.rounded_rectangle(box, 13 * s, fill=(255, 255, 255, 12), outline=(255, 255, 255, 22), width=max(1, round(s)))
+                ic, mid = cx + 14 * s, y + 13 * s
                 if icon == "spark":
-                    Bar._sparkle(d, ic, mid, 7 * s, T["light"])
+                    Bar._sparkle(d, ic, mid, 6 * s, theme.T["accent"])
                 else:
-                    wd = max(1, round(1.7 * s))
-                    d.line((ic - 4.5 * s, mid + 4.5 * s, ic + 4.5 * s, mid - 4.5 * s), fill=T["light"] + (255,), width=wd)
-                    d.line((ic - 1.5 * s, mid - 4.5 * s, ic + 4.5 * s, mid - 4.5 * s, ic + 4.5 * s, mid + 1.5 * s), fill=T["light"] + (255,), width=wd)
-                d.text((cx + 33 * s, mid), label, font=self.f_chip, fill=T["text"] + (255,), anchor="lm")
+                    wd, c = max(1, round(1.5 * s)), (255, 255, 255, W70)
+                    d.line((ic - 3.5 * s, mid + 3.5 * s, ic + 3.5 * s, mid - 3.5 * s), fill=c, width=wd)
+                    d.line((ic - 1 * s, mid - 3.5 * s, ic + 3.5 * s, mid - 3.5 * s, ic + 3.5 * s, mid + 1 * s), fill=c, width=wd)
+                d.text((cx + 25 * s, mid), label, font=self.f_link, fill=(255, 255, 255, W80), anchor="lm")
                 self.chips.append((tuple(v / SS for v in box), action))
                 cx += cw + 8 * s
-        elif footer:  # what stops Nova, under the answer
-            self._hint(d, right, y + 6 * s + 15 * s, s, caps, hint)
-        self.icon_at = ((x0 + 9 * s) / SS, cy / SS)
-        self.panel = (m / SS, m / SS, (W - m) / SS)
-        self._strip = None  # the sweep's light is in the theme's colour
-        self._shadow_img = _shadow(W, H, m, s)
-        self._text = img.resize((W // SS, H // SS), Image.LANCZOS)
+            y += 26 * s
+        if foot:  # what Nova runs on, and how to stop it talking
+            fy = y + 17 * s
+            if self.telemetry:
+                d.text((PX * s, fy), self.telemetry.upper(), font=self.f_mono, fill=(255, 255, 255, W50), anchor="lm")
+            if speaking:
+                d.text((right, fy), "to stop", font=self.f_small, fill=(255, 255, 255, W50), anchor="rm")
+                keycap(d, right - self.f_small.getlength("to stop") - 6 * s, fy, s, "Esc", self.f_kbd)
+        self._done(img, WIDTH, height)
 
-    def _bubble(self, d, right, y, lines, s):
-        """What Nova heard, right-aligned in the accent, like a message you sent."""
-        T, font, lh = theme.T, self.f_chip, 18 * s
-        width = max(font.getlength(line) for line in lines) + 24 * s
-        y1 = y + len(lines) * lh + 6 * s
-        d.rounded_rectangle((right - width, y, right, y1), min(12 * s, (y1 - y) / 2), fill=T["accent"] + (255,))
-        for i, line in enumerate(lines):
-            d.text((right - width + 12 * s, y + 3 * s + lh / 2 + i * lh), line, font=font, fill=T["ink"] + (255,), anchor="lm")
+    def _notice(self, title, body, buttons, detail, labels):
+        """A titled card: approvals (amber, with Allow / Deny), errors (a red dot) and everything else (the mark)."""
+        approval, error = self.kind == "approval", self.kind == "error"
+        inner = (WIDTH - 2 * PX) * self.scale * SS
+        lines, cut = wrap(body, self.f_body, inner, 7) if body else ([], False)
+        dlines = wrap(detail, self.f_mono, inner - 20 * self.scale * SS, 3 if buttons else 1)[0] if detail else []
+        more, lh, mh = cut and not buttons, 20, 17
+        rule = bool(lines or dlines or buttons)
+        height = (PY + 20 + (20 if rule else 0) + len(lines) * lh
+                  + (((10 if lines else 0) + len(dlines) * mh + (12 if buttons else 0)) if dlines else 0)
+                  + (18 if more else 0) + (46 if buttons else 0) + PY)
+        img, d, s = self._canvas(WIDTH, height)
+        right, y = (WIDTH - PX) * s, PY * s
+        cy = y + 10 * s
+        if approval or error:  # amber and red say something: they stay dots
+            r = 4 * s
+            d.ellipse((PX * s + 2 * s, cy - r, PX * s + 2 * s + 2 * r, cy + r), fill=(AMBER if approval else RED) + (255,))
+            x = (PX + 18) * s
+        else:
+            x = PX * s + mark(d, PX * s, cy, s, .9) + 10 * s
+        hint = "or say “allow” / “deny”" if approval else ""
+        room = right - x
+        if hint:
+            d.text((right, cy), hint, font=self.f_small, fill=(255, 255, 255, W50), anchor="rm")
+            room -= self.f_small.getlength(hint) + 12 * s
+        d.text((x, cy), fit(title, self.f_title, room), font=self.f_title,
+               fill=AMBER + (255,) if approval else (255, 255, 255, W95), anchor="lm")
+        y += 20 * s
+        if rule:
+            y += 10 * s
+            d.line((PX * s, y, right, y), fill=(255, 255, 255, W06), width=max(1, round(s)))
+            y += 10 * s
+        for line in lines:
+            d.text((PX * s, y + lh * s / 2), line, font=self.f_body, fill=(255, 255, 255, W85), anchor="lm")
+            y += lh * s
+        if dlines:
+            y += (10 if lines else 0) * s
+            ix = PX * s
+            if buttons:  # the command waiting for an OK sits in its own quiet well
+                d.rounded_rectangle((PX * s, y, right, y + (len(dlines) * mh + 12) * s), 8 * s, fill=(0, 0, 0, 70),
+                                    outline=(255, 255, 255, 18), width=max(1, round(s)))
+                ix += 10 * s
+                y += 6 * s
+            for line in dlines:
+                d.text((ix, y + mh * s / 2), line, font=self.f_mono, fill=(255, 255, 255, W80 if buttons else W50), anchor="lm")
+                y += mh * s
+            y += (6 if buttons else 0) * s
+        if more:
+            d.text((PX * s, y + 9 * s), "Click to see the full reply in Nova", font=self.f_small,
+                   fill=theme.T["light"] + (255,), anchor="lm")
+            y += 18 * s
+        if buttons:
+            y += 14 * s
+            bx = PX * s
+            yes, no = labels or (f"Allow   {self.hotkey}" if self.hotkey else "Allow", "Deny   Esc")
+            for n, (label, action) in enumerate(((yes, self.on_allow), (no, self.on_deny))):
+                bw = self.f_button.getlength(label) + 28 * s
+                box = (bx, y, bx + bw, y + 32 * s)
+                if n:
+                    d.rounded_rectangle(box, 16 * s, fill=(255, 255, 255, W06), outline=(255, 255, 255, 26), width=max(1, round(s)))
+                else:  # the one solid fill left in the HUD
+                    d.rounded_rectangle(box, 16 * s, fill=theme.T["accent"] + (255,))
+                d.text((bx + bw / 2, y + 16 * s), label, font=self.f_button,
+                       fill=(255, 255, 255, W85) if n else theme.T["ink"] + (255,), anchor="mm")
+                self.buttons.append((tuple(v / SS for v in box), action))
+                bx += bw + 8 * s
+        self._done(img, WIDTH, height)
 
-    @staticmethod
-    def _chip_well(d, box, s):
-        """A lighter pocket of the glass: Deny, and the links under an answer."""
-        light = theme.T["light"]
-        d.rounded_rectangle(box, (box[3] - box[1]) / 2, fill=light + (30,), outline=light + (76,), width=max(1, round(s)))
+    def _stop(self, d, cx, cy, s):
+        """A stop square with no frame around it; a click on (or near) it stops Nova."""
+        stop_square(d, cx, cy, s, 4 * s)
+        r = 13 * s
+        self.stop_box = ((cx - r) / SS, (cy - r) / SS, (cx + r) / SS, (cy + r) / SS)
 
-    def _hint_parts(self):
-        """What stops Nova: (keys, words)."""
-        if self.kind == "speaking":
-            return ["Esc"], "to stop"
-        if self.kind == "thinking" and self.hotkey:  # Esc doesn't stop a request at work (it may be meant for another app)
-            return [c for c in self.hotkey.split("+") if c], "to stop"
-        if self.kind == "approval":
-            return [], "or say “allow” / “deny”"
-        return [], ""
-
-    def _hint(self, d, right, cy, s, caps, text):
-        """Keys as little keycaps, then what they do, ending at `right`."""
-        T = theme.T
-        if text:
-            d.text((right, cy), text, font=self.f_small, fill=T["muted"] + (255,), anchor="rm")
-            right -= self.f_small.getlength(text) + 8 * s
-        for cap in reversed(caps):
-            w = max(20 * s, self.f_small.getlength(cap) + 12 * s)
-            d.rounded_rectangle((right - w, cy - 10 * s, right, cy + 10 * s), 6 * s, fill=T["light"] + (26,),
-                                outline=T["light"] + (76,), width=max(1, round(s)))
-            d.text((right - w / 2, cy), cap, font=self.f_small, fill=T["muted"] + (255,), anchor="mm")
-            right -= w + 4 * s
-
-    def _compose(self):
-        """Shadow, then the glass (with the screen behind it, if it was grabbed), then the text."""
-        T, (W, H), m = theme.T, self._text.size, round(self.panel[0])
-        pw, ph = W - 2 * m, H - 2 * m
-        back = self.back.crop((0, 0, pw, ph)) if self.back and self.back.width >= pw and self.back.height >= ph else None
-        out = self._shadow_img.copy()
-        out.alpha_composite(glass.pane(pw, ph, round(RADIUS * self.scale), T["tint"], T["accent"], back), (m, m))
-        out.alpha_composite(self._text)
-        return out
-
-    # ---------- animation ----------
-    def _frame(self):
-        t = time.monotonic()
-        img = self.base.copy()
-        self._icon(img, t)
-        if self.kind == "thinking":
-            self._sweep(img, t)
-        fade = 1.0 if system.reduced_motion() else min(1.0, (t - self.shown_at) / 0.18)
-        rise = int((1 - fade) ** 3 * 10 * self.logical) * (-1 if self.top else 1)  # drops into place as it fades in
-        self._present(img, self.x, self.y + rise, int(255 * (1 - (1 - fade) ** 3)))
-
-    def _icon(self, img, t):
-        """A 20 px status mark beside the title, drawn small at 4x for smooth edges."""
-        size, k = int(20 * self.scale), 4
-        sprite = Image.new("RGBA", (size * k, size * k))
-        d = ImageDraw.Draw(sprite)
-        T = theme.T
-        c, color = size * k / 2, {"thinking": T["light"], "speaking": T["text"], "approval": AMBER, "error": RED}.get(self.kind, T["accent"])
-        if self.kind == "thinking":
-            for i in range(3):
-                a = 0.5 + 0.5 * math.sin(t * 6 - i * 0.9)
-                r, x = (1.6 + 1.1 * a) * self.scale * k, c + (i - 1) * 6 * self.scale * k
-                d.ellipse((x - r, c - r, x + r, c + r), fill=color + (int(110 + 145 * a),))
-        elif self.kind == "speaking":
-            bw = 2.2 * self.scale * k
-            for i in range(4):
-                hh = (0.3 + 0.7 * abs(math.sin(t * 5 + i * 0.9))) * 14 * self.scale * k
-                x = c + (i - 1.5) * 4.4 * self.scale * k
-                d.rounded_rectangle((x - bw / 2, c - hh / 2, x + bw / 2, c + hh / 2), bw / 2, fill=color + (255,))
-        elif self.kind in ("approval", "error"):  # amber and red say something: they stay dots
-            r = 4.5 * self.scale * k
-            d.ellipse((c - r, c - r, c + r, c + r), fill=color + (255,))
-        else:  # Nova's own mark, as in the tray
-            mark = _logo(size)
-            img.alpha_composite(mark, (int(self.icon_at[0] - size / 2), int(self.icon_at[1] - size / 2)))
-            return
-        sprite = sprite.resize((size, size), Image.LANCZOS)
-        img.alpha_composite(sprite, (int(self.icon_at[0] - size / 2), int(self.icon_at[1] - size / 2)))
-
-    def _sweep(self, img, t):
-        """While thinking, a soft violet light travels along the card's top edge."""
-        left, top, right = self.panel
-        span, glow = right - left - 2 * RADIUS * self.scale, int(90 * self.scale)
-        x = left + RADIUS * self.scale + (t * 0.55 % 1.0) * span - glow / 2
-        if self._strip is None:  # built once: a short line that fades in and out
-            self._strip = Image.new("RGBA", (glow, max(2, int(2 * self.scale))))
-            for i in range(glow):
-                self._strip.paste(theme.T["accent"] + (int(230 * math.sin(math.pi * i / glow) ** 2),), (i, 0, i + 1, self._strip.height))
-        img.alpha_composite(self._strip, (int(x), int(top)))
-
-    def _tick(self):
-        self._tick_job = None
-        if not self.visible:
-            return
-        entering = time.monotonic() - self.shown_at < 0.2
-        if entering or self.kind in ("thinking", "speaking", "approval"):
-            self._frame()
-        self._tick_job = self.win.after(16 if entering else 33, self._tick)
+    # ---------- each frame ----------
+    def frame(self, t=None):
+        """The content for this moment: the card at rest, with what moves drawn on it."""
+        if not self._live:
+            return self.base
+        t = time.monotonic() if t is None else t
+        still = system.reduced_motion()
+        img, k = self.base.copy(), self.scale
+        for item in self._live:
+            if item[0] == "shimmer":
+                shimmer(img, item[1], item[2], item[3], self.f_step, SS, t, still)
+            else:  # the voice, as four bars
+                heights = [(0.5 if still else 0.3 + 0.7 * abs(math.sin(t * 5 + i * 0.9))) * 12 * k for i in range(4)]
+                wave(img, item[1], item[2], heights, 2.5 * k, 3 * k, theme.T["accent"])
+        return img
 
     # ---------- input and lifetime ----------
     def _hit(self, event):
-        """The button or link under the pointer: its action, or None."""
+        """The button or link under the pointer: its action, or None. `event.x/.y` in the content's pixels."""
         pad = 6 * self.scale  # a little forgiving around each one's edge
         return next((action for (x0, y0, x1, y1), action in (*self.buttons, *self.chips)
                      if x0 - pad <= event.x <= x1 + pad and y0 - pad <= event.y <= y1 + pad), None)
 
-    def _click(self, event):
+    def click(self, event):
         action = self._hit(event)
         if action:
             return action()
+        box = self.stop_box
+        if box and box[0] <= event.x <= box[2] and box[1] <= event.y <= box[3] and self.bar is not None:
+            return self.bar.on_click()  # while Nova works, the bar's click stops it
         if self.buttons:  # a click beside Allow / Deny is a near miss, not "open the window"
             return
         if self.on_open:
@@ -371,13 +359,12 @@ class Card(Layered):
 
     def hide_later(self, seconds):
         if self._hide_job:
-            self.win.after_cancel(self._hide_job)
+            self.root.after_cancel(self._hide_job)
             self._hide_job = None
         if seconds:
-            self._hide_job = self.win.after(int(seconds * 1000), self.hide)
+            self._hide_job = self.root.after(int(seconds * 1000), self.hide)
 
     def hide(self):
         if self.visible and self.bar is not None:
-            self.bar.cover(False)
-        self.visible, self.back = False, None
-        self._hide()
+            self.bar.attach(None)  # the glass shrinks back into the pill
+        self.visible = False

@@ -1,14 +1,18 @@
 """The one colour of Nova's bar and card: Settings -> Colour & cursor (companion.color), worked out the way the window's
-`themeTokens` (core/app.html) does it, so the bar, the card and the window are always the same colour. "nova" (or no
-colour) keeps Nova's own violet on navy. `T` holds the current tokens as RGB tuples; apply() swaps them."""
+`themeTokens` (core/app.html) does it, so the bar, the card and the window are always the same colour. The glass itself
+is neutral obsidian whatever the pick; the colour is the accent (fills, the sparkle, waveforms, a soft glow) and the
+five bars of Nova's mark. `T` holds the current tokens as RGB tuples; apply() swaps them."""
 import colorsys
 
 VIOLET, INK = (123, 109, 255), (11, 13, 26)
-# Nova's own: indigo glass with the violet as its one voice. Fills are Signal Violet (#6d5ff7), not the brand #7b6dff,
-# so white lettering on them reaches 4.5:1; the text tints come from the violet, not from grey.
-NOVA = {"accent": (109, 95, 247), "ink": (255, 255, 255), "light": (190, 182, 255), "tint": (17, 14, 42), "raised": (44, 38, 86),
-        "text": (244, 242, 255), "body": (222, 219, 246), "muted": (184, 179, 226), "faint": (158, 152, 208)}
+GLASS = (12, 13, 18)  # the HUD's obsidian, for every pick
+# Nova's own: neutral glass with the violet as its one voice. Fills are Signal Violet (#6d5ff7), not the brand #7b6dff,
+# so white lettering on them reaches 4.5:1.
+NOVA = {"accent": (109, 95, 247), "ink": (255, 255, 255), "light": (190, 182, 255), "tint": GLASS, "raised": (40, 41, 48),
+        "text": (244, 244, 246), "body": (222, 223, 228), "muted": (172, 174, 182), "faint": (156, 158, 166)}
 T = dict(NOVA)  # what the bar and card draw with right now
+MARK = [(99, 102, 241), (56, 189, 248), (45, 212, 191), (168, 85, 247), (236, 72, 153)]  # Nova's own five bars
+PICK = [None]  # the picked (r, g, b), or None for Nova's own
 
 
 def _hls(h, s, light):
@@ -37,7 +41,7 @@ def tokens(color):
     light, d = (mx + mn) / 2, mx - mn
     sat = d / (1 - abs(2 * light - 1)) if d else 0
     hue = (round(60 * (((g - b) / d + 6) % 6 if mx == r else (b - r) / d + 2 if mx == g else (r - g) / d + 4)) if d else 0)
-    k = min(1.0, sat / .5)  # how much of the colour goes into the dark surfaces
+    k = 0  # the surfaces stay neutral: the colour is the accent, not the glass
     surface = _hls(hue, .36 * k, .096)
     fs, f0 = (max(.5, sat * .9) if sat else 0), min(.62, max(.45, light))
     fl, on_white = f0, light < .8
@@ -52,10 +56,18 @@ def tokens(color):
     while ratio(_hls(hue, ts, tl), surface) < 7 and tl < .95:
         tl += .01
     return {"accent": _hls(hue, fs, fl), "ink": (255, 255, 255) if on_white else INK, "light": _hls(hue, ts, tl),
-            "tint": _hls(hue, .36 * k, .06), "raised": _hls(hue, .36 * k, .15), "text": _hls(hue, k, .95),
+            "tint": GLASS, "raised": _hls(hue, .36 * k, .15), "text": _hls(hue, k, .95),
             "body": _hls(hue, .6 * k, .86), "muted": _hls(hue, .33 * k, .72), "faint": _hls(hue, .28 * k, .65)}
 
 
 def apply(color):
     T.clear()
     T.update(tokens(color))
+    PICK[0] = color or None
+
+
+def marks():
+    """The colours of the mark's five bars: Nova's own, or shades of the picked colour (as the cursor's mark does)."""
+    if not PICK[0]:
+        return list(MARK)
+    return [tuple(min(255, round(c + (255 - c) * lift)) for c in PICK[0]) for lift in (0.0, 0.1, 0.2, 0.1, 0.0)]

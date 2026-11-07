@@ -5493,8 +5493,9 @@ _old = _np.dstack((_rgb[..., 2], _rgb[..., 1], _rgb[..., 0], _px[..., 3])).astyp
 _new = _np.frombuffer(_img.tobytes("raw", "BGRa"), _np.uint8).reshape(_old.shape)
 assert int(_np.abs(_old.astype(int) - _new.astype(int)).max()) <= 1
 
-# the card's blurred shadow is made once per size
-assert overlay_mod._shadow(100, 60, 10, 2) is overlay_mod._shadow(100, 60, 10, 2)
+# the glass's blurred shadow and glow are made once per size
+import core.bar as _barmod
+assert _barmod._halo(148, 90, 24, 100, 42, 21, (1, 2, 3)) is _barmod._halo(148, 90, 24, 100, 42, 21, (1, 2, 3))
 
 # the project list is read again only when a CLI's file changes (or half a minute passes)
 reads = []
@@ -6885,7 +6886,7 @@ assert now_closed == [None] * phone_mod.MAX_UNPAIRED + [1013] * (6 - phone_mod.M
 assert end_closed[:4] == [4001] * 4 and left == 0, (end_closed, left)  # the four wrong keys are turned away; the count is back to 0
 
 # the bar sits at the top and stays out of sight until the pointer rests at the top edge (Phase 1 of the island redesign)
-from core.bar import Bar as _Bar, Reveal as _Reveal, visible as _visible
+from core.bar import Bar as _Bar, Reveal as _Reveal, visible as _visible, CAPSULE as _CAPSULE
 _defaults = json.loads(Path("config.default.json").read_text(encoding="utf-8"))["overlay"]
 assert _defaults["position"] == "top" and _defaults["reveal"] == "hover", _defaults
 _clock, _zone, _keep = [0.0], (100, 0, 500, 2), (100, 0, 500, 60)
@@ -6909,7 +6910,7 @@ assert _visible("idle", False, "peek", "hover", True) and _visible("idle", False
 assert all(_visible(s, False, "hidden", "hover", True) for s in ("listening", "thinking", "speaking", "approval"))  # working: always shown
 assert _visible("idle", False, "hidden", "always", True) and _visible("idle", False, "hidden", "hover", False)  # always; and the bottom bar
 assert _visible("idle", False, "open", "shortcut", True) is False and _visible("thinking", False, "hidden", "shortcut", True)
-assert _visible("idle", True, "hidden", "hover", True) and _visible("idle", True, "hidden", "shortcut", True)  # a card under it keeps it up
+assert _visible("idle", True, "hidden", "hover", True) and _visible("idle", True, "hidden", "shortcut", True)  # a card keeps it up
 _calls = []
 _b = object.__new__(_Bar)
 _b.top, _b.state, _b.stage, _b.reveal, _b.dirty = True, "idle", "hidden", "hover", False
@@ -6943,24 +6944,25 @@ for _hex in ("#ffd400", "#ffffff", "#2f7bff", "#ff3b30", "#808080", "#00c853", "
     assert _theme.ratio(_tk["ink"], _tk["accent"]) >= 4.5, (_hex, _tk)                         # lettering on the accent button stays legible
     assert _theme.ratio(_tk["light"], _tk["tint"]) >= 7 and sum(_tk["tint"]) < 220, (_hex, _tk)  # light marks read on the dark glass
 assert _theme.tokens(_rgb("#ffd400"))["ink"] == _theme.INK and _theme.tokens(_rgb("#2f7bff"))["ink"] == (255, 255, 255)  # near-black on yellow, white on blue
-assert _theme.tokens(_rgb("#808080"))["tint"][0] == _theme.tokens(_rgb("#808080"))["tint"][2]  # a grey pick gives neutral glass
+assert all(_theme.tokens(_rgb(_h))["tint"] == _theme.GLASS for _h in ("#808080", "#ff3b30", "#2f7bff"))  # the glass is obsidian for every pick
+assert _theme.marks() == _theme.MARK                                                          # Nova's own five bars
 _theme.apply(_rgb("#2f7bff"))
 assert _theme.T["accent"] == _theme.tokens(_rgb("#2f7bff"))["accent"] != _theme.NOVA["accent"]
+assert _theme.marks()[0] == (47, 123, 255) and len(set(_theme.marks())) == 3                   # a pick: shades of it
 _theme.apply(None)
-assert _theme.T == _theme.NOVA                                                                # back to Nova's own violet
+assert _theme.T == _theme.NOVA and _theme.marks() == _theme.MARK                              # back to Nova's own
 _pane = _glass.pane(200, 60, 30, _theme.T["tint"], _theme.T["accent"])
 assert _pane.size == (200, 60) and _pane.getpixel((0, 0))[3] < 40 and _pane.getpixel((100, 30))[3] >= 200  # rounded; solid in the middle
 _red = _glass.pane(200, 60, 30, _theme.T["tint"], _theme.T["accent"], back=Image.new("RGB", (200, 60), (255, 0, 0)))
 assert _red.getpixel((100, 30))[0] > _pane.getpixel((100, 30))[0] + 20                       # the screen behind it comes through the glass
 assert _glass.pane(3, 3, 9, _theme.T["tint"], _theme.T["accent"]).size == (6, 6)             # a degenerate size still makes a pane
 assert _glass.backdrop((10, 10, 10, 40)) is None                                              # nothing to grab: plain glass
-_b2 = object.__new__(_Bar)                                                                    # the orb opens Nova; the rest of the capsule is the shortcut
-_b2.w, _b2.scale, _b2.px, _clicks = 125.0, 1.25, 1, []
-_b2.on_menu, _b2.on_click, _b2._parts = (lambda: _clicks.append("menu")), (lambda: _clicks.append("click")), (lambda: {"btn": 80})
-_b2._clicked(types.SimpleNamespace(x=120)); _b2._clicked(types.SimpleNamespace(x=250))
-_b2._parts = lambda: None
-_b2._clicked(types.SimpleNamespace(x=120))                                                    # the quiet standby pill has no orb: a click is a click
-assert _clicks == ["menu", "click", "click"], _clicks
+_b2 = object.__new__(_Bar)                                                                    # the mark opens Nova; the rest of the pill is the shortcut
+_b2.scale, _b2.px, _b2.top, _b2.notch, _clicks = 1.25, 1, True, (0, 0), []
+_b2.on_menu, _b2.on_click = (lambda: _clicks.append("menu")), (lambda: _clicks.append("click"))
+_b2._clicked(types.SimpleNamespace(x=(24 + 20) * 1.25)); _b2._clicked(types.SimpleNamespace(x=(24 + 120) * 1.25))
+assert _clicks == ["menu", "click"], _clicks
+import core.overlay as overlay_mod
 _cd = object.__new__(overlay_mod.Card)                                                        # links under a reply, and Allow / Deny, are hit by position
 _ran = []
 _cd.scale = 1.0
@@ -6968,6 +6970,9 @@ _cd.buttons, _cd.chips = [((100, 100, 140, 130), lambda: _ran.append("allow"))],
 _hit = lambda x, y: _cd._hit(types.SimpleNamespace(x=x, y=y))
 _hit(30, 20)(); _hit(120, 115)()
 assert _hit(70, 60) is None and _ran == ["ask", "allow"], _ran
+_b2.card, _b2._at = _cd, (24, 30)                                                              # on a card, a click goes to the card, where it was drawn
+_b2._clicked(types.SimpleNamespace(x=24 + 30, y=30 + 20))
+assert _ran == ["ask", "allow", "ask"] and _clicks == ["menu", "click"], (_ran, _clicks)
 
 from core.bar import spring as _spring
 for _fps in (30, 60, 144):                                                                    # the spring settles in about a quarter second at any frame rate
@@ -6979,26 +6984,54 @@ for _fps in (30, 60, 144):                                                      
         if _settled is None and abs(_x - 100) < 1:
             _settled = (_i + 1) / _fps
     assert _settled is not None and _settled < 0.4 and _peak < 108 and abs(_x - 100) < 0.01, (_fps, _settled, _peak, _x)
-import core.overlay as overlay_mod
-_cov = []
-_c = object.__new__(overlay_mod.Card)                                                         # the pill stays up while a card hangs under it
-_c.bar, _c.visible, _c._hide = types.SimpleNamespace(cover=_cov.append), True, (lambda: _cov.append("hidden"))
-_c.hide(); _c.hide()                                                                          # a second hide doesn't uncover the pill again
-assert not _c.visible and _cov == [False, "hidden", "hidden"], _cov
-# the answer card: the answer leads, the question sits at the top right, the links are chips that are hit where drawn
+_att = []
+_c = object.__new__(overlay_mod.Card)                                                         # the card is the bar's glass grown: hiding shrinks it back once
+_c.bar, _c.visible = types.SimpleNamespace(attach=_att.append), True
+_c.hide(); _c.hide()
+assert not _c.visible and _att == [None], _att
+# the card's content: the answer leads, the question above it, the links are hit where drawn; short notices are one line
+from PIL import Image as _Img
 _rc = object.__new__(overlay_mod.Card)
-_rc.scale, _rc.px, _rc.logical, _rc.hotkey, _rc.kind = 1.0, 1, 1.0, "Ctrl+Alt+Space", "reply"
+_rc.scale, _rc.hotkey, _rc.kind, _rc.telemetry, _rc.bar, _rc._hide_job = 1.0, "Ctrl+Alt+Space", "reply", "Claude Code · Voice GPU", None, None
 _rc.on_ask, _rc.on_open = (lambda: "ask"), (lambda: "open")
 _rc._fonts()
-_rc._render("Nova", "A discounted cash flow model values a company by projecting its future free cash flows. " * 4, False,
-            "What's a DCF model?", "", None)
+_rc.show("Nova", "A discounted cash flow model values a company by projecting its future free cash flows. " * 4,
+         quote="What's a DCF model?", kind="reply")
 assert [a() for _, a in _rc.chips] == ["ask", "open"] and _rc.chips[0][0][2] < _rc.chips[1][0][0], _rc.chips
-assert all(r[3] <= _rc._text.height - overlay_mod.SHADOW for r, _ in _rc.chips)              # inside the panel
-assert _rc._text.height - 2 * overlay_mod.SHADOW <= overlay_mod.BACK_H                       # the grabbed backdrop covers the tallest card
-_rc.kind = "approval"
+assert all(r[3] <= _rc.size[1] for r, _ in _rc.chips) and _rc.base.size == _rc.size           # inside the card
+assert _rc.size[0] == overlay_mod.WIDTH and _rc.size[1] <= 400 and not _rc.live
 _rc.on_allow, _rc.on_deny = (lambda: "allow"), (lambda: "deny")
-_rc._render("Needs your OK", "Delete the build folder. " * 12, True, "", "Remove-Item -Recurse build " * 6, None)
-assert [a() for _, a in _rc.buttons] == ["allow", "deny"] and _rc._text.height - 2 * overlay_mod.SHADOW <= overlay_mod.BACK_H
+_rc.show("Needs your OK", "Delete the build folder. " * 12, buttons=True, detail="Remove-Item -Recurse build " * 6)
+assert [a() for _, a in _rc.buttons] == ["allow", "deny"] and _rc.size[1] <= 400 and _rc.live
+_rc.show("Nova is ready", "Claude Code · GPU Speech", toast=True, keys="Ctrl+`")
+assert _rc.size[1] == _CAPSULE and 168 <= _rc.size[0] <= overlay_mod.TOAST_MAX and _rc.kind == "toast"  # one line, as tall as the pill
+_rc.show("Cancelled")
+assert _rc.size == (168, _CAPSULE)                                                            # a title alone is a toast too
+_rc.show("Thinking", quote="what's the weather", detail="Looking at your screen", kind="thinking")
+assert _rc.live and _rc.stop_box and _rc.frame(0.0).size == _rc.base.size and _rc.frame(1.0).tobytes() != _rc.frame(0.0).tobytes()  # light sweeps across
+_stops = []
+_rc.bar = types.SimpleNamespace(on_click=lambda: _stops.append(1), attach=lambda c: None)
+_rc.click(types.SimpleNamespace(x=(_rc.stop_box[0] + _rc.stop_box[2]) / 2, y=(_rc.stop_box[1] + _rc.stop_box[3]) / 2))
+assert _stops == [1]                                                                          # its stop square stops Nova
+# the bar grows into the card and back: its target is the card while one is up; the glass is drawn at any size
+_gb = object.__new__(_Bar)
+_gb.scale, _gb.px, _gb.top, _gb.notch, _gb.hovering, _gb.state, _gb.card = 1.0, 1, True, (0, 0), False, "idle", None
+_gb.f_label = __import__("core.bar", fromlist=["ui_font"]).ui_font(24, 500)
+_gb.back, _gb._pane, _gb.cx, _gb.anchor, _gb.dirty, _gb._vis = None, None, 500, 6, False, True
+_gb._apply, _gb._wake, _gb._grab = (lambda: None), (lambda: None), (lambda: None)
+_pill = _gb._target()
+assert _pill[1] == _CAPSULE and _pill[0] >= 168, _pill
+_gb.attach(_rc)
+assert _gb._target() == _rc.size and _gb.card is _rc
+_shots = []
+_gb._present = lambda img, x, y, alpha=255: _shots.append((img.size, x, y))
+for _gb.w, _gb.h in ((_pill[0], _pill[1]), (300, 70), _rc.size):                              # mid-morph and at rest
+    _gb._draw_glass()
+assert [sz for sz, _, _ in _shots] == [(round(_pill[0]) + 48, _CAPSULE + 48), (348, 118), (_rc.size[0] + 48, _rc.size[1] + 48)], _shots
+assert all(y == 6 - 24 for _, _, y in _shots) and _gb._at == (24, 24)                          # it hangs from the same top edge as it grows
+_gb.attach(None)
+assert _gb._target() == _pill
+
 # Phase 3: Nova speaks the SAY line while the AI is still writing the rest of its reply
 from core.brain import SayLine as _SayLine
 def _say_feed(*parts):

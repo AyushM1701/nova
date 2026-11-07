@@ -17,8 +17,9 @@ import io
 import math
 import time
 import tkinter as tk
+import types
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 from core import glass, icon, system, theme
 
@@ -42,8 +43,12 @@ SS = 3  # draw 3x larger, then downscale: anti-aliased edges
 BOX = (300, 56)  # window size in logical px; the pill (6 px in, CAPSULE tall) and its halo are drawn inside it
 SIZES = {"idle": (64, 14), "paused": (64, 14), "listening": (156, 36), "thinking": (92, 30),
          "speaking": (124, 30), "approval": (92, 30), "hover": (0, 30)}  # the notch island's; the capsule works its own out
-CAPSULE = 42  # the capsule's height, logical px: an orb, the action button and (while working) a stop button inside it
-ORB, PAD, GAP = 32, 5, 6  # the orb and buttons are ORB across, PAD from the edge, GAP apart
+CAPSULE = 42  # the pill's height, logical px
+MARGIN = 24  # logical px of transparent room around the glass, for its shadow and the accent's glow
+MARK_W = 23.0  # the mark's width at size 1: five 2.6 px bars, 2.5 px apart
+_MARK_H, _MARK_DY = (15, 11, 9, 11, 15), (0, -2, 0, 2, 0)  # tall, high, middle, low, tall: an N
+MIST = (224, 231, 255)  # the light end of the waveform's gradient
+GREY = (150, 152, 160)
 WHITE, AMBER, DIM, INK = (255, 255, 255), (255, 186, 60), (190, 193, 214), (11, 13, 26)
 LIGHT = {False: (169, 161, 255), True: AMBER}  # the thinking dots: light violet, or amber when Nova needs you
 
@@ -103,7 +108,7 @@ def spring(x, v, target, dt, k=420.0, damping=0.8):
 
 
 def visible(state, card, stage, reveal, top):
-    """Whether the bar is on screen: while a card hangs under it; always at the bottom (the edge belongs to the
+    """Whether the bar is on screen: while it is a card; always at the bottom (the edge belongs to the
     taskbar); while Nova works; otherwise only as the reveal mode allows."""
     if card or reveal == "always" or not top or state not in ("idle", "paused"):
         return True
@@ -120,6 +125,113 @@ def _font(px, names=("segoeui.ttf", "/System/Library/Fonts/SFNS.ttf", "/System/L
         except OSError:
             pass
     return ImageFont.load_default(px)
+
+
+@functools.lru_cache(maxsize=64)
+def ui_font(px, weight=400, italic=False):
+    """Segoe UI Variable at any weight (the design's 500 is a real 500 here); else the nearest static face."""
+    if italic:
+        return _font(px, ("segoeuii.ttf", "/System/Library/Fonts/SFNSItalic.ttf", "/System/Library/Fonts/SFNS.ttf"))
+    try:
+        f = ImageFont.truetype("SegUIVar.ttf", px)
+        f.set_variation_by_axes([weight, 10.5])
+        return f
+    except (OSError, ValueError, AttributeError):  # Windows 10, or a Mac
+        return _font(px, SEMIBOLD) if weight >= 550 else _font(px)
+
+
+@functools.lru_cache(maxsize=16)
+def mono_font(px):
+    return _font(px, ("CascadiaMono.ttf", "consola.ttf", "/System/Library/Fonts/SFNSMono.ttf", "/System/Library/Fonts/Menlo.ttc"))
+
+
+def mark(d, x, cy, s, size=1.0, colors=None, alpha=255):
+    """Nova's mark from `x`: five bars that spell an N, in the picked colour (Nova's own five by default). Returns its
+    width."""
+    colors = colors or theme.marks()
+    bw, gap = 2.6 * size * s, 2.5 * size * s
+    for i, (hh, dy, c) in enumerate(zip(_MARK_H, _MARK_DY, colors)):
+        bx, hh, dy = x + i * (bw + gap), hh * size * s, dy * size * s
+        d.rounded_rectangle((bx, cy + dy - hh / 2, bx + bw, cy + dy + hh / 2), radius=bw / 2, fill=c + (alpha,))
+    return MARK_W * size * s
+
+
+def keycap(d, right, cy, s, text, font):
+    """A crisp key ending at `right`: mono, white at 65% on white at 6%, a hairline edge lit along its top. Returns
+    its left edge."""
+    w, h = font.getlength(text) + 12 * s, 18 * s
+    box = (right - w, cy - h / 2, right, cy + h / 2)
+    d.rounded_rectangle(box, 5 * s, fill=(255, 255, 255, 15), outline=(255, 255, 255, 26), width=max(1, round(s)))
+    d.line((box[0] + 5 * s, box[1] + s, box[2] - 5 * s, box[1] + s), fill=(255, 255, 255, 22), width=max(1, round(s)))
+    d.text((right - w / 2, cy), text, font=font, fill=(255, 255, 255, 166), anchor="mm")
+    return right - w
+
+
+def stop_square(d, cx, cy, s, half, alpha=230):
+    d.rounded_rectangle((cx - half, cy - half, cx + half, cy + half), radius=max(1, half * .4), fill=(255, 255, 255, alpha))
+
+
+def mic(d, cx, cy, s, color):
+    """A small microphone outline: what Nova heard."""
+    wd = max(1, round(1.4 * s))
+    d.rounded_rectangle((cx - 2.6 * s, cy - 6.5 * s, cx + 2.6 * s, cy + 1.5 * s), radius=2.6 * s, outline=color, width=wd)
+    d.arc((cx - 5 * s, cy - 5 * s, cx + 5 * s, cy + 4 * s), 0, 180, fill=color, width=wd)
+    d.line((cx, cy + 4 * s, cx, cy + 6.5 * s), fill=color, width=wd)
+
+
+@functools.lru_cache(maxsize=16)
+def _text_mask(text, font, ss):
+    left, top, right, bottom = font.getbbox(text, anchor="lm")
+    m = Image.new("L", (int(right - left) + 4, int(bottom - top) + 4))
+    ImageDraw.Draw(m).text((2 - left, 2 - top), text, font=font, fill=255, anchor="lm")
+    return m.reduce(ss), (left - 2) / ss, (top - 2) / ss
+
+
+def shimmer(img, x, cy, text, font, ss, t, still=False):
+    """`text` at (x, cy) (its left middle, image px) with a band of light sweeping across it every 2.2 s: white at 40%,
+    95% in the band. `font` is ss times the image's scale."""
+    m, ox, oy = _text_mask(text, font, ss)
+    w, h = m.size
+    if still:
+        row = [204] * w
+    else:
+        c = (t / 2.2 % 1.0) * 3 * w - w  # the band comes in from a width before the text and leaves a width after
+        row = [round(255 * (0.4 + 0.55 * max(0.0, 1 - abs(i - c) / (0.5 * w)))) for i in range(w)]
+    band = Image.new("L", (w, 1))
+    band.putdata(row)
+    layer = Image.new("RGBA", (w, h), (255, 255, 255, 0))
+    layer.putalpha(ImageChops.multiply(m, band.resize((w, h))))
+    img.alpha_composite(layer, (round(x + ox), round(cy + oy)))
+
+
+def wave(img, x, cy, heights, bw, gap, accent):
+    """Bars from `x`, centred on `cy` (image px), each lit from light at the top to the accent at the bottom."""
+    hmax = max(max(heights), bw)
+    W, H = int(len(heights) * (bw + gap) - gap) + 2, int(hmax) + 2
+    m = Image.new("L", (W * 3, H * 3))  # drawn 3x, for round ends
+    d = ImageDraw.Draw(m)
+    for i, hh in enumerate(heights):
+        hh, bx = max(bw, hh), 1 + i * (bw + gap)
+        d.rounded_rectangle((bx * 3, (H - hh) / 2 * 3, (bx + bw) * 3, (H + hh) / 2 * 3), radius=bw * 1.5, fill=255)
+    layer = Image.composite(Image.new("RGB", (W, H), accent), Image.new("RGB", (W, H), MIST),
+                            Image.linear_gradient("L").resize((W, H))).convert("RGBA")
+    layer.putalpha(m.reduce(3))
+    img.alpha_composite(layer, (round(x), round(cy - H / 2)))
+
+
+@functools.lru_cache(maxsize=24)
+def _halo(W, H, m, gw, gh, r, accent):
+    """The glass's drop shadow and the accent's glow around it, blurred at a quarter size (the blur is the slow part)."""
+    q, k = 4, m / MARGIN
+    w, h = max(1, W // q), max(1, H // q)
+    box = (m / q, m / q, (m + gw) / q, (m + gh) / q)
+    glow = Image.new("RGBA", (w, h), accent + (0,))
+    ImageDraw.Draw(glow).rounded_rectangle(box, r / q, fill=accent + (90,))
+    shadow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).rounded_rectangle((box[0], box[1] + 8 * k / q, box[2], box[3] + 8 * k / q), r / q, fill=(0, 0, 0, 185))
+    out = shadow.filter(ImageFilter.GaussianBlur(7 * k / q))
+    out.alpha_composite(glow.filter(ImageFilter.GaussianBlur(9 * k / q)))
+    return out.resize((W, H), Image.BILINEAR)
 
 
 if not system.IS_MAC:
@@ -317,14 +429,14 @@ class Layered:
 
 class Bar(Layered):
     # class defaults so a Bar built without __init__ (the tests do) behaves as before: always on screen
-    reveal, stage, covered, suppressed, _vis, _thru = "always", "hidden", False, False, None, False
-    vw, vh, _last = 0.0, 0.0, None  # the pill's size velocities, and when it was last stepped
-    back, _pane = None, None  # the blurred screen behind the bar, for its glass; and the last pane made
+    reveal, stage, card, suppressed, _vis, _thru = "always", "hidden", None, False, None, False
+    vw, vh, _last = 0.0, 0.0, None  # the glass's size velocities, and when it was last stepped
+    back, _pane, _at = None, None, None  # the blurred screen behind (image, x, y); the last pane; where content went
 
     def __init__(self, root, on_click, on_menu=None, hint="", position="bottom", reveal="always"):
         self.scale = dpi_scale(root)
         self.hint, self.font, self.hovering = hint, _font(int(12 * self.scale * SS)), False
-        self.f_label = _font(int(12.5 * self.scale * SS), SEMIBOLD)
+        self.f_label = ui_font(int(12 * self.scale * SS), 500)
         self.area, self.top = None, position == "top"
         self.reveal = "always" if system.IS_MAC else reveal  # the notch island stays; hover-reveal is Windows for now
         self.reveals = Reveal()
@@ -365,15 +477,14 @@ class Bar(Layered):
         self.reveal = "always" if system.IS_MAC else reveal
         self._apply()
 
-    def cover(self, on):
-        """A card hangs under the pill: the pill stays on screen, open (orb and Ask), until the card goes."""
-        self.covered = on
+    def attach(self, card):
+        """A card (core/overlay.py) to grow into, or None to shrink back to the pill."""
+        fresh = card is not None and self.card is None
+        self.card, self.dirty = card, True
+        if fresh and self._vis:
+            self._grab()  # the glass is about to cover more of the screen
         self._apply()
-
-    def pill_size(self):
-        """The pill the card grows from and shrinks back to, in screen pixels: (width, height, top y, centre x)."""
-        w, h = self._target()
-        return w * self.scale, h * self.scale, self.y + 6 * self.scale, self.x + self.W / 2
+        self._wake()
 
     @property
     def peeking(self):
@@ -382,7 +493,7 @@ class Bar(Layered):
 
     def _apply(self):
         """Show or hide the window as `visible` says, and let clicks through only while it is just the glow."""
-        want = visible(self.state, self.covered, self.stage, self.reveal, self.top)
+        want = visible(self.state, self.card is not None, self.stage, self.reveal, self.top)
         if want != self._vis:
             self._vis = want
             if want:
@@ -399,12 +510,12 @@ class Bar(Layered):
     def _zone(self):
         """The hot zone: the top 2 px of the screen (of the work area, with a taskbar on top), 440 px wide at the middle."""
         half = 220 * self.scale
-        return (self.x + self.W / 2 - half, 0, self.x + self.W / 2 + half, self.area[1] + 2)
+        return (self.cx - half, 0, self.cx + half, self.area[1] + 2)
 
     def _keep(self):
         """Where an open pill stays open: the zone down to a little below the pill."""
         left, _, right, _ = self._zone()
-        return (left, 0, right, self.y + (6 + self.h) * self.scale + 24 * self.scale)
+        return (left, 0, right, self.anchor + (self.h + 24) * self.scale)
 
     def _watch_hover(self):
         """The top-edge pointer check, 20 times a second, while the bar hides at the top. A hidden window gets no mouse
@@ -439,6 +550,10 @@ class Bar(Layered):
         else:
             self.x = int((left + right - self.W) / 2)
             self.y = int(top) if self.top else int(bottom - self.H)
+        # the glass hangs from its anchor: its top edge (at the top of the screen), else its bottom edge
+        self.cx = self.x + self.W / 2
+        self.anchor = ((self.notch[1] + 6) * self.scale if self.island else top + 6 * self.scale) if self.top \
+            else bottom - 6 * self.scale
         if self.ns is None:
             self.win.geometry(f"{self.W}x{self.H}+{self.x}+{self.y}")
 
@@ -454,47 +569,56 @@ class Bar(Layered):
 
     def _expanded(self):
         """The idle pill opens into the capsule while the pointer is on it, or when it has just opened at the top edge."""
-        return self.state == "idle" and (self.hovering or self.covered or self.stage == "open" and self.reveal == "hover")
+        return self.state == "idle" and (self.hovering or self.card is not None or self.stage == "open" and self.reveal == "hover")
 
     def _hint_on(self):
         return self._expanded() and bool(self.hint)
 
     def _grab(self):
-        """The screen behind the bar, blurred, for its glass (Nova's own windows are left out of it)."""
-        self.back = None if self.island or system.IS_MAC else glass.backdrop((self.x, self.y, self.x + self.W, self.y + self.H))
+        """The screen behind where the glass is going, blurred, for its glass (Nova's own windows are left out of it).
+        A tenth larger than the glass: the spring overshoots a little on its way."""
+        if self.island or system.IS_MAC:
+            self.back = None
+            return
+        tw, th = self._target()
+        half, tall = (max(tw, 300) * 1.1 / 2 + 4) * self.scale, (th * 1.1 + 4) * self.scale
+        x0, y0 = int(self.cx - half), int(self.anchor if self.top else self.anchor - tall)
+        img = glass.backdrop((x0, y0, int(self.cx + half), int(y0 + tall)))
+        self.back = (img, x0, y0) if img is not None else None
 
     def _text_w(self, text):
         return self.f_label.getlength(text) / SS / self.scale
 
-    def _parts(self):
-        """What the capsule holds in this state: {"label", "btn" (the action button's width), "stop"}; None for the quiet
-        standby pill. Click the orb for the Nova window, the rest to talk (or, while Nova works, to stop it)."""
+    LABELS = {"idle": "Nova", "paused": "Nova", "listening": "Listening", "thinking": "Thinking…",
+              "speaking": "Speaking", "approval": "Needs your OK"}
+
+    def _pill_width(self):
+        """The pill's width for this state, logical px: the mark and a word, then what the state adds."""
+        tw = lambda text: self.f_label.getlength(text) / SS / self.scale
         state = self.state
-        if state == "idle":
-            return {"label": "Ask", "btn": 15 + GAP + self._text_w("Ask") + 32, "stop": False} if self._expanded() else None
-        if state in ("listening", "speaking"):
-            return {"label": "", "btn": 96, "stop": True}
+        w = 14 + MARK_W + 10 + tw(self.LABELS.get(state, "Nova"))
+        if state in ("idle", "paused"):  # | ✦ Ask   or   | Paused
+            return max(168, w + 12 + 1 + 8 + (14 + 6 + tw("Ask") if state == "idle" else tw("Paused")) + 14)
+        if state == "listening":
+            return w + 16 + 48 + 12 + 24 + 9
         if state == "thinking":
-            return {"label": "Thinking", "btn": 20 + GAP + self._text_w("Thinking") + 32, "stop": True}
-        if state == "approval":
-            return {"label": "Needs OK", "btn": self._text_w("Needs OK") + 32, "stop": False}
-        return None  # paused
+            return w + 12 + 24 + 9
+        if state == "speaking":
+            return w + 14 + 19 + 8 + 24 + 9
+        return w + 14
 
     def _target(self):
+        if self.card is not None:
+            return self.card.size
         if not self.island:
-            parts = self._parts()
-            if not parts:
-                return SIZES["idle"]
-            return PAD + ORB + GAP + parts["btn"] + (GAP + ORB if parts["stop"] else 0) + PAD, CAPSULE
+            return self._pill_width(), CAPSULE
         if self._hint_on():
             text_w = self.font.getlength(self.hint) / SS / self.scale
             w, h = min(BOX[0] - 12, text_w + 28), SIZES["hover"][1]
         else:
             w, h = SIZES[self.state]
-        if self.island:  # grows out of the notch: at least as wide, content below it
-            nw, nh = self.notch
-            return (nw, nh) if self.state in ("idle", "paused") and not self.hovering else (max(nw, w + 24), nh + h + 6)
-        return w, h
+        nw, nh = self.notch  # grows out of the notch: at least as wide, content below it
+        return (nw, nh) if self.state in ("idle", "paused") and not self.hovering else (max(nw, w + 24), nh + h + 6)
 
     def set(self, state):
         if state == "listening" and self.state != "listening":
@@ -507,9 +631,11 @@ class Bar(Layered):
         self._wake()
 
     def _clicked(self, event):
-        """The orb opens the Nova window; the rest of the capsule is the shortcut (talk, or stop)."""
-        left = (BOX[0] - self.w) / 2
-        if self.on_menu and self._parts() and event.x / (self.scale * self.px) < left + PAD + ORB + GAP / 2:
+        """On a card, what it says (its buttons, links, stop). On the pill, the mark opens the Nova window and the rest
+        is the shortcut (talk, or stop)."""
+        if self.card is not None and self._at:
+            return self.card.click(types.SimpleNamespace(x=event.x - self._at[0], y=event.y - self._at[1]))
+        if self.on_menu and not self.island and event.x / (self.scale * self.px) - MARGIN < 14 + MARK_W + 6:
             return self.on_menu()
         self.on_click()
 
@@ -535,7 +661,7 @@ class Bar(Layered):
             self.w, self.vw = spring(self.w, self.vw, tw, dt)
             self.h, self.vh = spring(self.h, self.vh, th, dt)
         moving = abs(tw - self.w) > 0.2 or abs(th - self.h) > 0.2 or abs(self.vw) > 0.5 or abs(self.vh) > 0.5
-        active = self.dirty or moving or self.state not in ("idle", "paused")
+        active = self.dirty or moving or self.state not in ("idle", "paused") or bool(self.card and self.card.live)
         if self._vis is False:  # nothing on screen: nothing to draw until _apply shows it again
             active, self._last = False, None
         if active:
@@ -558,8 +684,8 @@ class Bar(Layered):
             d.rounded_rectangle((W / 2 - line, 0, W / 2 + line, 3 * s), radius=1.5 * s, fill=theme.T["accent"] + (255,))
             self._present(img.resize((self.W * self.px, self.H * self.px), Image.LANCZOS), self.x, self.y)
             return
-        if not self.island:
-            return self._draw_capsule(img, d)
+        if not self.island or self.card is not None:
+            return self._draw_glass()
         pw, ph = self.w * s, self.h * s
         x0 = (W - pw) / 2
         if self.island:
@@ -623,105 +749,89 @@ class Bar(Layered):
         self._present(img.reduce(SS) if self.px == 1 else img.resize((self.W * self.px, self.H * self.px), Image.LANCZOS),
                       self.x, self.y)
 
-    def _draw_capsule(self, img, d):
-        """The glass capsule: an orb, the action button in the accent colour, and a stop button while Nova works. The
-        glass is made at screen resolution and the drawing (at 3x, for smooth edges) goes on top."""
+    def _draw_glass(self):
+        """One shape of frosted glass: the pill, or the card it grows into. Its size follows a spring toward the
+        target; the content comes in once the glass has nearly reached it. The window is the glass plus MARGIN all
+        round (for the shadow and the accent's glow), hanging from the anchor."""
         T, state, t = theme.T, self.state, time.monotonic()
-        s, k = self.scale * SS, self.scale * self.px  # drawing px, and screen px, per logical px
-        W, H = self.W * SS, self.H * SS
-        pw, ph = self.w * s, self.h * s
-        x0 = (W - pw) / 2
-        y0 = 6 * s if self.top else H - 6 * s - ph
-        y1, cy = y0 + ph, y0 + ph / 2
-        accent = AMBER if state == "approval" else T["accent"]
-        glow = {"listening": 0.55, "thinking": 0.35 + 0.25 * math.sin(t * 2.4), "approval": 0.45 + 0.3 * math.sin(t * 3)}
-        if state in glow:  # a soft halo: mic is live, Nova is working, or it needs you
-            for i, spread in enumerate((5, 3.2, 1.6)):
-                g = spread * s
-                d.rounded_rectangle((x0 - g, y0 - g, x0 + pw + g, y1 + g), radius=ph / 2 + g,
-                                    outline=accent + (int(glow[state] * (40 + 35 * i)),), width=max(1, round(1.4 * s)))
-        parts, target_w = self._parts(), self._target()[0]
-        if pw < 0.85 * target_w * s:
-            pass  # still opening: the glass alone
-        elif not parts:  # standby: five faint dots, so the pill reads as Nova and not an empty field
-            for i in range(5):
-                r, x = 1.1 * s, W / 2 + (i - 2) * 6.5 * s
-                d.ellipse((x - r, cy - r, x + r, cy + r), fill=WHITE + (70 if state == "paused" else 115,))
-        else:
-            self._orb(img, d, x0 + (PAD + ORB / 2) * s, cy, ORB / 2 * s, s, state != "idle")
-            b0 = x0 + (PAD + ORB + GAP) * s
-            b1 = b0 + parts["btn"] * s
-            box = (b0, cy - ORB / 2 * s, b1, cy + ORB / 2 * s)
-            if state in ("listening", "approval"):  # the accent says "live mic"; amber says "needs you"
-                ink = INK if state == "approval" else T["ink"]
-                d.rounded_rectangle(box, radius=ORB / 2 * s, fill=accent + (255,), outline=WHITE + (70,), width=max(1, round(s)))
-            else:  # a lighter well of the same glass, like a key on it
-                ink = T["text"]
-                self._well(d, box, s)
-            mid = (b0 + b1) / 2
-            if state == "idle":
-                label_w = self._text_w(parts["label"]) * s
-                left = mid - (15 * s + GAP * s + label_w) / 2
-                self._sparkle(d, left + 7.5 * s, cy, 7.5 * s, T["light"])
-                d.text((left + (13 + GAP) * s, cy), parts["label"], font=self.f_label, fill=ink + (255,), anchor="lm")
-            elif state == "thinking":
-                label_w = self._text_w(parts["label"]) * s
-                left = mid - (20 * s + GAP * s + label_w) / 2
-                for i in range(3):
-                    phase = t * 5.2 - i * 0.75
-                    r, x = 1.9 * s, left + (3 + i * 7) * s
-                    lift = max(0.0, math.sin(phase)) * 2.4 * s
-                    alpha = int(255 * (0.55 + 0.45 * max(0.0, math.sin(phase))))
-                    d.ellipse((x - r, cy - r - lift, x + r, cy + r - lift), fill=T["light"] + (alpha,))
-                d.text((left + (20 + GAP) * s, cy), parts["label"], font=self.f_label, fill=ink + (255,), anchor="lm")
-            elif state == "approval":
-                d.text((mid, cy), parts["label"], font=self.f_label, fill=ink + (255,), anchor="mm")
-            elif state == "listening":  # the voice level, tallest in the middle, smoothed so it doesn't jitter
-                n, inner = len(self.levels), (ORB - 10) * s
-                for i, lv in enumerate(self.levels):
-                    aim = min(1.0, lv * 1.5) * (0.45 + 0.55 * math.sin(math.pi * (i + 0.5) / n))
-                    self.shown[i] += (aim - self.shown[i]) * (0.6 if aim > self.shown[i] else 0.22)
-                self._bars(d, mid, cy, s, [v * inner for v in self.shown], 2.4 * s, ink)
-            elif state == "speaking":  # two layered waves, like a voice rather than a metronome
-                inner = (ORB - 10) * s
-                heights = [(0.25 + 0.75 * abs(0.6 * math.sin(t * 4.2 + i * 0.55) + 0.4 * math.sin(t * 7.1 + i * 1.3)))
-                           * (0.5 + 0.5 * math.sin(math.pi * (i + 0.5) / 9)) * inner for i in range(9)]
-                self._bars(d, mid, cy, s, heights, 2.4 * s, ink)
-            if parts["stop"]:
-                sx = b1 + (GAP + ORB / 2) * s
-                self._well(d, (sx - ORB / 2 * s, cy - ORB / 2 * s, sx + ORB / 2 * s, cy + ORB / 2 * s), s)
-                q = 4.6 * s
-                d.rounded_rectangle((sx - q, cy - q, sx + q, cy + q), radius=1.6 * s, fill=WHITE + (240,))
-        content = img.reduce(SS) if self.px == 1 else img.resize((self.W * self.px, self.H * self.px), Image.LANCZOS)
-        out = Image.new("RGBA", content.size)
-        gw, gh = round(self.w * k), round(self.h * k)
-        gx = round((content.width - gw) / 2)
-        gy = round(6 * k) if self.top else round(content.height - 6 * k - gh)
+        k, card = self.scale * self.px, self.card  # image px per logical px
+        tw, th = self._target()
+        w, h = max(8.0, self.w), max(8.0, self.h)
+        gw, gh, m = round(w * k), round(h * k), round(MARGIN * k)
+        W, H = gw + 2 * m, gh + 2 * m
+        r = round(min(gh / 2, 21 * k))
+        accent = AMBER if state == "approval" and card is None else T["accent"]
+        paused = state == "paused" and card is None
+        out = _halo(W, H, m, gw, gh, r, accent).copy()
+        x = round(self.cx - W / self.px / 2)
+        y = round(self.anchor - m / self.px) if self.top else round(self.anchor - (gh + m) / self.px)
+        back = None
+        if self.back:  # the part of the grabbed screen this glass covers (Windows, where px is 1)
+            img, bx, by = self.back
+            sx, sy = x + m - bx, y + m - by
+            if sx >= 0 and sy >= 0 and sx + gw <= img.width and sy + gh <= img.height:
+                back = img.crop((sx, sy, sx + gw, sy + gh))
         # the pane changes only with its size, colour or backdrop: not with each frame of a waveform
-        key = (gw, gh, gx, gy, T["tint"], accent, state == "paused", id(self.back))
+        key = (gw, gh, r, T["tint"], accent, paused, id(self.back) if back else None)
         if not self._pane or self._pane[0] != key:
-            back = self.back.crop((gx, gy, gx + gw, gy + gh)) if self.back and self.back.size == content.size else None
-            self._pane = key, glass.pane(gw, gh, gh // 2, T["tint"], accent, back, 150 if state == "paused" else glass.OPACITY)
-        out.alpha_composite(self._pane[1], (gx, gy))
-        out.alpha_composite(content)
-        self._present(out, self.x, self.y)
+            self._pane = key, glass.pane(gw, gh, r, T["tint"], accent, back, 150 if paused else glass.OPACITY)
+        out.alpha_composite(self._pane[1], (m, m))
+        grown = min(w / tw, h / th) if tw and th else 1.0
+        fade = 1.0 if system.reduced_motion() else max(0.0, min(1.0, (grown - 0.82) / 0.16))
+        self._at = None
+        if fade > 0:
+            content = card.frame(t) if card is not None else self._pill(tw, t)
+            ox = (gw - content.width) // 2
+            oy = 0 if self.top else gh - content.height
+            layer = Image.new("RGBA", (gw, gh))
+            layer.alpha_composite(content, (max(0, ox), max(0, oy)), (max(0, -ox), max(0, -oy)))
+            shape = glass.mask(gw, gh, r)  # the content stays inside the glass while it is still growing
+            if fade < 1:
+                shape = shape.point(lambda v: int(v * fade))
+            layer.putalpha(ImageChops.multiply(layer.getchannel("A"), shape))
+            out.alpha_composite(layer, (m, m))
+            self._at = (m + ox, m + oy)
+        self._present(out, x, y)
 
-    @staticmethod
-    def _well(d, box, s):
-        """A lighter pocket of the glass (round ends): the orb, the action button and the stop button sit in one."""
-        light = theme.T["light"]  # tinted by the theme's light, so the wells belong to the glass rather than sit grey on it
-        d.rounded_rectangle(box, radius=(box[3] - box[1]) / 2, fill=light + (34,), outline=light + (80,), width=max(1, round(s)))
-
-    @staticmethod
-    def _orb(img, d, cx, cy, r, s, lit=False):
-        """Nova's logo (the tray icon's bars, without its tile) in a glass well; a soft accent glow behind it while Nova
-        works. Click it for the Nova window."""
-        Bar._well(d, (cx - r, cy - r, cx + r, cy + r), s)
-        if lit:
-            for f, a in ((.82, 40), (.6, 70)):
-                d.ellipse((cx - r * f, cy - r * f, cx + r * f, cy + r * f), fill=theme.T["accent"] + (a,))
-        size = round(r * 1.55)  # the bars fill about two thirds of the well
-        img.alpha_composite(_logo(size), (round(cx - size / 2), round(cy - size / 2)))
+    def _pill(self, tw, t):
+        """The pill's content at its full width, in image px: the mark and a word, then what the state adds."""
+        T, state = theme.T, self.state
+        s = self.scale * SS
+        img = Image.new("RGBA", (round(tw * s), round(CAPSULE * s)))
+        d = ImageDraw.Draw(img)
+        cy, x, right = CAPSULE / 2 * s, 14 * s, tw * s
+        colors = [AMBER] * 5 if state == "approval" else [GREY] * 5 if state == "paused" else None
+        x += mark(d, x, cy, s, 1, colors) + 10 * s
+        label = self.LABELS.get(state, "Nova")
+        still = system.reduced_motion()
+        if state == "thinking":
+            shimmer(img, x, cy, label, self.f_label, 1, t, still)
+        else:
+            alpha = 255 if state == "approval" else 204 if state in ("listening", "speaking") or self.hovering else 128
+            d.text((x, cy), label, font=self.f_label, fill=(AMBER if state == "approval" else WHITE) + (alpha,), anchor="lm")
+        x += self.f_label.getlength(label)
+        if state in ("idle", "paused"):  # a hairline, then ✦ Ask (or Paused) at the right
+            word = "Ask" if state == "idle" else "Paused"
+            group = self.f_label.getlength(word) + ((14 + 6) * s if state == "idle" else 0)
+            left = right - 14 * s - group
+            d.line((left - 9 * s, cy - 8 * s, left - 9 * s, cy + 8 * s), fill=WHITE + (26,), width=max(1, round(s / SS)))
+            if state == "idle":
+                self._sparkle(d, left + 7 * s, cy, 7 * s, T["accent"])
+                left += 20 * s
+            d.text((left, cy), word, font=self.f_label, fill=WHITE + (217 if state == "idle" else 128,), anchor="lm")
+        elif state == "listening":  # eight bars, following the microphone
+            for i, lv in enumerate(list(self.levels)[-8:]):
+                aim = min(1.0, lv * 1.5)
+                self.shown[i] += (aim - self.shown[i]) * (0.6 if aim > self.shown[i] else 0.22)
+            floor = (0.35, 0.6, 0.45, 0.7, 0.4, 0.6, 0.5, 0.3)  # a resting shape, so silence still reads as listening
+            heights = [(4 + 16 * max(f * 0.35, v)) * s for f, v in zip(floor, self.shown[:8])]
+            wave(img, x + 16 * s, cy, heights, 2.5 * s, 4 * s, T["accent"])
+        elif state == "speaking":  # four bars, like a voice
+            heights = [(0.5 if still else 0.3 + 0.7 * abs(math.sin(t * 5 + i * 0.9))) * 12 * s for i in range(4)]
+            wave(img, x + 14 * s, cy, heights, 2.5 * s, 3 * s, T["accent"])
+        if state in ("listening", "thinking", "speaking"):  # stop, with no frame around it
+            stop_square(d, right - 21 * s, cy, s, 5 * s)
+        return img.reduce(SS) if self.px == 1 else img.resize((round(tw * self.scale * self.px), round(CAPSULE * self.scale * self.px)), Image.LANCZOS)
 
     @staticmethod
     def _sparkle(d, cx, cy, r, color):
