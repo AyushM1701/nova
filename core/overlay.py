@@ -317,7 +317,7 @@ class Card:
 
     def _stop(self, d, cx, cy, s):
         """A stop square with no frame around it; a click on (or near) it stops Nova."""
-        stop_square(d, cx, cy, s, 4 * s)
+        stop_square(d, cx, cy, s, 4 * s, 115)  # quiet in a card: white at 45%
         r = 13 * s
         self.stop_box = ((cx - r) / SS, (cy - r) / SS, (cx + r) / SS, (cy + r) / SS)
 

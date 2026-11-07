@@ -269,8 +269,17 @@ class Api:
     def minimize(self):
         self._window.minimize()
 
+    def _on_ui(self, fn):
+        """Run `fn` on the window's own thread (bridge calls come on another, which can't touch its mouse capture)."""
+        from System import Action
+        self._window.native.Invoke(Action(fn))
+
     def toggle_max(self):
         """Fill the monitor's work area (a borderless window's own maximize would cover the taskbar), or go back."""
+        self._on_ui(self._toggle_max)
+        return bool(getattr(self, "_restore", None))
+
+    def _toggle_max(self):
         import ctypes
         from ctypes import wintypes as w
         u = ctypes.windll.user32
@@ -290,7 +299,6 @@ class Api:
             a = mi.rcWork
             x, y, cx, cy = a.left, a.top, a.right - a.left, a.bottom - a.top
         u.SetWindowPos(hwnd, 0, x, y, cx, cy, 0x0014)  # SWP_NOZORDER | SWP_NOACTIVATE
-        return bool(self._restore)
 
     def drag(self, where):
         """Hand a mouse-down on the dock or a window edge to Windows, which then moves or resizes the window itself."""
@@ -300,8 +308,11 @@ class Api:
         ht = {"caption": 2, "left": 10, "right": 11, "top": 12, "topleft": 13, "topright": 14, "bottom": 15,
               "bottomleft": 16, "bottomright": 17}[where]
         hwnd = int(self._window.native.Handle.ToInt64())
-        ctypes.windll.user32.ReleaseCapture()
-        ctypes.windll.user32.PostMessageW(hwnd, 0xA1, ht, 0)  # WM_NCLBUTTONDOWN: post, so this bridge call returns
+
+        def grab():  # on the window's thread: the page's mouse capture is released there, then Windows takes over
+            ctypes.windll.user32.ReleaseCapture()
+            ctypes.windll.user32.PostMessageW(hwnd, 0xA1, ht, 0)  # WM_NCLBUTTONDOWN
+        self._on_ui(grab)
 
     def demo(self):
         """First-run "Show me": this window gets out of the way, then Nova points at something on the screen."""
@@ -941,7 +952,7 @@ def main():
     api = Api()
     window = webview.create_window("Nova", html=phone.page(HTML), js_api=api, width=1080, height=740,
                                    min_size=(820, 580), background_color=window_bg(),
-                                   frameless=not system.IS_MAC, shadow=True)
+                                   frameless=not system.IS_MAC, easy_drag=False, shadow=True)
     api._window = window
     window.events.closed += api.mic_stop
     if not system.IS_MAC:

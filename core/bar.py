@@ -231,7 +231,9 @@ def _halo(W, H, m, gw, gh, r, accent):
     ImageDraw.Draw(shadow).rounded_rectangle((box[0], box[1] + 8 * k / q, box[2], box[3] + 8 * k / q), r / q, fill=(0, 0, 0, 185))
     out = shadow.filter(ImageFilter.GaussianBlur(7 * k / q))
     out.alpha_composite(glow.filter(ImageFilter.GaussianBlur(9 * k / q)))
-    return out.resize((W, H), Image.BILINEAR)
+    out = out.resize((W, H), Image.BILINEAR)
+    out.putalpha(out.getchannel("A").point(lambda a: a if a >= 10 else 0))  # the faintest edge lets clicks through
+    return out
 
 
 if not system.IS_MAC:
@@ -431,7 +433,8 @@ class Bar(Layered):
     # class defaults so a Bar built without __init__ (the tests do) behaves as before: always on screen
     reveal, stage, card, suppressed, _vis, _thru = "always", "hidden", None, False, None, False
     vw, vh, _last = 0.0, 0.0, None  # the glass's size velocities, and when it was last stepped
-    back, _pane, _at = None, None, None  # the blurred screen behind (image, x, y); the last pane; where content went
+    back, _pane, _at, _glass, _grab_h = None, None, None, None, 0  # the blurred screen behind (image, x, y); the last
+    # pane; where the content and the glass were drawn in the window; how tall a glass the grab covers
 
     def __init__(self, root, on_click, on_menu=None, hint="", position="bottom", reveal="always"):
         self.scale = dpi_scale(root)
@@ -479,10 +482,10 @@ class Bar(Layered):
 
     def attach(self, card):
         """A card (core/overlay.py) to grow into, or None to shrink back to the pill."""
-        fresh = card is not None and self.card is None
+        bigger = card is not None and (self.card is None or card.size[1] > self._grab_h)
         self.card, self.dirty = card, True
-        if fresh and self._vis:
-            self._grab()  # the glass is about to cover more of the screen
+        if bigger and self._vis:
+            self._grab()  # the glass is about to cover more of the screen than was grabbed behind it
         self._apply()
         self._wake()
 
@@ -584,7 +587,7 @@ class Bar(Layered):
         half, tall = (max(tw, 300) * 1.1 / 2 + 4) * self.scale, (th * 1.1 + 4) * self.scale
         x0, y0 = int(self.cx - half), int(self.anchor if self.top else self.anchor - tall)
         img = glass.backdrop((x0, y0, int(self.cx + half), int(y0 + tall)))
-        self.back = (img, x0, y0) if img is not None else None
+        self.back, self._grab_h = ((img, x0, y0) if img is not None else None), th
 
     def _text_w(self, text):
         return self.f_label.getlength(text) / SS / self.scale
@@ -633,6 +636,9 @@ class Bar(Layered):
     def _clicked(self, event):
         """On a card, what it says (its buttons, links, stop). On the pill, the mark opens the Nova window and the rest
         is the shortcut (talk, or stop)."""
+        g = self._glass
+        if g and not (g[0] <= event.x < g[2] and g[1] <= event.y < g[3]):
+            return  # the shadow and glow around the glass aren't the bar
         if self.card is not None and self._at:
             return self.card.click(types.SimpleNamespace(x=event.x - self._at[0], y=event.y - self._at[1]))
         if self.on_menu and not self.island and event.x / (self.scale * self.px) - MARGIN < 14 + MARK_W + 6:
@@ -671,6 +677,7 @@ class Bar(Layered):
         self._job = self.win.after(16 if moving and active else 33 if active else 250, self._tick)
 
     def _draw(self):
+        self._glass = None  # set again by _draw_glass; the island and the peek glow take any click
         s = self.scale * SS
         W, H = self.W * SS, self.H * SS
         img = Image.new("RGBA", (W, H))
@@ -776,6 +783,7 @@ class Bar(Layered):
         if not self._pane or self._pane[0] != key:
             self._pane = key, glass.pane(gw, gh, r, T["tint"], accent, back, 150 if paused else glass.OPACITY)
         out.alpha_composite(self._pane[1], (m, m))
+        self._glass = (m, m, m + gw, m + gh)
         grown = min(w / tw, h / th) if tw and th else 1.0
         fade = 1.0 if system.reduced_motion() else max(0.0, min(1.0, (grown - 0.82) / 0.16))
         self._at = None
