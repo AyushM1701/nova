@@ -6303,8 +6303,8 @@ finally:
 deck_page = phone_mod.page(Path("core/app.html"))
 assert 'id="claudeSkills"' in deck_page and "api().claude_skills()" in deck_page and "5-hour window" in deck_page
 assert 'class="dock"' in deck_page and 'class="side"' not in deck_page  # one dock on every page, no sidebar
-assert 'api().drag("caption")' in deck_page and 'id="winctl"' in deck_page and 'data-edge="bottomright"' in deck_page  # frameless: the dock moves it, edges resize
-assert all(f"def {_n}(self" in Path("core/app.py").read_text(encoding="utf-8") for _n in ("minimize", "toggle_max", "drag"))
+assert "app-region: drag" in deck_page and 'api().set_bar(' in deck_page and 'data-edge="top"' in deck_page  # the dock is the title bar
+assert all(f"def {_n}(self" in Path("core/app.py").read_text(encoding="utf-8") for _n in ("set_bar", "toggle_max", "drag"))
 assert 'id="homeLede"' not in deck_page and 'id="deckInfo"' in deck_page  # no instructions on the deck; the footnote behind an (i)
 assert all(f'id="{i}"' in deck_page for i in ("homeStrip", "homeComposer", "homePrompt", "deckClaude", "library", "status", "recent", "gone", "updateBanner", "cfgError", "modeSeg", "pauseBtn", "live", "chatBadge"))
 assert all(f'data-page="{p}"' in deck_page for p in ("home", "chat", "history", "meetings", "dictionary", "skills", "memory", "settings"))

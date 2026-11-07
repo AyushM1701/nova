@@ -265,88 +265,40 @@ class Api:
         """Cmd+W on a Mac: close the window, like its red button."""
         self._window.destroy()
 
-    # ---------- the frameless window's own controls (Windows; the Mac keeps its traffic lights) ----------
-    def minimize(self):
-        self._window.minimize()
-
+    # ---------- the title bar is Nova's dock (Windows: core/winframe.py; the Mac keeps its own) ----------
     def _on_ui(self, fn):
         """Run `fn` on the window's own thread (bridge calls come on another, which can't touch its mouse capture)."""
         from System import Action
         self._window.native.Invoke(Action(fn))
 
+    def set_bar(self, height):
+        """The dock's height (CSS px): the window's own buttons are drawn as tall, in its top-right corner."""
+        frame = getattr(self, "_frame", None)
+        if frame:
+            self._on_ui(lambda: frame.set_bar(height))
+
     def toggle_max(self):
-        """Fill the monitor's work area (a borderless window's own maximize would cover the taskbar), or go back."""
-        self._on_ui(self._toggle_max)
-        return bool(getattr(self, "_restore", None))
-
-    def _toggle_max(self):
         import ctypes
-        from ctypes import wintypes as w
-        u = ctypes.windll.user32
         hwnd = int(self._window.native.Handle.ToInt64())
-        r = w.RECT()
-        u.GetWindowRect(hwnd, ctypes.byref(r))
-        now = (r.left, r.top, r.right - r.left, r.bottom - r.top)
-        if getattr(self, "_restore", None) and now != self._filled:  # moved or resized since it filled: it let go
-            self._restore = None
-        if getattr(self, "_restore", None):
-            x, y, cx, cy = self._restore
-            self._restore = None
-        else:
-            self._restore = now
-
-            class MONITORINFO(ctypes.Structure):
-                _fields_ = [("cbSize", w.DWORD), ("rcMonitor", w.RECT), ("rcWork", w.RECT), ("dwFlags", w.DWORD)]
-            mi = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
-            u.GetMonitorInfoW(u.MonitorFromWindow(hwnd, 2), ctypes.byref(mi))  # MONITOR_DEFAULTTONEAREST
-            a = mi.rcWork
-            x, y, cx, cy = self._filled = (a.left, a.top, a.right - a.left, a.bottom - a.top)
-        u.SetWindowPos(hwnd, 0, x, y, cx, cy, 0x0014)  # SWP_NOZORDER | SWP_NOACTIVATE
+        ctypes.windll.user32.PostMessageW(hwnd, 0x0112, 0xF120 if ctypes.windll.user32.IsZoomed(hwnd) else 0xF030, 0)
 
     def drag(self, where):
-        """A mouse-down on the dock (move) or a window edge (resize): the window follows the pointer until the button
-        is let go. Two quick presses on the dock fill the screen or go back, like a title bar."""
+        """A mouse-down on the window's top edge, handed to Windows, which resizes it. (The dock itself is a title bar
+        to WebView2: `app-region: drag`.)"""
         import ctypes
-        import threading
-        import time
         from ctypes import wintypes as w
         u = ctypes.windll.user32
         hwnd = int(self._window.native.Handle.ToInt64())
-        held = lambda: u.GetAsyncKeyState(0x01) & 0x8000  # VK_LBUTTON, swapped buttons included
+        held = lambda: u.GetAsyncKeyState(0x01) & 0x8000  # VK_LBUTTON
         pt = w.POINT()
         u.GetCursorPos(ctypes.byref(pt))
-        if where == "caption":
-            last, self._last_press = getattr(self, "_last_press", None), (time.monotonic(), pt.x, pt.y)
-            if last and time.monotonic() - last[0] < u.GetDoubleClickTime() / 1000 and abs(pt.x - last[1]) < 6 and abs(pt.y - last[2]) < 6:
-                self._last_press = None
-                return self.toggle_max()
-            if not held():  # already let go
-                return
-        # a borderless window has no title bar or sizing border for Windows to drag, so follow the pointer until release
-        r = w.RECT()
-        u.GetWindowRect(hwnd, ctypes.byref(r))
-        start, x0, y0 = (r.left, r.top, r.right, r.bottom), pt.x, pt.y
-        k = u.GetDpiForWindow(hwnd) / 96 or 1
-        min_w, min_h = 820 * k, 580 * k
+        ht = {"top": 12, "topleft": 13}[where]
 
-        def follow():
-            while held():
-                u.GetCursorPos(ctypes.byref(pt))
-                dx, dy = pt.x - x0, pt.y - y0
-                left, top, right, bottom = start
-                if where == "caption":
-                    left, top, right, bottom = left + dx, top + dy, right + dx, bottom + dy
-                if "left" in where:
-                    left = min(left + dx, right - min_w)
-                if "right" in where:
-                    right = max(right + dx, left + min_w)
-                if "top" in where:
-                    top = min(top + dy, bottom - min_h)
-                if "bottom" in where:
-                    bottom = max(bottom + dy, top + min_h)
-                u.SetWindowPos(hwnd, 0, int(left), int(top), int(right - left), int(bottom - top), 0x0014)
-                time.sleep(1 / 120)
-        threading.Thread(target=follow, daemon=True).start()
+        def grab():  # only while the button is still down: a move started after the release would wait for another
+            if held():
+                u.ReleaseCapture()
+                u.SendMessageW(hwnd, 0xA1, ht, (pt.y & 0xFFFF) << 16 | (pt.x & 0xFFFF))  # WM_NCLBUTTONDOWN
+        threading.Thread(target=lambda: self._on_ui(grab), daemon=True).start()  # the move loop mustn't hold this call
 
     def demo(self):
         """First-run "Show me": this window gets out of the way, then Nova points at something on the screen."""
@@ -949,14 +901,44 @@ def set_window_icon(window):
         for size, which in ((16, 0), (32, 1)):  # ICON_SMALL (title bar), ICON_BIG (taskbar, Alt+Tab)
             icon = load(None, str(nova_icon()), 1, size, size, 0x10)  # IMAGE_ICON, LR_LOADFROMFILE
             ctypes.windll.user32.SendMessageW(hwnd, 0x80, which, ctypes.c_void_p(icon))  # WM_SETICON
-        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(ctypes.c_int(2)), 4)  # Windows 11 round corners
     except Exception as e:  # cosmetic: the window still works with the default icon
         log("error", error=f"window icon: {e!r}")
 
 
+def title_bar_regions():
+    """Let the page mark its own title bar (`app-region: drag` on the dock): WebView2 then moves the window as Windows
+    does, with snapping and double-click to maximize. The setting has to be on before the page loads."""
+    try:
+        from webview.platforms import edgechromium
+    except Exception as e:
+        return log("error", error=f"title bar regions: {e!r}")
+    ready = edgechromium.EdgeChrome.on_webview_ready
+
+    def on_ready(self, sender, args):
+        if args.IsSuccess:
+            try:
+                sender.CoreWebView2.Settings.IsNonClientRegionSupportEnabled = True
+            except Exception as e:  # an older WebView2: the dock just doesn't move the window
+                log("error", error=f"title bar regions: {e!r}")
+        return ready(self, sender, args)
+    edgechromium.EdgeChrome.on_webview_ready = on_ready
+
+
+def attach_frame(window, api):
+    """Windows: the dock becomes the title bar, with the window's own minimize, maximize and close (core/winframe.py)."""
+    from core import winframe
+
+    def attach():
+        try:
+            api._frame = winframe.attach(window)
+        except Exception as e:  # the window keeps Windows' own title bar
+            log("error", error=f"title bar: {e!r}")
+    api._on_ui(attach)
+
+
 def window_bg():
     """The colour the window shows before the page paints: app.html's --bg (the window is always dark)."""
-    return "#0a0a0c"
+    return "#0c0c10"  # the dock's colour: the window's own buttons sit on it
 
 
 PROBE_JS = """JSON.stringify({text: document.body.innerText.length, booted: typeof S !== "undefined" && !!S.cfg,
@@ -985,12 +967,13 @@ def main():
             log("error", error=f"dock icon: {e!r}")
     api = Api()
     window = webview.create_window("Nova", html=phone.page(HTML), js_api=api, width=1080, height=740,
-                                   min_size=(820, 580), background_color=window_bg(),
-                                   frameless=not system.IS_MAC, easy_drag=False, shadow=True)
+                                   min_size=(820, 580), background_color=window_bg())
     api._window = window
     window.events.closed += api.mic_stop
     if not system.IS_MAC:
+        title_bar_regions()
         window.events.shown += lambda: set_window_icon(window)
+        window.events.shown += lambda: attach_frame(window, api)
     webview.start(debug=bool(os.environ.get("NOVA_DEBUG")))
 
 
