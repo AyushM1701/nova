@@ -385,7 +385,7 @@ class Nova(BackgroundMixin, SuggestMixin):
                          on_open=lambda: self.open_app("chat"), hotkey=system.pretty_hotkey(self.hotkey), position=position,
                          on_ask=lambda: self.on_hotkey())
         # clicking the bar works like the shortcut; right-click opens the Nova window
-        self.bar = Bar(self.root, self.on_bar_click, on_menu=self.open_app, hint=self.hint(), position=position,
+        self.bar = Bar(self.root, self.on_bar_click, on_menu=self.open_app, position=position,
                        reveal=self.cfg["overlay"]["reveal"])
         self.card.bar = self.bar  # the pill stays on screen while a card hangs under it
         audio.apply_devices(self.cfg["voice"])
@@ -563,7 +563,6 @@ class Nova(BackgroundMixin, SuggestMixin):
             self.keys.stop()
         self.keys, self.hotkey = keys, combo
         self.card.set_hotkey(self.pretty())
-        self.bar.hint = self.hint()
         return True
 
     def bind_hotkey_2(self, combo):
@@ -698,11 +697,6 @@ class Nova(BackgroundMixin, SuggestMixin):
     def pretty(self):
         return system.pretty_hotkey(self.hotkey)
 
-    def hint(self):
-        if self.cfg["triple_tap"]:  # the default way to talk: Ctrl (Cmd on a Mac) tapped three times
-            return f"Click, or tap {'Cmd' if system.IS_MAC else 'Ctrl'} three times, to talk"
-        return f"Click or press {self.pretty()} to talk"
-
     # ---------- settings: config.json is watched, so the window, the AI or a text editor can change it ----------
     @staticmethod
     def config_mtime():
@@ -768,7 +762,6 @@ class Nova(BackgroundMixin, SuggestMixin):
             self.bind_holds()
         if cfg["triple_tap"] != old["triple_tap"]:
             self.bind_triple(cfg["triple_tap"])
-            self.bar.hint = self.hint()
         if hotkey != self.hotkey and not self.bind_hotkeys(hotkey):
             self.card.show("Shortcut not changed", f"\"{hotkey}\" can't be used as a shortcut. "
                            f"Nova still uses {self.pretty()}.", hide_after=8)

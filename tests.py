@@ -2727,6 +2727,13 @@ for tool, inp in [("Write", {"file_path": f"{nova_home}/config.json", "content":
         assert classify(tool, inp, nova_home, [], nova_home, None, mode)[0] == "block", (tool, mode)
 assert classify("Edit", {"file_path": f"{nova_home}/config.json", "new_string": '"hotkey": "ctrl+shift+n"'},
                 nova_home, [], nova_home, None, "auto") == ("confirm", "changes Nova itself")
+# ...and so is a shell command that writes there: a redirect is refused, any other unfamiliar one asks even in Auto
+_ws = f"{nova_home}/workspace"
+for cmd in ("echo allow > ../guard/guard.py", "echo {} >> ..\\config.json", f'echo x > "{nova_home}/guard/rules.py"'):
+    assert classify("Bash", {"command": cmd}, _ws, [], nova_home, None, "auto")[0] == "block", cmd
+assert classify("PowerShell", {"command": "Set-Content ..\\guard\\guard.py x"}, _ws, [], nova_home, None, "auto")[0] == "confirm"
+assert classify("Bash", {"command": "echo hi > notes.txt"}, _ws, [], nova_home, None, "auto")[0] == "allow"
+assert classify("Bash", {"command": "cat ../guard/guard.py"}, _ws, [], nova_home, None, "auto")[0] == "allow"
 # ...judged on the file afterwards: changing a value inside the safety section names no section, and is still refused
 _home = Path(tempfile.mkdtemp())
 (_home / "config.json").write_text(json.dumps({"safety": {"mode": "auto", "tainted_manual": True}, "hotkey": "x"}, indent=2),
@@ -4811,6 +4818,7 @@ with_label, with_badge = look.glyph("idle", 0, "Save"), look.glyph("idle", 0, ""
 assert with_label.width > look.glyph("idle", 0).width and with_badge.size == look.glyph("idle", 0).size
 gradient = look.bar_colors("idle")
 assert len(set(gradient)) == 5 and gradient[0] != gradient[4] and gradient[0][2] > 200  # the mark's own colours: violet first, pink last
+assert gradient == __import__("core.theme", fromlist=["MARK"]).MARK  # the same five colours as the bar's mark
 assert look.bar_colors("approval") == [pointer_mod.AMBER] * 5 and look.bar_colors("paused") == [pointer_mod.GREY] * 5
 look.set_color((255, 0, 0))
 assert look.color == (255, 0, 0) and all(c[0] >= 255 * 0.9 for c in look.bar_colors("idle")) and look.glyph("idle", 0).size in sizes  # a chosen colour tints the bars
@@ -7103,6 +7111,7 @@ nova_mod.tts.speak = lambda text, v, stop: _spoken_calls.append(text)
 _nn.cfg = merged(json.loads(Path("config.default.json").read_text(encoding="utf-8")), {})
 _nn.cfg["voice"]["barge_in"] = False
 _nn.voice, _nn.stt, _nn.sysaudio, _nn.cancel, _nn.stop_tts = True, None, None, threading.Event(), threading.Event()
+_nn.heard = ""  # set by the real constructor; the speech thread reads it
 _nn.ui, _nn.show_bar, _nn.card = (lambda fn: fn()), (lambda s: None), types.SimpleNamespace(show=lambda *a, **k: None)
 _nn.interrupted = lambda spoken, *a: _spoken_calls.append(("interrupted", spoken))
 def _early_said(line, interrupted=None, aborted=False):

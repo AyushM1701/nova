@@ -12,13 +12,12 @@ import time
 
 from PIL import Image, ImageDraw, ImageFilter
 
-from core import system
+from core import system, theme
 from core.bar import Layered, _font, dpi_scale
 
 SS = 3  # drawn 3x, then downscaled: smooth edges
 BLUE, AMBER, GREY = (51, 128, 255), (255, 186, 60), (150, 155, 175)  # a chosen colour's old default, approval, paused
 NOVA = None  # the setting "nova": the mark in its own colours
-RAMP = ((0.0, (123, 109, 255)), (0.31, (90, 140, 255)), (0.62, (63, 214, 230)), (1.0, (224, 71, 154)))  # the mark's violet, blue, cyan, pink
 BARS = ((8.3, 11, 26), (14.9, 11.5, 13), (21.5, 17.5, 13), (28.1, 23.5, 13), (34.7, 11, 26))  # x, y, height in the 48 px mark: they spell an N
 TILE = 26  # design px: the tile the bars sit on
 EDGE, BG, TEXT = (255, 255, 255), (13, 15, 26, 236), (240, 242, 250)
@@ -220,13 +219,7 @@ class Pointer(Layered):
             return [AMBER] * 5
         if state == "paused":
             return [GREY] * 5
-        if self.color is NOVA:
-            def at(t):
-                (t0, c0), (t1, c1) = next(pair for pair in zip(RAMP, RAMP[1:]) if t <= pair[1][0])
-                k = (t - t0) / (t1 - t0)
-                return tuple(round(c0[i] + (c1[i] - c0[i]) * k) for i in range(3))
-            return [at((x + 2.5 - 8) / 32) for x, _, _ in BARS]
-        return [tuple(min(255, round(c + (255 - c) * lift)) for c in self.color) for lift in (0.0, 0.1, 0.2, 0.1, 0.0)]
+        return theme.marks(self.color)
 
     def glyph(self, state, frame, label="", badge=0):
         """The marker as an image, its top-left corner MARGIN design pixels in from the corner of the image. States move the

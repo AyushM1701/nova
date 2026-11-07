@@ -238,7 +238,19 @@ def classify_command(cmd, home=None, mode="accept_edits", cwd=None):
         and _fresh_script(cmd, cwd)
     if fresh:
         return "confirm", f"runs code from {fresh}, which was written or changed in the last few minutes"
+    # Auto lets an unfamiliar command through, but not one naming Nova's guard or config ("Set-Content guard\x.py")
+    if mode == "auto" and tier == "confirm" and why.startswith(UNFAMILIAR) and \
+            any(_safety_file(w, home, cwd) for w in re.findall(r"[^\s\"'`;|&<>(),=]+", cmd)):
+        return "confirm", why
     return with_mode(tier, why, mode)
+
+
+def _safety_file(word, home, cwd):
+    """True if `word` names Nova's guard (the folder or a file in it) or its config.json, which holds the safety settings."""
+    if not home or not re.search(r"guard|config\.json", word, re.I):
+        return False
+    full = _real(cwd or home, word)
+    return _under(full, os.path.join(home, "guard")) or _under(full, os.path.join(home, "config.json"))
 
 
 def _command(cmd, home=None, cwd=None):
@@ -299,6 +311,8 @@ def _command(cmd, home=None, cwd=None):
         if re.search(pattern, c):
             return "confirm", why
     if ">" in re.sub(r"\d?>\s*&\s*\d|\d?>\s*(\$null|/dev/null|nul)\b", "", c):
+        if any(_safety_file(t, home, cwd) for t in re.findall(r">\s*[\"']?([^\s\"';|&<>()]+)", cmd)):
+            return "block", NOVA_SAFETY  # the same rule the Edit tool gets: "echo x > guard/guard.py"
         return "confirm", "writes a file through a redirect"
     if cwd and _local_program(cmd, cwd):  # "start build" runs build.bat from this folder
         return "confirm", "starts a program that lives in this folder"

@@ -75,8 +75,10 @@ def apply(color):
     PICK[0] = color or None
 
 
-def marks():
-    """The colours of the mark's five bars: Nova's own, or shades of the picked colour (as the cursor's mark does)."""
-    if not PICK[0]:
+def marks(color=False):
+    """The colours of the mark's five bars: Nova's own, or shades of a picked colour (by default the current pick;
+    None is Nova's own). The bar and the cursor's mark both use this."""
+    color = PICK[0] if color is False else color
+    if not color:
         return list(MARK)
-    return [tuple(min(255, round(c + (255 - c) * lift)) for c in PICK[0]) for lift in (0.0, 0.1, 0.2, 0.1, 0.0)]
+    return [tuple(min(255, round(c + (255 - c) * lift)) for c in color) for lift in (0.0, 0.1, 0.2, 0.1, 0.0)]

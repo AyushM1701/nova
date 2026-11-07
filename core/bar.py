@@ -5,8 +5,8 @@ you speak, shows a travelling wave while Nova thinks, a voice waveform while it 
 needs your OK. Click it to talk, right-click it to open the Nova window.
 
 It sits at the top centre, out of sight until the pointer rests at the top edge (or Nova is working); or at the
-bottom centre (above the taskbar or Dock), always visible. On a MacBook with a notch it hangs from the notch and
-grows out of it, like the Dynamic Island. Drawn with per-pixel alpha so the edges stay
+bottom centre (above the taskbar or Dock), always visible. On a MacBook with a notch it hangs just below the
+notch, centred on it. Drawn with per-pixel alpha so the edges stay
 smooth: a layered window on Windows, a native borderless window on macOS (sharp on Retina, never takes
 focus, and clicks pass through its transparent parts).
 """
@@ -21,7 +21,7 @@ import types
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
-from core import glass, icon, system, theme
+from core import glass, system, theme
 
 if not system.IS_MAC:
     from ctypes import wintypes as w
@@ -41,8 +41,6 @@ if not system.IS_MAC:
 
 SS = 3  # draw 3x larger, then downscale: anti-aliased edges
 BOX = (300, 56)  # window size in logical px; the pill (6 px in, CAPSULE tall) and its halo are drawn inside it
-SIZES = {"idle": (64, 14), "paused": (64, 14), "listening": (156, 36), "thinking": (92, 30),
-         "speaking": (124, 30), "approval": (92, 30), "hover": (0, 30)}  # the notch island's; the capsule works its own out
 CAPSULE = 42  # the pill's height, logical px
 MARGIN = 24  # logical px of transparent room around the glass, for its shadow and the accent's glow
 # Nova's logo, as the tray icon and the window draw it: five bars in a 48-unit square that spell an N (x, y, height)
@@ -67,14 +65,7 @@ def in_out(p):
     return p * p * (3 - 2 * p)
 MIST = (224, 231, 255)  # the light end of the waveform's gradient
 GREY = (150, 152, 160)
-WHITE, AMBER, DIM, INK = (255, 255, 255), (255, 186, 60), (190, 193, 214), (11, 13, 26)
-LIGHT = {False: (169, 161, 255), True: AMBER}  # the thinking dots: light violet, or amber when Nova needs you
-
-
-@functools.lru_cache(maxsize=4)
-def _logo(size):
-    """The bars of Nova's icon at `size` px (drawing pixels), drawn once."""
-    return icon.draw(size, tile=False)
+WHITE, AMBER = (255, 255, 255), (255, 186, 60)
 
 
 def _inside(point, rect):
@@ -486,12 +477,12 @@ class Bar(Layered):
     back, _pane, _at, _glass, _grab_h = None, None, None, None, 0  # the blurred screen behind (image, x, y); the last
     # pane; where the content and the glass were drawn in the window; how tall a glass the grab covers
 
-    def __init__(self, root, on_click, on_menu=None, hint="", position="bottom", reveal="always"):
+    def __init__(self, root, on_click, on_menu=None, position="bottom", reveal="always"):
         self.scale = dpi_scale(root)
-        self.hint, self.font, self.hovering = hint, _font(int(12 * self.scale * SS)), False
+        self.hovering = False
         self.f_label = ui_font(int(12 * self.scale * SS), 500)
         self.area, self.top = None, position == "top"
-        self.reveal = "always" if system.IS_MAC else reveal  # the notch island stays; hover-reveal is Windows for now
+        self.reveal = "always" if system.IS_MAC else reveal  # hover-reveal is Windows for now
         self.reveals = Reveal()
         self.notch = system.notch()  # (width, height) of a MacBook's notch, or (0, 0)
         target = self._init_surface(root, level=25)  # macOS: above full-screen apps and the menu bar
@@ -628,17 +619,10 @@ class Bar(Layered):
         self.hovering, self.dirty, self._hover_at = on, True, time.monotonic()
         self._wake()
 
-    def _expanded(self):
-        """The idle pill opens into the capsule while the pointer is on it, or when it has just opened at the top edge."""
-        return self.state == "idle" and (self.hovering or self.card is not None or self.stage == "open" and self.reveal == "hover")
-
-    def _hint_on(self):
-        return self._expanded() and bool(self.hint)
-
     def _grab(self):
         """The screen behind where the glass is going, blurred, for its glass (Nova's own windows are left out of it).
         A tenth larger than the glass: the spring overshoots a little on its way."""
-        if self.island or system.IS_MAC:
+        if system.IS_MAC:
             self.back = None
             return
         tw, th = self._target()
@@ -669,17 +653,7 @@ class Bar(Layered):
         return w + 14
 
     def _target(self):
-        if self.card is not None:
-            return self.card.size
-        if not self.island:
-            return self._pill_width(), CAPSULE
-        if self._hint_on():
-            text_w = self.font.getlength(self.hint) / SS / self.scale
-            w, h = min(BOX[0] - 12, text_w + 28), SIZES["hover"][1]
-        else:
-            w, h = SIZES[self.state]
-        nw, nh = self.notch  # grows out of the notch: at least as wide, content below it
-        return (nw, nh) if self.state in ("idle", "paused") and not self.hovering else (max(nw, w + 24), nh + h + 6)
+        return self.card.size if self.card is not None else (self._pill_width(), CAPSULE)
 
     def set(self, state):
         if state == "listening" and self.state != "listening":
@@ -699,7 +673,7 @@ class Bar(Layered):
             return  # the shadow and glow around the glass aren't the bar
         if self.card is not None and self._at:
             return self.card.click(types.SimpleNamespace(x=event.x - self._at[0], y=event.y - self._at[1]))
-        if self.on_menu and not self.island and event.x / (self.scale * self.px) - MARGIN < 14 + MARK_W + 6:
+        if self.on_menu and event.x / (self.scale * self.px) - MARGIN < 14 + MARK_W + 6:
             return self.on_menu()
         self.on_click()
 
@@ -776,7 +750,7 @@ class Bar(Layered):
         return out, x, y, round(255 * p)
 
     def _draw(self):
-        self._glass = None  # set again by _draw_glass; the island and the peek glow take any click
+        self._glass = None  # set again by _draw_glass; the peek glow takes any click
         s = self.scale * SS
         W, H = self.W * SS, self.H * SS
         img = Image.new("RGBA", (W, H))
@@ -792,70 +766,7 @@ class Bar(Layered):
                                              time.monotonic())
             self._present(glow, x, y, alpha)
             return
-        if not self.island or self.card is not None:
-            return self._draw_glass()
-        pw, ph = self.w * s, self.h * s
-        x0 = (W - pw) / 2
-        if self.island:
-            y0 = 0
-        elif self.top:
-            y0 = 6 * s
-        else:
-            y0 = H - 6 * s - ph
-        y1 = y0 + ph
-        corners = (False, False, True, True) if self.island else None  # flat top where it meets the notch
-        state, t = self.state, time.monotonic()
-        idle = state in ("idle", "paused")
-        tint = AMBER if state == "approval" else theme.T["accent"]
-        glow = {"listening": 0.55, "thinking": 0.35 + 0.25 * math.sin(t * 2.4), "approval": 0.45 + 0.3 * math.sin(t * 3)}
-        if state in glow:  # a soft halo: mic is live, Nova is working, or it needs you
-            for i, spread in enumerate((5, 3.2, 1.6)):
-                g = spread * s
-                d.rounded_rectangle((x0 - g, y0 - (0 if self.island else g), x0 + pw + g, y1 + g), radius=ph / 2 + g,
-                                    corners=corners, outline=tint + (int(glow[state] * (40 + 35 * i)),),
-                                    width=max(1, round(1.4 * s)))
-        if self.island:  # pure black, so it reads as part of the notch
-            d.rounded_rectangle((x0, y0, x0 + pw, y1), radius=min(ph / 2, 14 * s), corners=corners, fill=(0, 0, 0, 255))
-        else:
-            d.rounded_rectangle((x0, y0, x0 + pw, y1), radius=ph / 2,
-                                fill=(13, 15, 26, 150 if state == "paused" else 238),
-                                outline=(tint if state in ("approval", "thinking") else WHITE)
-                                + ((90 if state == "paused" else 120 if idle else 215),),
-                                width=max(1, round(1.4 * s)))
-        top_of_content = y0 + (self.notch[1] * s if self.island else 0)
-        cx, cy = W / 2, (top_of_content + y1) / 2
-        inner = min(ph, y1 - top_of_content) - 12 * s
-        target_w = self._target()[0]
-        if idle and self._hint_on() and pw >= 0.92 * target_w * s:
-            d.text((cx, cy), self.hint, font=self.font, fill=DIM + (255,), anchor="mm")
-        elif idle and (pw < 0.92 * target_w * s or self.island):
-            pass  # still changing size; in the notch, standby is simply the notch itself
-        elif idle:  # standby: five faint dots, so the pill reads as Nova and not an empty field
-            for i in range(5):
-                r, x = 1.1 * s, cx + (i - 2) * 6.5 * s
-                d.ellipse((x - r, cy - r, x + r, cy + r), fill=WHITE + (70 if state == "paused" else 105,))
-        elif pw < 0.85 * target_w * s:
-            pass
-        elif state == "listening":  # the voice level, tallest in the middle, smoothed so it doesn't jitter
-            n = len(self.levels)
-            for i, lv in enumerate(self.levels):
-                aim = min(1.0, lv * 1.5) * (0.45 + 0.55 * math.sin(math.pi * (i + 0.5) / n))
-                self.shown[i] += (aim - self.shown[i]) * (0.6 if aim > self.shown[i] else 0.22)
-            self._bars(d, cx, cy, s, [v * inner for v in self.shown], 3 * s)
-        elif state == "speaking":  # two layered waves, like a voice rather than a metronome
-            heights = [(0.25 + 0.75 * abs(0.6 * math.sin(t * 4.2 + i * 0.55) + 0.4 * math.sin(t * 7.1 + i * 1.3)))
-                       * (0.5 + 0.5 * math.sin(math.pi * (i + 0.5) / 9)) * inner for i in range(9)]
-            self._bars(d, cx, cy, s, heights, 3 * s)
-        else:  # thinking / approval: three dots in a travelling wave
-            for i in range(3):
-                phase = t * 5.2 - i * 0.75
-                lift, a = max(0.0, math.sin(phase)) * 3.2 * s, 0.55 + 0.45 * max(0.0, math.sin(phase))
-                r, x = 2.4 * s, cx + (i - 1) * 9 * s
-                d.ellipse((x - r, cy - r - lift, x + r, cy + r - lift), fill=LIGHT[state == "approval"] + (int(255 * a),))
-
-        # an exact box filter is several times faster than LANCZOS, and as smooth for a whole-number reduction
-        self._present(img.reduce(SS) if self.px == 1 else img.resize((self.W * self.px, self.H * self.px), Image.LANCZOS),
-                      self.x, self.y)
+        self._draw_glass()
 
     def _draw_glass(self):
         """One shape of frosted glass: the pill, or the card it grows into. Its size follows a spring toward the
@@ -981,12 +892,3 @@ class Bar(Layered):
                        (x - n, y - n)], fill=color + (255,))
         star(cx - r * .2, cy + r * .1, r * .85)
         star(cx + r * .75, cy - r * .7, r * .38)
-
-    @staticmethod
-    def _bars(d, cx, cy, s, heights, bw, color=WHITE):
-        gap = 3.2 * s if bw < 3 * s else 4 * s
-        x = cx - (len(heights) * (bw + gap) - gap) / 2
-        for hh in heights:
-            hh = max(bw, hh)
-            d.rounded_rectangle((x, cy - hh / 2, x + bw, cy + hh / 2), radius=bw / 2, fill=color + (240,))
-            x += bw + gap
