@@ -1493,8 +1493,7 @@ function frameless() {  // Windows: no OS title bar, so the dock moves the windo
     if (b.dataset.win === "toggle_max") { $("#edges").hidden = filled; b.title = filled ? "Restore" : "Maximize"; b.setAttribute("aria-label", b.title); }
   });
   const dock = $(".dock");
-  dock.addEventListener("mousedown", e => { if (e.button === 0 && e.detail === 1 && !e.target.closest("button, a, input, label, nav, .seg, .live")) api().drag("caption"); });
-  dock.addEventListener("dblclick", e => { if (!e.target.closest("button, a, input, label, nav, .seg, .live")) $("[data-win=toggle_max]").click(); });
+  dock.addEventListener("mousedown", e => { if (e.button === 0 && !e.target.closest("button, a, input, label, .seg, .live")) api().drag("caption"); });
   $("#edges").addEventListener("mousedown", e => { if (e.button === 0 && e.target.dataset.edge) api().drag(e.target.dataset.edge); });
 }
 function macify() {

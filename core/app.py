@@ -284,35 +284,69 @@ class Api:
         from ctypes import wintypes as w
         u = ctypes.windll.user32
         hwnd = int(self._window.native.Handle.ToInt64())
+        r = w.RECT()
+        u.GetWindowRect(hwnd, ctypes.byref(r))
+        now = (r.left, r.top, r.right - r.left, r.bottom - r.top)
+        if getattr(self, "_restore", None) and now != self._filled:  # moved or resized since it filled: it let go
+            self._restore = None
         if getattr(self, "_restore", None):
             x, y, cx, cy = self._restore
             self._restore = None
         else:
-            r = w.RECT()
-            u.GetWindowRect(hwnd, ctypes.byref(r))
-            self._restore = (r.left, r.top, r.right - r.left, r.bottom - r.top)
+            self._restore = now
 
             class MONITORINFO(ctypes.Structure):
                 _fields_ = [("cbSize", w.DWORD), ("rcMonitor", w.RECT), ("rcWork", w.RECT), ("dwFlags", w.DWORD)]
             mi = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
             u.GetMonitorInfoW(u.MonitorFromWindow(hwnd, 2), ctypes.byref(mi))  # MONITOR_DEFAULTTONEAREST
             a = mi.rcWork
-            x, y, cx, cy = a.left, a.top, a.right - a.left, a.bottom - a.top
+            x, y, cx, cy = self._filled = (a.left, a.top, a.right - a.left, a.bottom - a.top)
         u.SetWindowPos(hwnd, 0, x, y, cx, cy, 0x0014)  # SWP_NOZORDER | SWP_NOACTIVATE
 
     def drag(self, where):
-        """Hand a mouse-down on the dock or a window edge to Windows, which then moves or resizes the window itself."""
+        """A mouse-down on the dock (move) or a window edge (resize): the window follows the pointer until the button
+        is let go. Two quick presses on the dock fill the screen or go back, like a title bar."""
         import ctypes
-        if getattr(self, "_restore", None):
-            self._restore = None  # dragging a filled window lets it go, like a maximized one
-        ht = {"caption": 2, "left": 10, "right": 11, "top": 12, "topleft": 13, "topright": 14, "bottom": 15,
-              "bottomleft": 16, "bottomright": 17}[where]
+        import threading
+        import time
+        from ctypes import wintypes as w
+        u = ctypes.windll.user32
         hwnd = int(self._window.native.Handle.ToInt64())
+        held = lambda: u.GetAsyncKeyState(0x01) & 0x8000  # VK_LBUTTON, swapped buttons included
+        pt = w.POINT()
+        u.GetCursorPos(ctypes.byref(pt))
+        if where == "caption":
+            last, self._last_press = getattr(self, "_last_press", None), (time.monotonic(), pt.x, pt.y)
+            if last and time.monotonic() - last[0] < u.GetDoubleClickTime() / 1000 and abs(pt.x - last[1]) < 6 and abs(pt.y - last[2]) < 6:
+                self._last_press = None
+                return self.toggle_max()
+            if not held():  # already let go
+                return
+        # a borderless window has no title bar or sizing border for Windows to drag, so follow the pointer until release
+        r = w.RECT()
+        u.GetWindowRect(hwnd, ctypes.byref(r))
+        start, x0, y0 = (r.left, r.top, r.right, r.bottom), pt.x, pt.y
+        k = u.GetDpiForWindow(hwnd) / 96 or 1
+        min_w, min_h = 820 * k, 580 * k
 
-        def grab():  # on the window's thread: the page's mouse capture is released there, then Windows takes over
-            ctypes.windll.user32.ReleaseCapture()
-            ctypes.windll.user32.PostMessageW(hwnd, 0xA1, ht, 0)  # WM_NCLBUTTONDOWN
-        self._on_ui(grab)
+        def follow():
+            while held():
+                u.GetCursorPos(ctypes.byref(pt))
+                dx, dy = pt.x - x0, pt.y - y0
+                left, top, right, bottom = start
+                if where == "caption":
+                    left, top, right, bottom = left + dx, top + dy, right + dx, bottom + dy
+                if "left" in where:
+                    left = min(left + dx, right - min_w)
+                if "right" in where:
+                    right = max(right + dx, left + min_w)
+                if "top" in where:
+                    top = min(top + dy, bottom - min_h)
+                if "bottom" in where:
+                    bottom = max(bottom + dy, top + min_h)
+                u.SetWindowPos(hwnd, 0, int(left), int(top), int(right - left), int(bottom - top), 0x0014)
+                time.sleep(1 / 120)
+        threading.Thread(target=follow, daemon=True).start()
 
     def demo(self):
         """First-run "Show me": this window gets out of the way, then Nova points at something on the screen."""
