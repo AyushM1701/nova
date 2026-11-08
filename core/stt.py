@@ -22,6 +22,7 @@ if os.name == "nt":
 
 from faster_whisper import WhisperModel  # noqa: E402
 from faster_whisper.utils import download_model  # noqa: E402
+from faster_whisper.vad import VadOptions  # noqa: E402
 
 from core.cleanup import drop_outro, fix_vocabulary, is_prompt_echo  # noqa: E402
 
@@ -151,7 +152,8 @@ class STT:
     def pick(self, model, audio):
         """The language spoken, chosen among the user's own (`likely`): (code, its share of their probability).
         Whisper picks from 99 on a second or two of speech and guesses wrong (a short "okay" as Telugu)."""
-        _, _, ranked = model.detect_language(audio, vad_filter=True, vad_parameters=VAD)
+        # unlike transcribe(), detect_language() takes the voice filter's settings only as VadOptions
+        _, _, ranked = model.detect_language(audio, vad_filter=True, vad_parameters=VadOptions(**VAD))
         mine = {}
         for code, p in ranked:
             code = ALIKE.get(code, code)

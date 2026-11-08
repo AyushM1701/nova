@@ -2476,7 +2476,9 @@ assert stt_obj.transcribe(np.zeros(16000, np.float32)) == "turbo text" and [n fo
 langs, prompts = [], []
 guess = type("M", (), {"transcribe": lambda self, *a, **k: (langs.append(k["language"]) or prompts.append(k["initial_prompt"])
                                                               or [Seg(0, 1, "ok")], Info(k["language"])),
-                       "detect_language": lambda self, *a, **k: ("te", 0.6, [("te", 0.6), ("ur", 0.3), ("en", 0.1)])})()
+                       "detect_language": lambda self, *a, **k: (  # faster-whisper's own takes only VadOptions here
+                           type(k["vad_parameters"]).__name__ == "VadOptions" or 1 / 0) and
+                           ("te", 0.6, [("te", 0.6), ("ur", 0.3), ("en", 0.1)])})()
 stt_obj.fast, stt_obj.accurate, stt_obj.likely = guess, None, ("en", "hi")
 assert stt_obj.transcribe(np.zeros(16000, np.float32), vocabulary=["Nova"]) == "ok" and langs == ["en"], langs
 assert stt_obj.heard == ("hi", 0.75) and stt_mod.HINGLISH in prompts[0] and "Nova" in prompts[0]
