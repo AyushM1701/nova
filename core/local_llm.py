@@ -15,7 +15,8 @@ class LocalLLM:
         self.url, self.model = url.rstrip("/"), model
 
     def clean(self, system_prompt, text, model, timeout=20):
-        body = json.dumps({"model": model or self.model, "temperature": 0, "stream": False,
+        # keep_alive: Ollama keeps the model loaded, so no request waits seconds for it to load again
+        body = json.dumps({"model": model or self.model, "temperature": 0, "stream": False, "keep_alive": -1,
                            "messages": [{"role": "system", "content": system_prompt},
                                         {"role": "user", "content": text}]}).encode()
         req = urllib.request.Request(f"{self.url}/chat/completions", data=body,

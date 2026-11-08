@@ -799,7 +799,8 @@ assert unsure(types.SimpleNamespace(no_speech_prob=0.0, avg_logprob=-0.2, compre
 stt_stub = STT.__new__(STT)
 stt_stub.fast, stt_stub.accurate, stt_stub.small, stt_stub.device = (
     types.SimpleNamespace(transcribe=lambda *a, **k: ([types.SimpleNamespace(text=" v s o n", no_speech_prob=0.1, avg_logprob=-0.5, compression_ratio=3.5)],
-                                                      types.SimpleNamespace(language="en"))), None, None, "CPU")
+                                                      types.SimpleNamespace(language="en")),
+                          detect_language=lambda *a, **k: ("en", 1.0, [("en", 1.0)])), None, None, "CPU")
 stt_stub.transcribe(None)
 assert stt_stub.shaky
 stt_stub.transcribe(None, server=types.SimpleNamespace(transcribe=lambda *a: "hello there"))
@@ -1677,6 +1678,14 @@ audio.MIC = FakeMic([quiet] * 10 + [loud] * 5 + [quiet] * 100 + [loud] * 5)
 streamed = []
 got = audio.record(None, 5, stop, on_block=streamed.append)
 assert len(got) == 120 * 480 and len(streamed) == 120, "a held recording keeps going through pauses"
+# long dictation is heard phrase by phrase while it's spoken: a pause after 4 s or more of speech sends that phrase off;
+# at the end only the rest is heard, and the text is the phrases in order
+heard_parts = []
+phrases = audio.Phrases(lambda part: heard_parts.append(len(part)) or f"part{len(heard_parts)}")
+audio.MIC = FakeMic([quiet] * 10 + [loud] * 150 + [quiet] * 20 + [loud] * 30 + [quiet] * 20 + [loud] * 10 + [quiet] * 40)
+got = audio.record(1000, 30, stop, on_pause=phrases.pause)
+assert len(heard_parts) == 1, heard_parts  # the first pause (after 4.5 s) sends; the second (after 1.5 s more) waits
+assert phrases.finish(got) == "part1 part2" and sum(heard_parts) == len(got)  # no sound lost, none heard twice
 audio.MIC = FakeMic([])
 try:
     audio.record(1000, 4, stop)
@@ -1829,6 +1838,44 @@ opened[0].shutdown(socket.SHUT_RDWR)  # the service drops the idle connection
 time.sleep(0.2)
 assert speech.transcribe(np.zeros(1600, np.float32), "", "") == "hello there" and len(opened) == 2  # reopened
 server.shutdown()
+
+# Sarvam (opt-in, the user's key): Saaras v3 in "translit" mode, so Hindi comes back in Roman letters; its own header
+sarvam_seen = {}
+
+
+class SarvamServer(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        sarvam_seen["key"] = self.headers["api-subscription-key"]
+        sarvam_seen["body"] = self.rfile.read(int(self.headers["Content-Length"])).decode("latin-1")
+        out = json.dumps({"request_id": "x", "transcript": "play char diwari ek banda kaam ka", "language_code": "hi-IN"}).encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(out)))
+        self.end_headers()
+        self.wfile.write(out)
+
+    def log_message(self, *_):
+        pass
+
+
+sarvam_srv = http.server.HTTPServer(("127.0.0.1", 0), SarvamServer)
+threading.Thread(target=sarvam_srv.serve_forever, daemon=True).start()
+sarvam = cloud_stt.Cloud("sarvam", "sk-test", url=f"http://127.0.0.1:{sarvam_srv.server_port}/speech-to-text")
+assert sarvam.hindi_only and sarvam.transcribe(np.zeros(1600, np.float32), "hi", None) == "play char diwari ek banda kaam ka"
+assert sarvam_seen["key"] == "sk-test" and all(f'name="{k}"\r\n\r\n{v}' in sarvam_seen["body"] for k, v in
+                                               (("model", "saaras:v3"), ("mode", "translit"), ("language_code", "hi-IN")))
+sarvam_srv.shutdown()
+# ...and it hears only clips detected as Hindi: English stays on this computer
+heard_by = []
+both = type("M", (), {"transcribe": lambda self, *a, **k: (heard_by.append("whisper") or [types.SimpleNamespace(text="pause the music")],
+                                                              None),
+                      "detect_language": lambda self, *a, **k: (said_in[0], 0.9, [(said_in[0], 0.9)])})()
+hindi_srv = types.SimpleNamespace(transcribe=lambda audio, lang, prompt: heard_by.append("sarvam") or "gaana chalao")
+local_stt = object.__new__(stt_mod.STT)
+local_stt.fast, local_stt.accurate, local_stt.likely = both, None, ("en", "hi")
+said_in = ["hi"]
+assert local_stt.transcribe(np.zeros(16000, np.float32), hindi=hindi_srv) == "gaana chalao" and heard_by == ["sarvam"]
+said_in[0] = "en"
+assert local_stt.transcribe(np.zeros(16000, np.float32), hindi=hindi_srv) == "pause the music" and heard_by[-1] == "whisper"
 
 # what the computer played: kept as audio until asked, then transcribed, including the words still buffering
 from core import loopback  # noqa: E402
@@ -2418,17 +2465,23 @@ assert ticks == sorted(set(ticks)) and len(ticks) == 101, len(ticks)  # 0% to 10
 Info = __import__("collections").namedtuple("Info", "language")
 used = []
 model = lambda name: type("M", (), {"transcribe": lambda self, *a, **k: (  # noqa: E731
-    used.append((name, k["task"])) or [Seg(0, 1, f"{name} text")], Info("es"))})()
+    used.append((name, k["task"])) or [Seg(0, 1, f"{name} text")], Info("es")),
+    "detect_language": lambda self, *a, **k: ("es", 0.9, [("es", 0.9), ("en", 0.1)])})()
 stt_obj.device, stt_obj.fast, stt_obj.accurate, stt_obj.likely = "CPU", model("small"), model("turbo"), ("en", "es")
 assert stt_obj.transcribe(np.zeros(16000, np.float32), task="translate") == "small text" and used == [("small", "translate")]
 used.clear()
-assert stt_obj.transcribe(np.zeros(16000, np.float32)) == "turbo text" and [n for n, _ in used] == ["small", "turbo"]
-# a detected language the user doesn't speak is a guess: decoded again in their first one
-langs = []
-guess = type("M", (), {"transcribe": lambda self, *a, **k: (langs.append(k["language"]) or [Seg(0, 1, "ok")],
-                                                              Info("te" if k["language"] is None else k["language"]))})()
+assert stt_obj.transcribe(np.zeros(16000, np.float32)) == "turbo text" and [n for n, _ in used] == ["turbo"]
+# the language is picked among the user's own, never a guess from the other 97 (a short "okay" as Telugu); Whisper's
+# "Urdu" is spoken Hindi; a Hindi clip is written in Roman letters (decoded as English, with a line of Hinglish first)
+langs, prompts = [], []
+guess = type("M", (), {"transcribe": lambda self, *a, **k: (langs.append(k["language"]) or prompts.append(k["initial_prompt"])
+                                                              or [Seg(0, 1, "ok")], Info(k["language"])),
+                       "detect_language": lambda self, *a, **k: ("te", 0.6, [("te", 0.6), ("ur", 0.3), ("en", 0.1)])})()
 stt_obj.fast, stt_obj.accurate, stt_obj.likely = guess, None, ("en", "hi")
-assert stt_obj.transcribe(np.zeros(16000, np.float32)) == "ok" and langs == [None, "en"], langs
+assert stt_obj.transcribe(np.zeros(16000, np.float32), vocabulary=["Nova"]) == "ok" and langs == ["en"], langs
+assert stt_obj.heard == ("hi", 0.75) and stt_mod.HINGLISH in prompts[0] and "Nova" in prompts[0]
+langs.clear()
+assert stt_obj.transcribe(np.zeros(16000, np.float32), "en") == "ok" and langs == ["en"] and stt_obj.heard == ("", 0.0)
 
 # 6: on request, only the last two minutes are transcribed; older audio waits (or is never needed)
 mem = loopback.SystemAudio(FakeSTT(), keep_s=600)
@@ -3012,6 +3065,32 @@ srv.server_close()
 assert LocalLLM("http://127.0.0.1:9/v1", "x").clean("S", "t", "x", timeout=2) is None   # nothing listening: None
 from core.cleanup import model_for  # noqa: E402
 assert model_for(llm, {"local_model": "llama3.2:3b", "claude_model": "haiku", "codex_model": ""}) == "llama3.2:3b"
+assert seen["body"]["keep_alive"] == -1  # Ollama keeps the model loaded: no wait for it to load on the next dictation
+
+# the polish (Wispr's second stage): a quick model on this computer tidies dictations from 6 words; Claude Code (about
+# 8 s a call) keeps the 30-word line; Hindi always goes; the app being typed into is in the prompt
+class Polish:
+    def __init__(self, name, answer="Polished."):
+        self.name, self.answer, self.calls = name, answer, []
+
+    def clean(self, prompt, text, model, timeout=45):
+        self.calls.append((prompt, text, timeout))
+        return self.answer
+
+
+DL = dict(D, local_model="qwen2.5:3b", codex_model="")
+local, slow = Polish("Local AI"), Polish("Claude Code")
+assert clean_dictation("so we should push the release friday", DL, local, app="Slack") == ("Polished.", "Local AI")
+assert "typing into: Slack" in local.calls[0][0] and local.calls[0][2] == 3   # the app, and a short wait
+assert clean_dictation("so we should push the release friday", DL, slow)[1] == "local"   # 7 words: too few for Claude
+assert clean_dictation("open it", DL, local)[1] == "local" and len(local.calls) == 1        # under 6 words: rules only
+assert clean_dictation("kal milte hain", DL, slow, hindi=True)[1] == "Claude Code"         # Hindi: always polished
+# a command heard in Hindi is fixed before Nova reads it, by the quick model only; an answer in its place is dropped
+from core.cleanup import fix_heard  # noqa: E402
+assert fix_heard("Plays, Star, Duvary", ["Nova"], Polish("Local AI", "play char diwari"), DL) == "play char diwari"
+assert fix_heard("Plays, Star, Duvary", ["Nova"], Polish("Claude Code", "play char diwari"), DL) == "Plays, Star, Duvary"
+assert fix_heard("play x", [], Polish("Local AI", "Sure! Here is what I think you meant to say. " * 3), DL) == "play x"
+assert fix_heard("play x", [], Polish("Local AI", None), DL) == "play x"                  # no answer: what was heard
 
 # the notes MCP server: Claude Code and Codex read Nova's notes, memory and dictionary, and nothing else
 import helpers.nova_mcp as nmcp  # noqa: E402
@@ -5598,7 +5677,8 @@ with tempfile.TemporaryDirectory() as folder:
     dictating = types.SimpleNamespace(
         job_mode="dictation", mode="dictation", cfg=config_mod.defaults(), holding=False, ui=lambda fn: None,
         show_bar=lambda s: None, spoken_s=0, transcribe=lambda *a: "buy milk please", whisper_translates=lambda: False,
-        cancel=threading.Event(), asked=False, route=_boom, in_followup=False, followup=False)
+        cancel=threading.Event(), asked=False, route=_boom, in_followup=False, followup=False,
+        stt=types.SimpleNamespace(heard=("en", 1.0)))
     said = _np.full(1600, 0.2, dtype=_np.float32)
     try:
         try:

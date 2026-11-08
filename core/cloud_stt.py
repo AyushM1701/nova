@@ -1,5 +1,6 @@
 """Speech recognition with your own cloud API key: OpenAI, Groq, Mistral, or any server that speaks OpenAI's
-/audio/transcriptions API (Ollama bridges, LocalAI, a self-hosted Whisper). Opt-in: what you say to Nova is sent
+/audio/transcriptions API (Ollama bridges, LocalAI, a self-hosted Whisper); or Sarvam, for Hindi and Hinglish only
+(English stays on this computer). Opt-in: what you say to Nova is sent
 to that provider under your own account and their privacy policy. Keys live in data/stt-<provider>.key, which the
 safety guard won't let the AI read, and travel in a request header.
 """
@@ -9,6 +10,8 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+
+import numpy as np
 
 from core import vault
 from core.config import DATA
@@ -23,7 +26,10 @@ PROVIDERS = {
     "mistral": ("https://api.mistral.ai/v1/audio/transcriptions", "voxtral-mini-latest",
                 "https://console.mistral.ai/api-keys"),
     "custom": ("", "whisper-1", ""),
+    # Saaras v3 in "translit" mode writes Hindi in Roman letters (codemix keeps it in Devanagari); 30 s a request
+    "sarvam": ("https://api.sarvam.ai/speech-to-text", "saaras:v3", "https://dashboard.sarvam.ai"),
 }
+SARVAM_LANGUAGES = {"hi": "hi-IN", "en": "en-IN"}  # anything else: "unknown", Sarvam detects it
 # one kept-open connection per service (from Clicky): the TLS handshake happens while you speak, not after
 _pool, _pool_lock = {}, threading.Lock()
 DROPPED = (http.client.RemoteDisconnected, http.client.CannotSendRequest, ConnectionResetError,
@@ -40,6 +46,14 @@ def key(provider):
 
 def check(provider, api_key, url=""):
     """'' if the provider accepts the key, else what's wrong, in plain words."""
+    if provider == "sarvam":  # no list of models to ask for: a half second of silence shows whether the key works
+        try:
+            Cloud("sarvam", api_key).transcribe(np.zeros(8000, np.float32), "hi", None)
+            return ""
+        except RuntimeError as e:
+            return "That key wasn't accepted." if " 401" in str(e) or " 403" in str(e) else ""
+        except OSError:
+            return "Couldn't reach Sarvam. Check your internet connection."
     base = (url or PROVIDERS[provider][0]).rsplit("/audio/", 1)[0]
     req = urllib.request.Request(f"{base}/models", headers={"Authorization": f"Bearer {api_key}"})
     try:
@@ -119,6 +133,8 @@ class Cloud:
 
     def __init__(self, provider, api_key, url="", model=""):
         default_url, default_model, _ = PROVIDERS[provider]
+        self.provider = provider
+        self.hindi_only = provider == "sarvam"  # it hears only what was detected as Hindi (core/stt.py)
         self.url, self.model, self.api_key = url or default_url, model or default_model, api_key
         if not self.url:
             raise RuntimeError("Set the server address for the custom speech service in Nova's settings, Voice.")
@@ -126,15 +142,22 @@ class Cloud:
             raise RuntimeError(f"Add your {provider.title()} key in Nova's settings, Voice.")
 
     def transcribe(self, audio, language, prompt):
-        fields = {"model": self.model, "response_format": "json"}
-        if language:
-            fields["language"] = language
-        if prompt:
-            fields["prompt"] = prompt
+        if self.provider == "sarvam":
+            fields = {"model": self.model, "mode": "translit",
+                      "language_code": SARVAM_LANGUAGES.get(language, "unknown")}
+            auth = {"api-subscription-key": self.api_key}
+        else:
+            fields = {"model": self.model, "response_format": "json"}
+            if language:
+                fields["language"] = language
+            if prompt:
+                fields["prompt"] = prompt
+            auth = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         body, kind = multipart(fields, "speech.wav", wav(audio))
-        headers = {"Content-Type": kind, **({"Authorization": f"Bearer {self.api_key}"} if self.api_key else {})}
+        headers = {"Content-Type": kind, **auth}
         status, data = post(self.url, body, headers)
         if status >= 400:
             detail = data.decode("utf-8", "replace")[:200]
             raise RuntimeError(f"The speech service answered with error {status}: {detail}")
-        return " ".join(json.loads(data.decode("utf-8")).get("text", "").split())
+        answer = json.loads(data.decode("utf-8"))
+        return " ".join(answer.get("transcript" if self.provider == "sarvam" else "text", "").split())

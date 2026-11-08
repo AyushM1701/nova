@@ -25,11 +25,22 @@ from faster_whisper.utils import download_model  # noqa: E402
 
 from core.cleanup import drop_outro, fix_vocabulary, is_prompt_echo  # noqa: E402
 
-_doubt = threading.local()
+_doubt = threading.local()  # per thread: what the last transcribe() doubted, and the language it heard
 
 
-# softer speech passes (default threshold 0.5), and 300 ms of padding keeps the first and last words whole
-VAD = {"threshold": 0.35, "speech_pad_ms": 300}
+# softer speech passes (default threshold 0.5), 300 ms of padding keeps the first and last words whole, and a pause
+# of half a second (not the default two) is cut out, breath and room hiss with it
+VAD = {"threshold": 0.35, "speech_pad_ms": 300, "min_silence_duration_ms": 500}
+# Whisper copies its prompt's style: a line of Roman Hinglish makes it write Hindi words in Roman letters
+HINGLISH = "Haan, theek hai. Kal milte hain, aur woh file bhej dena."
+ALIKE = {"ur": "hi"}  # Whisper often names spoken Hindi Urdu: it is the same speech, and the user speaks Hindi
+HINDI = "en-prompt"  # how a Hindi or mixed clip is decoded; helpers/stt_bench.py compares them on the user's voice
+
+
+def prompt_for(vocabulary, hindi=False):
+    """What Whisper reads before the speech: the user's names in a punctuated sentence, and Hinglish for Hindi clips."""
+    names = ("Names: " + ", ".join(vocabulary) + ".") if vocabulary else ""
+    return " ".join(part for part in (HINGLISH if hindi else "", names) if part) or None
 
 
 def downloaded(name):
@@ -128,40 +139,71 @@ class STT:
                 on_progress(percent / 100)
         return out
 
-    def transcribe(self, audio, language="auto", vocabulary=(), server=None, task="transcribe"):
+    @property
+    def heard(self):
+        """(language, how sure) of the last transcribe() on this thread: ("hi", 0.9), or ("", 0) when not detected."""
+        return getattr(_doubt, "heard", ("", 0.0))
+
+    @heard.setter
+    def heard(self, value):
+        _doubt.heard = value
+
+    def pick(self, model, audio):
+        """The language spoken, chosen among the user's own (`likely`): (code, its share of their probability).
+        Whisper picks from 99 on a second or two of speech and guesses wrong (a short "okay" as Telugu)."""
+        _, _, ranked = model.detect_language(audio, vad_filter=True, vad_parameters=VAD)
+        mine = {}
+        for code, p in ranked:
+            code = ALIKE.get(code, code)
+            if code in self.likely:
+                mine[code] = mine.get(code, 0.0) + p
+        if not mine:
+            return self.likely[0], 0.0
+        best = max(mine, key=mine.get)
+        return best, mine[best] / (sum(mine.values()) or 1)
+
+    def transcribe(self, audio, language="auto", vocabulary=(), server=None, task="transcribe", hindi=None):
         """What was said. `server` (whisper.cpp, Parakeet, a cloud service) decodes instead of faster-whisper when
-        given. task="translate" writes English whatever language was spoken (Whisper's own translation)."""
-        prompt = ("Vocabulary: " + ", ".join(vocabulary) + ".") if vocabulary else None
+        given; `hindi` (Sarvam) decodes only clips heard as Hindi. task="translate" writes English whatever language was
+        spoken (Whisper's own translation)."""
+        prompt = prompt_for(vocabulary)
         lang = None if language == "auto" else language
         peak = float(np.percentile(np.abs(audio), 99.5)) if audio is not None and len(audio) else 0.0  # not the max: one click
         if 0.01 < peak < 0.3:  # a quiet microphone (peaks near 0.05 are in the logs): Whisper hears far worse the softer it is
             audio = audio * min(0.7 / peak, 10.0)
-        self.shaky = False  # a server (whisper.cpp, a cloud service) decodes without it
+        self.shaky, self.heard = False, ("", 0.0)  # a server (whisper.cpp, a cloud service) decodes without them
 
-        def run(model, vad=True, language=lang):
+        def run(model, language, prompt, vad=True):
+            """(text, average log-probability): how sure Whisper was of its words."""
             # greedy decoding keeps English words in Latin letters inside Hinglish speech
-            segments, info = model.transcribe(audio, language=language, task=task, initial_prompt=prompt, vad_filter=vad,
-                                              vad_parameters=VAD if vad else None,
-                                              beam_size=1, condition_on_previous_text=False)
+            segments, _ = model.transcribe(audio, language=language, task=task, initial_prompt=prompt, vad_filter=vad,
+                                           vad_parameters=VAD if vad else None,
+                                           beam_size=1, condition_on_previous_text=False)
             segments = list(segments)
             self.shaky = any(unsure(s) for s in segments)
-            return " ".join(s.text.strip() for s in segments).strip(), info.language
+            sure = sum(getattr(s, "avg_logprob", 0.0) for s in segments) / max(1, len(segments))
+            return " ".join(s.text.strip() for s in segments).strip(), sure
 
         if server:
             return drop_outro(server.transcribe(audio, lang, prompt))
         first = self.translator() if task == "translate" else self.fast
-        text, detected = run(first)
-        used = lang  # the language decoded with, so a retry below doesn't go back to guessing
-        if lang is None and task == "transcribe" and self.likely and detected not in self.likely:
-            # Whisper's detector is unreliable on a second or two of speech (a short "okay" came out as Telugu): a language
-            # the user doesn't speak means it guessed, so decode again as the first language they do
-            used = self.likely[0]
-            text, detected = run(first, language=used)
+        if lang is None and task == "transcribe" and self.likely:
+            lang, sure = self.pick(first, audio)
+            self.heard = (lang, round(sure, 2))
+        if hindi is not None and task == "transcribe" and lang == "hi":  # failing, it raises: Nova falls back to Whisper
+            return fix_vocabulary(drop_outro(hindi.transcribe(audio, "hi", None)), vocabulary)
+        other = task == "transcribe" and lang not in (None, "en")
         # the small model is weak at other languages: the accurate one takes them (CPU only, once it's loaded),
         # except to translate, which it can't do
-        model = self.accurate if task == "transcribe" and detected != "en" and self.accurate else first
-        if model is not first:
-            text, _ = run(model)
+        model = self.accurate if other and self.accurate else first
+        if other and lang == "hi":  # Hindi or Hinglish, written in Roman letters (HINDI says how)
+            styled = prompt_for(vocabulary, hindi=True)
+            tries = {"en-prompt": [("en", styled)], "hi-prompt": [("hi", styled)], "hi": [("hi", prompt)],
+                     "both": [("en", styled), ("hi", styled)]}[HINDI]
+            (text, _), used, prompt = max(((run(model, code, p), code, p) for code, p in tries), key=lambda r: r[0][1])
+        else:
+            used = lang
+            text = run(model, lang, prompt)[0]
         if is_prompt_echo(text, prompt):  # the voice filter cut the speech: decode everything once more
-            text = run(model, vad=False, language=used)[0] or text
+            text = run(model, used, prompt, vad=False)[0] or text
         return fix_vocabulary(drop_outro(text), vocabulary)

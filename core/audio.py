@@ -128,12 +128,42 @@ class WarmMic:
 MIC = WarmMic()
 
 
-def record(silence_ms, max_s, stop, on_level=None, prefix=None, floor_rms=None, on_block=None, wait_s=6):
+PHRASE_MS = 420  # a pause this long after speech ends a phrase (long dictation is heard phrase by phrase)
+
+
+class Phrases:
+    """Long dictation heard while it's spoken (Wispr's trick): at each pause, the phrase since the last one, once it is
+    `min_s` long, is transcribed in the background, in order. At the end only the last stretch is left to hear."""
+
+    def __init__(self, transcribe, min_s=4.0):
+        import concurrent.futures
+        self.transcribe, self.min = transcribe, int(min_s * RATE)
+        self.pool, self.parts, self.sent, self.samples = concurrent.futures.ThreadPoolExecutor(1), [], 0, 0
+
+    def pause(self, chunks):
+        """record()'s on_pause: `chunks` is the recording so far."""
+        new = chunks[self.sent:]
+        size = sum(len(c) for c in new)
+        if size >= self.min:
+            self.sent, self.samples = len(chunks), self.samples + size
+            self.parts.append(self.pool.submit(self.transcribe, np.concatenate(new)))
+
+    def finish(self, clip):
+        """The whole text: the phrases already heard, then the rest of `clip` (the full recording), on this thread."""
+        try:
+            texts = [part.result() for part in self.parts] + [self.transcribe(clip[self.samples:])]
+        finally:
+            self.pool.shutdown(wait=False)
+        return " ".join(t.strip() for t in texts if t and t.strip())
+
+
+def record(silence_ms, max_s, stop, on_level=None, prefix=None, floor_rms=None, on_block=None, wait_s=6, on_pause=None):
     """Record until `silence_ms` of quiet after speech, `stop` is set, or `max_s`. None if nothing said.
     `silence_ms` None (hold-to-talk) ignores pauses: only `stop` or `max_s` ends it.
     `prefix` is speech already captured (an interruption): recording continues from it.
     `on_block` gets every 30 ms block as it arrives (streaming to a cloud recognizer). `wait_s`: how long to wait for
-    the first word before giving up (a follow-up listens for a shorter time)."""
+    the first word before giving up (a follow-up listens for a shorter time). `on_pause(chunks)` is called at each
+    pause of PHRASE_MS after speech, with the recording so far (Phrases)."""
     floor, speaking, quiet_ms, got = [], False, 0, False
     chunks = []
     if prefix is not None:  # mid-sentence already: the room's level comes from before the user spoke
@@ -164,10 +194,14 @@ def record(silence_ms, max_s, stop, on_level=None, prefix=None, floor_rms=None, 
                 continue
             if is_speech(rms, float(np.median(floor))):
                 speaking, quiet_ms = True, 0
-            elif silence_ms is None:
                 continue
-            elif speaking:
+            if speaking:
                 quiet_ms += 30
+                if on_pause and quiet_ms == PHRASE_MS:
+                    on_pause(chunks)
+            if silence_ms is None:
+                continue
+            if speaking:
                 if quiet_ms >= silence_ms:
                     break
             elif time.monotonic() - start > wait_s:

@@ -191,7 +191,8 @@ MAKE_SKILL = ("Save what we just did as a skill: a task written down once, so I 
               "output/. Never put keys, tokens or passwords in it. Then tell me its name and that I can say "
               "\"run <name>\".")
 ENGINE_NAMES = {"whisper.cpp": "whisper.cpp", "parakeet": "Parakeet", "orukeet": "Orukeet", "openai": "OpenAI",
-                "groq": "Groq", "mistral": "Mistral", "custom": "The custom speech service", "deepgram": "Deepgram"}
+                "groq": "Groq", "mistral": "Mistral", "sarvam": "Sarvam", "custom": "The custom speech service",
+                "deepgram": "Deepgram"}
 CLOUD_REST_S = 300  # after a speech service fails (out of credit, rate limit, offline), Whisper here takes over this long
 CLIP_RE = re.compile(r"\b(?:clipboard|copied|copy|paste|pasted)\b", re.I)
 # "summarize this", "read it to me": the window's text; "my whole screen": every monitor
@@ -1252,13 +1253,15 @@ class Nova(BackgroundMixin, SuggestMixin):
         so a dropped connection or a broken engine setup never loses what the user said.
         task="translate": Whisper writes English whatever the language spoken (on this computer only)."""
         v, server, engine, resting = self.cfg["voice"], None, "Deepgram", self.cloud_resting()
-        self.stt.shaky = False  # only a pass of faster-whisper on this computer can say it doubts what it heard
+        self.stt.shaky, self.stt.heard = False, ("", 0.0)  # only faster-whisper on this computer can say these
         try:
             if stream and task == "transcribe":
                 return stream.finish()
             engine = ENGINE_NAMES.get(v["stt_engine"], "The speech engine")
             server = None if task == "translate" or resting else self.engine()
-            return self.stt.transcribe(clip, v["language"], self.vocabulary(), server=server, task=task)
+            hindi = getattr(server, "hindi_only", False)  # Sarvam: Hindi clips only, the rest on this computer
+            return self.stt.transcribe(clip, v["language"], self.vocabulary(), server=None if hindi else server, task=task,
+                                       **({"hindi": server} if hindi else {}))
         except Exception as e:
             if not (stream or server) and (resting or task == "translate" or v["stt_engine"] in ("local", "deepgram")):
                 raise
@@ -1281,16 +1284,21 @@ class Nova(BackgroundMixin, SuggestMixin):
             silence = None
         from_wake = clip is not None  # "Hey Nova, …" in one breath: the clip is what followed the name
         stream = None  # Deepgram, when chosen: it hears the recording as it happens
+        task = "translate" if self.whisper_translates() else "transcribe"
+        phrases = None  # long dictation: heard phrase by phrase while it's spoken
         if clip is None:  # shortcut, click or a bare "Hey Nova": record the request now
             self.phase = "listening"
             self.ui(lambda: self.show_bar("listening"))
             self.warm_stt()
             system.beep(start=True)
             stream = self.open_stream()
+            if mode == "dictation" and stream is None:
+                phrases = audio.Phrases(lambda part: self.transcribe(part, None, task))
             try:
                 # after a question Nova waits for the answer; a plain follow-up gives up sooner, so a conversation ends promptly
                 wait_s = (QUESTION_WAIT_S if self.asked else FOLLOWUP_WAIT_S) if self.in_followup else 6
-                clip = audio.record(silence, cap, self.stop_rec, self.on_level, on_block=stream and stream.send, wait_s=wait_s)
+                clip = audio.record(silence, cap, self.stop_rec, self.on_level, on_block=stream and stream.send, wait_s=wait_s,
+                                    on_pause=phrases and phrases.pause)
             finally:
                 if stream and (clip is None or self.cancel.is_set()):
                     stream.close()
@@ -1318,7 +1326,9 @@ class Nova(BackgroundMixin, SuggestMixin):
             rescue.keep(clip)  # until it's typed: Nova closing from here on doesn't lose it
         kept = False
         try:
-            text = self.transcribe(clip, stream, "translate" if self.whisper_translates() else "transcribe")
+            t0 = time.perf_counter()
+            text = phrases.finish(clip) if phrases else self.transcribe(clip, stream, task)
+            heard_ms, (lang, lang_p) = round((time.perf_counter() - t0) * 1000), self.stt.heard
             if from_wake:  # the cut can leave the tail of "Nova" in the clip ("Hej, Nova!"): drop it
                 rest = wake.match(text)
                 text = rest if rest is not None else text
@@ -1326,7 +1336,12 @@ class Nova(BackgroundMixin, SuggestMixin):
                     return self.voice_job(None)
             if self.cancel.is_set() or not text:
                 return
-            log("heard", mode=mode, text=text, source="voice")
+            log("heard", mode=mode, text=text, source="voice", stt_ms=heard_ms, lang=lang, lang_p=lang_p)
+            if mode == "assistant" and (lang == "hi" or self.stt.shaky):  # Hindi or doubted: fix what was misheard
+                fixed = cleanup.fix_heard(text, self.vocabulary(), self.cleaner, self.cfg["dictation"])
+                if fixed != text:
+                    log("fixed", heard=text, text=fixed)
+                    text = fixed
             if mode == "assistant" and wake.is_done(text) and not (self.asked and wake.approval(text)):  # "ok thanks": stop
                 return self.end_conversation(text)
             if mode == "dictation":
@@ -1829,14 +1844,16 @@ class Nova(BackgroundMixin, SuggestMixin):
             return self.paste(expansion)
         if cleanup.is_edit(raw) and self.edit_selection(raw):  # Command mode: "make this more formal" on a selection
             return
-        cleaner = self.cleaner
-        tone = cleanup.tone_for(system.window_title(self.target), d["tones"])
-        text, how = cleanup.clean(raw, d, cleaner, tone)
+        cleaner, app = self.cleaner, system.window_title(self.target)
+        tone = cleanup.tone_for(app, d["tones"])
+        t0 = time.perf_counter()
+        text, how = cleanup.clean(raw, d, cleaner, tone, app, hindi=self.stt.heard[0] == "hi")
+        polish_ms = round((time.perf_counter() - t0) * 1000)
         if d["translate_to"] and d["translate_to"] != "English" and not self.cancel.is_set():
             text = self.translate(text, d["translate_to"])
         if self.cancel.is_set():
             return
-        log("dictation", raw=raw, text=text, how=how, translated=d["translate_to"] or None)
+        log("dictation", raw=raw, text=text, how=how, translated=d["translate_to"] or None, polish_ms=polish_ms)
         self.paste(text)
         stats.record(len(text.split()), self.spoken_s)
         if d["auto_learn"]:  # fixes the user makes to this text teach the dictionary

@@ -1078,7 +1078,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
         <div class="row"><div class="what"><h2>Speech recognition</h2><p>On this computer is private and free. Cloud services use your own key: what you say is sent to that company under your account. If an engine fails, Nova transcribes on this computer instead. “Hey Nova” and meetings always run on this computer.</p></div>
           <div class="how"><select class="input" data-bind="voice.stt_engine" aria-label="Speech recognition">
             <option value="local">This computer: Whisper</option><option value="parakeet">This computer: Parakeet</option><option value="orukeet">This computer: Orukeet</option><option value="whisper.cpp">This computer: whisper.cpp</option>
-            <option value="openai">OpenAI (your key)</option><option value="groq">Groq (your key)</option><option value="mistral">Mistral (your key)</option><option value="deepgram">Deepgram, streamed (your key)</option><option value="custom">Your own server (OpenAI-compatible)</option>
+            <option value="openai">OpenAI (your key)</option><option value="groq">Groq (your key)</option><option value="mistral">Mistral (your key)</option><option value="sarvam">Sarvam: Hindi &amp; Hinglish only (your key)</option><option value="deepgram">Deepgram, streamed (your key)</option><option value="custom">Your own server (OpenAI-compatible)</option>
           </select></div></div>
         <div class="row" data-stt="parakeet orukeet"><div class="what"><h2>Model</h2><p id="sttModelNote">Fast and accurate in 25 European languages. Hindi and other languages use Whisper automatically.</p><div class="log mono" id="sttModelLog" hidden></div></div>
           <div class="how"><span class="muted small" id="sttModelState"></span><button class="btn sm primary" id="sttModelGet" hidden>Download</button></div></div>
@@ -1096,7 +1096,7 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
           <div class="how"><input class="input" data-bind="voice.cloud_stt_model" placeholder="Default" aria-label="Model name"></div></div>
         <div class="row" data-stt="deepgram"><div class="what"><h2>Model name</h2><p>Deepgram's model. Leave it as nova-3 unless Deepgram tells you otherwise.</p></div>
           <div class="how"><input class="input" data-bind="voice.deepgram_model" placeholder="nova-3" aria-label="Deepgram model"></div></div>
-        <div class="row" data-stt="openai groq mistral deepgram custom" style="display:block"><div class="what"><h2 id="sttKeyTitle">API key</h2><p>Stored on this computer only, where the AI can't read it. Deepgram and the others are paid services; most give sign-up credit.</p></div>
+        <div class="row" data-stt="openai groq mistral sarvam deepgram custom" style="display:block"><div class="what"><h2 id="sttKeyTitle">API key</h2><p>Stored on this computer only, where the AI can't read it. Deepgram and the others are paid services; most give sign-up credit. Sarvam hears only what Nova detects as Hindi; English stays on this computer.</p></div>
           <div class="add" style="max-width:none">
             <input class="input" id="sttKey" type="password" autocomplete="off" placeholder="Paste an API key" aria-label="API key">
             <button class="btn primary" id="sttSave">Check and save</button>
@@ -2742,7 +2742,7 @@ $("#fbSave").addEventListener("click", async () => {
 });
 
 /* ---------- speech engines: cloud keys and on-device models ---------- */
-const KEYED = { openai: "OpenAI", groq: "Groq", mistral: "Mistral", deepgram: "Deepgram", custom: "Server" };
+const KEYED = { openai: "OpenAI", groq: "Groq", mistral: "Mistral", sarvam: "Sarvam", deepgram: "Deepgram", custom: "Server" };
 async function loadSttExtras() {
   const eng = get("voice.stt_engine");
   if (KEYED[eng]) {
