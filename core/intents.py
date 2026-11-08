@@ -110,14 +110,15 @@ def parse(text):
     if re.fullmatch(rf"lock(?: my| the)? (?:computer|pc|laptop|screen|mac|system){TAIL}", body):
         return "lock", None
 
-    m = re.fullmatch(rf"(?:open spotify and )?play (.+?) (?:on|in|from|using|with) spotify{TAIL}|(?:open )?spotify (?:and )?play (.+?){TAIL}"
-                     rf"|open spotify and play (.+?){TAIL}", body)
+    # "plays": how "play char diwari..." was heard once
+    m = re.fullmatch(rf"(?:open spotify and )?plays? (.+?) (?:on|in|from|using|with) spotify{TAIL}|(?:open )?spotify (?:and )?plays? (.+?){TAIL}"
+                     rf"|open spotify and plays? (.+?){TAIL}", body)
     if m:
         what = re.sub(r"^(?:the song|a song called|song|the track|track)\b ?", "", next(g for g in m.groups() if g)).strip()
         return "spotify", "" if what in GENERIC_MUSIC else what
 
     # bare "play <song>": music means Spotify; anything about a video, a page or "this" is left to the AI
-    m = re.fullmatch(rf"play (.+?){TAIL}", body)
+    m = re.fullmatch(rf"plays? (.+?){TAIL}", body)
     if m and not re.search(r"\b(?:youtube|video|videos|movie|netflix|tab|this|that|it|again|next|previous|pause|game|and|then)\b", m.group(1)):
         what = re.sub(r"^(?:the song|a song called|song|the track|track)\b ?", "", m.group(1)).strip()
         return "spotify", "" if what in GENERIC_MUSIC else what
