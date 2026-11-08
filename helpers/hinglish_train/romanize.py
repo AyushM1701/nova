@@ -101,6 +101,11 @@ def main():
             if n % 10 == 0:
                 print(f"{n}/{len(batches)} calls, {kept} kept, {dropped} dropped", flush=True)
     print(f"done: {kept} kept, {dropped} dropped (run again to retry those)")
+    # a usage limit or a dead connection fails every call quietly: training on the rest would be a different model
+    covered = sum(1 for _ in target.open(encoding="utf-8")) / max(1, len(rows))
+    if covered < 0.95:
+        print(f"only {covered:.0%} of the transcripts are ready", flush=True)
+        return 1
 
 
 if __name__ == "__main__":
