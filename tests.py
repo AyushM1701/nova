@@ -715,6 +715,14 @@ assert _sp.started("Spotify Premium", "The Weeknd - Blinding Lights")
 assert _sp.started("The Weeknd - Starboy", "The Weeknd - Blinding Lights")
 assert not _sp.started("The Weeknd - Starboy", "Spotify Premium") and not _sp.started("Spotify", "Spotify Free")
 assert not _sp.started("The Weeknd - Starboy", "The Weeknd - Starboy")  # still the old track
+# ...and plays the result that matches what was asked, not a remix Spotify ranks first (real results, Nov 2026)
+_goose = [["Goosebumps - Remix", "Travis Scott", "HVME"], ["goosebumps", "Travis Scott"],
+          ["Goosebumps", "Travis Scott", "Kendrick Lamar"], ["DUMBO", "Travis Scott"]]
+assert _sp.best("travis scott goosebumps", _goose) == 1
+_lights = [["Blinding Lights", "The Weeknd"], ["Blinding Lights - Live", "The Weeknd"],
+           ["Blinding Lights (with ROSALÍA) - Remix", "The Weeknd", "ROSALÍA"]]
+assert _sp.best("the weekend the blinding lights", _lights) == 0 and _sp.best("blinding lights live", _lights) == 1
+assert _sp.best("the weeknd", [["The Weeknd"], ["Blinding Lights", "The Weeknd"]]) == 0  # an artist stays the artist
 
 # the login supervisor: a crash starts Nova again, Quit (exit 0) does not, and a crash loop gives up
 sys.path.insert(0, str(pathlib.Path(__file__).parent / "helpers"))

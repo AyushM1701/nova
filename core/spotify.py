@@ -5,6 +5,7 @@ flag is raised for the few seconds this takes. Buttons are pressed through UI Au
 """
 import contextlib
 import os
+import re
 import time
 import urllib.parse
 
@@ -15,21 +16,61 @@ MARKER = "Genres & Moods"  # the last filter chip above the results; the first b
 IDLE = ("spotify", "spotify premium", "spotify free")  # its window title when nothing plays; else "Artist - Song"
 
 
-def _find(window, want):
-    """The Play button to press, or None while the page is still loading. want='top': first result ('playing': or its
-    Pause, once it plays); 'player': the bar."""
-    seen = want == "player"
+def _walk(window):
+    """Every control below `window`, depth-first, in document order."""
     stack = [window]
-    while stack:  # depth-first, in document order
+    while stack:
         control = stack.pop()
-        children = control.GetChildren()
-        stack.extend(reversed(children))
+        stack.extend(reversed(control.GetChildren()))
+        yield control
+
+
+def _cards(window, most=6):
+    """The first search results below the filter chips: (its Play button, the names of its links: title, then artists).
+    The top result's links come before its bare "Play"; a song row's button ("Play goosebumps") comes before its links."""
+    cards, links, seen = [], [], False
+    for control in _walk(window):
         name = control.Name
         if not seen:
             seen = name == MARKER
-        elif control.ControlTypeName == "ButtonControl" and (name == "Play" or want != "top" and name == "Pause"):
-            return control  # in the player bar "Pause" means it is already playing
-    return None
+            continue
+        kind = control.ControlTypeName
+        if kind == "HyperlinkControl":
+            (cards[-1][1] if cards else links).append(name)
+        elif kind == "ButtonControl" and re.match(r"(Play|Pause)( |$)", name):
+            if len(cards) == most:
+                break
+            cards.append((control, [] if cards else links))
+    return cards
+
+
+def _words(text):
+    return set(re.findall(r"\w+", text.lower()))
+
+
+def best(query, cards):
+    """Which result to play (`cards`: each one's link names, title first): the one whose title and artists cover most of
+    what was asked, less the words its title adds ("Remix", "Live"). A tie goes to the earlier, Spotify's top result first:
+    "travis scott goosebumps" tops with "Goosebumps - Remix", the song row below it is "goosebumps"."""
+    want = _words(query)
+    def score(links):
+        return len(want & _words(" ".join(links))) - len(_words(links[0] if links else "") - want)
+    return max(range(len(cards)), key=lambda i: (score(cards[i]), -i))
+
+
+def _find(window, want, query=""):
+    """The Play button to press, or None while the page is still loading. want='top': the best result ('playing': or
+    its Pause, once it plays); 'player': the bar."""
+    if want == "player":
+        for control in _walk(window):
+            if control.ControlTypeName == "ButtonControl" and control.Name in ("Play", "Pause"):
+                return control  # in the player bar "Pause" means it is already playing
+        return None
+    cards = _cards(window)
+    if not cards:
+        return None
+    button = cards[best(query, [links for _, links in cards])][0]
+    return None if want == "top" and button.Name.startswith("Pause") else button
 
 
 @contextlib.contextmanager
@@ -89,12 +130,12 @@ def play(query, timeout=20):
             w = window()
             if query and not _showing(window, query):
                 return None
-            return w and _find(w, want if query else "player")
+            return w and _find(w, want if query else "player", query)
         for want in ("top", "playing"):  # the second look takes a top result that has started meanwhile as done
             button = _until(lambda: top(want), timeout)
             if not button:
                 return False
-            if button.Name == "Pause":
+            if button.Name.startswith("Pause"):
                 return True  # already playing
             time.sleep(0.4)  # results settle just after they appear
             before = window().Name
