@@ -12,10 +12,12 @@ from core import winctl
 from core.system import IS_MAC
 
 MARKER = "Genres & Moods"  # the last filter chip above the results; the first bare "Play" after it is the top result
+IDLE = ("spotify", "spotify premium", "spotify free")  # its window title when nothing plays; else "Artist - Song"
 
 
 def _find(window, want):
-    """The Play button to press, or None while the page is still loading. want='top': first result; 'player': the bar."""
+    """The Play button to press, or None while the page is still loading. want='top': first result ('playing': or its
+    Pause, once it plays); 'player': the bar."""
     seen = want == "player"
     stack = [window]
     while stack:  # depth-first, in document order
@@ -25,7 +27,7 @@ def _find(window, want):
         name = control.Name
         if not seen:
             seen = name == MARKER
-        elif control.ControlTypeName == "ButtonControl" and (name == "Play" or want == "player" and name == "Pause"):
+        elif control.ControlTypeName == "ButtonControl" and (name == "Play" or want != "top" and name == "Pause"):
             return control  # in the player bar "Pause" means it is already playing
     return None
 
@@ -73,23 +75,36 @@ def _until(find, timeout):
     return None
 
 
+def started(before, after):
+    """Did pressing Play start something? The title went from `before` to `after`: it now names a track, a new one."""
+    return after.lower().strip() not in IDLE and after != before
+
+
 def play(query, timeout=20):
-    """True once Play was pressed. With no query, resumes whatever Spotify has queued."""
+    """True once something started playing. With no query, resumes whatever Spotify has queued."""
     if IS_MAC:
         return False
     with _spotify("spotify:search:" + urllib.parse.quote(query) if query else "spotify:") as window:
-        def top():
+        def top(want):
             w = window()
             if query and not _showing(window, query):
                 return None
-            return w and _find(w, "top" if query else "player")
-        button = _until(top, timeout)
-        if not button:
-            return False
-        if button.Name == "Pause":
-            return True  # already playing
-        time.sleep(0.4)  # results settle just after they appear
-        return _press(button)
+            return w and _find(w, want if query else "player")
+        for want in ("top", "playing"):  # the second look takes a top result that has started meanwhile as done
+            button = _until(lambda: top(want), timeout)
+            if not button:
+                return False
+            if button.Name == "Pause":
+                return True  # already playing
+            time.sleep(0.4)  # results settle just after they appear
+            before = window().Name
+            if not _press(button):
+                return False
+            # the search box shows the new words a moment before the results below it change: a press that early hits
+            # the last search's card (pausing what plays). Then the page has settled, and the second press is the right one.
+            if _until(lambda: started(before, window().Name), 4):
+                return True
+        return False
 
 
 def queue(query, timeout=20):

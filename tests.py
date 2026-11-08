@@ -708,6 +708,14 @@ if os.name == "nt":  # on a Mac find() is always None: the AI handles window req
     assert winctl.find("vs code") == 3 and winctl.find("visual studio code") == 3 and winctl.find("notepad") == 5
     assert winctl.find("x") is None and winctl.find("python") is None, "Nova's own windows are never found"
 
+# "play X on Spotify" counts only once Spotify's title names a new track: an early press on the last search's card
+# pauses the music (title back to "Spotify Premium") or does nothing, and Nova then presses the right card
+from core import spotify as _sp
+assert _sp.started("Spotify Premium", "The Weeknd - Blinding Lights")
+assert _sp.started("The Weeknd - Starboy", "The Weeknd - Blinding Lights")
+assert not _sp.started("The Weeknd - Starboy", "Spotify Premium") and not _sp.started("Spotify", "Spotify Free")
+assert not _sp.started("The Weeknd - Starboy", "The Weeknd - Starboy")  # still the old track
+
 # the login supervisor: a crash starts Nova again, Quit (exit 0) does not, and a crash loop gives up
 sys.path.insert(0, str(pathlib.Path(__file__).parent / "helpers"))
 import supervisor  # noqa: E402
