@@ -21,6 +21,9 @@ from core import stt as stt_mod  # noqa: E402
 from stt_bench import error_rates, load  # noqa: E402
 
 
+RESULTS = {}  # {model: {corpus: {wer, letters, ms}}}, saved to scores.json for the model card (publish.py)
+
+
 def score(name, model, hindi, groups):
     stt_mod.HINDI = hindi
     s = stt_mod.STT.__new__(stt_mod.STT)
@@ -35,6 +38,8 @@ def score(name, model, hindi, groups):
             w, c = error_rates(heard, r["text"])
             wer, cer = wer + w, cer + c
         n = len(test)
+        RESULTS.setdefault(name, {})[corpus] = {"wer": round(wer / n, 4), "letters": round(cer / n, 4), "ms": round(ms / n),
+                                                "clips": n}
         print(f"{name:30} {corpus[:34]:34} WER {wer / n:5.1%}  letters {cer / n:5.1%}  {ms / n:5.0f} ms", flush=True)
 
 
@@ -51,6 +56,7 @@ def main():
     score("today: turbo + Hinglish prompt", today, "en-prompt", groups)
     del today
     score("trained", WhisperModel(str(OUT / "ct2"), device="cuda", compute_type="float16"), "hi", groups)
+    (OUT / "scores.json").write_text(json.dumps(RESULTS, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":
