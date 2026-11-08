@@ -1886,6 +1886,38 @@ assert local_stt.transcribe(np.zeros(16000, np.float32)) == "gaana chalao" and t
 said_in[0] = "en"
 assert local_stt.transcribe(np.zeros(16000, np.float32)) == "pause the music" and len(trained_langs) == 1
 local_stt.hindi = None
+# one master model (English, Hindi, Hinglish in one, helpers/hinglish_train) as the everyday model: its Hindi clips
+# are decoded in its own "hi" mode with no Hinglish prompt; English the usual way; stock models keep the prompt
+master_calls = []
+master = type("M", (), {"nova_roman": True,
+                        "transcribe": lambda self, *a, **k: (master_calls.append((k["language"], k["initial_prompt"]))
+                                                             or [types.SimpleNamespace(text="ok")], None),
+                        "detect_language": lambda self, *a, **k: (said_in[0], 0.9, [(said_in[0], 0.9)])})()
+local_stt.fast = master
+said_in[0] = "hi"
+local_stt.transcribe(np.zeros(16000, np.float32), vocabulary=["Nova"])
+said_in[0] = "en"
+local_stt.transcribe(np.zeros(16000, np.float32), vocabulary=["Nova"])
+assert master_calls == [("hi", "Names: Nova."), ("en", "Names: Nova.")], master_calls
+master.nova_roman, master_calls[:] = False, []  # a stock model: Hindi gets the Hinglish prompt
+said_in[0] = "hi"
+local_stt.transcribe(np.zeros(16000, np.float32), vocabulary=["Nova"])
+assert stt_mod.HINGLISH in master_calls[0][1]
+local_stt.fast = both
+# the Hindi model: a Hugging Face repo is downloaded first (in the background at start), a folder isn't; on a CPU it
+# stands in for the accurate model, so only one big model is in memory
+fetched, real_dl, real_model = [], stt_mod.download_model, stt_mod._model
+stt_mod.download_model = lambda name, **k: fetched.append(name)
+stt_mod._model = lambda name, gpu: types.SimpleNamespace(name=str(name), gpu=gpu)
+cpu_stt = object.__new__(stt_mod.STT)
+cpu_stt.device, cpu_stt.likely, cpu_stt.accurate_name, cpu_stt.accurate = "CPU", ("en", "hi"), "large-v3-turbo", None
+cpu_stt.load_hindi("AyushM1701/nova-whisper-hinglish")
+assert fetched == ["AyushM1701/nova-whisper-hinglish"] and cpu_stt.hindi.name == "AyushM1701/nova-whisper-hinglish"
+cpu_stt.load_hindi(tempfile.mkdtemp())
+assert len(fetched) == 1 and not cpu_stt.hindi.gpu  # a folder: no download
+cpu_stt.load_accurate()
+assert cpu_stt.accurate is None and len(fetched) == 1  # the Hindi model does the accurate model's job
+stt_mod.download_model, stt_mod._model = real_dl, real_model
 
 # what the computer played: kept as audio until asked, then transcribed, including the words still buffering
 from core import loopback  # noqa: E402

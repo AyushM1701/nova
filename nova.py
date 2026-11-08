@@ -458,11 +458,6 @@ class Nova(BackgroundMixin, SuggestMixin):
             v = self.cfg["voice"]
             self.stt = STT(v["stt_model"], v["stt_accurate_model"])
             self.stt.likely = tuple(v["languages"])
-            if v["hindi_model"]:  # a Whisper trained on Hinglish, for clips heard as Hindi (helpers/hinglish_train)
-                try:
-                    self.stt.load_hindi(ROOT / v["hindi_model"])  # a path from Nova's folder, or a full one
-                except Exception as e:  # a missing or broken folder: Hindi is heard the usual way
-                    log("error", error=f"the Hindi speech model at {v['hindi_model']} didn't load: {e!r}")
         except Exception as e:  # missing or broken model files: say so instead of "Loading…" forever
             log("error", error=f"speech model failed to load: {e!r}")
             message = f"{friendly(e)}\n\nRun Nova's setup again to download it."  # `e` is gone once except ends
@@ -508,10 +503,22 @@ class Nova(BackgroundMixin, SuggestMixin):
                 log("error", error=f"the {engine} voice failed to load, using the system voice: {e!r}")
         try:
             self.ui(self.audio_memory)
+            self.load_hindi()  # before the accurate model: on a CPU it stands in for it
             self.stt.load_accurate()  # CPU only: the Hindi/Hinglish model loads after Nova is already usable
             (DATA / "models-ready").touch()
         except Exception as e:
             log("error", error=f"accurate speech model failed to load: {e!r}")
+
+    def load_hindi(self):
+        """A Whisper trained on Hinglish (helpers/hinglish_train), for the clips heard as Hindi: a folder (from Nova's
+        folder, or in full) or a Hugging Face repo, downloaded the first time. Failing, Hindi is heard the usual way."""
+        name = self.cfg["voice"]["hindi_model"]
+        if not name:
+            return
+        try:
+            self.stt.load_hindi(ROOT / name if (ROOT / name).is_dir() else name)
+        except Exception as e:
+            log("error", error=f"the Hindi speech model {name} didn't load: {e!r}")
 
     def check_updates(self):
         """A minute after starting, then daily: is there a newer Nova on GitHub? Say so once per version. Also

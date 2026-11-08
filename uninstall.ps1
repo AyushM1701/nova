@@ -15,8 +15,9 @@ Write-Host "Nova stopped and its shortcuts removed."
 if (Ask "Also delete Nova's Python libraries (.venv)?") { Remove-Item -Recurse -Force (Join-Path $Root ".venv") }
 $cache = Join-Path $env:USERPROFILE ".cache\huggingface\hub"
 $models = @(Get-ChildItem $cache -Directory -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -in "models--Systran--faster-whisper-small", "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo" })
-if ($models -and (Ask "Also delete the downloaded speech models (about 2 GB)?")) { $models | Remove-Item -Recurse -Force }
+    Where-Object { $_.Name -in "models--Systran--faster-whisper-small", "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo",
+                                "models--AyushM1701--nova-whisper-hinglish" })
+if ($models -and (Ask "Also delete the downloaded speech models (up to 3.6 GB)?")) { $models | Remove-Item -Recurse -Force }
 $voice = Join-Path $Root "data\tts"
 if ((Test-Path $voice) -and (Ask "Also delete Nova's natural voice (about 380 MB)?")) { Remove-Item -Recurse -Force $voice }
 Write-Host "Done. Claude Code / Codex were left installed; remove them separately if you want."

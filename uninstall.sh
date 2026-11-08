@@ -13,8 +13,8 @@ echo "Nova stopped; Nova.app and start-at-login removed."
 
 if ask "Also delete Nova's Python libraries (.venv)?"; then rm -rf "$ROOT/.venv"; fi
 CACHE="$HOME/.cache/huggingface/hub"
-if [ -d "$CACHE/models--Systran--faster-whisper-small" ] && ask "Also delete the downloaded speech models (about 2 GB)?"; then
-  rm -rf "$CACHE/models--Systran--faster-whisper-small" "$CACHE/models--mobiuslabsgmbh--faster-whisper-large-v3-turbo"
+if [ -d "$CACHE/models--Systran--faster-whisper-small" ] && ask "Also delete the downloaded speech models (up to 3.6 GB)?"; then
+  rm -rf "$CACHE/models--Systran--faster-whisper-small" "$CACHE/models--mobiuslabsgmbh--faster-whisper-large-v3-turbo"     "$CACHE/models--AyushM1701--nova-whisper-hinglish"
 fi
 if [ -d "$ROOT/data/tts" ] && ask "Also delete Nova's natural voice (about 380 MB)?"; then rm -rf "$ROOT/data/tts"; fi
 echo "Done. Claude Code / Codex were left installed; remove them separately if you want."

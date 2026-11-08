@@ -1,11 +1,12 @@
-"""Step 3: teach Whisper large-v3-turbo to write Hindi and Hinglish speech in Roman letters (a LoRA adapter).
+"""Step 3: teach Whisper large-v3-turbo to write Hindi and Hinglish in Roman letters and keep its English (a LoRA).
 
     data/hinglish-train/.venv/Scripts/python helpers/hinglish_train/train.py [--epochs 2] [--batch 8]
 
 Close Nova first: its Whisper holds 2.4 GB of the GPU. Only the decoder (the half that writes) is trained; the
 encoder (the half that listens) stays as it is, which keeps this within a 6 GB laptop GPU and keeps its hearing.
-Whisper's Hindi mode (<|hi|>) is what learns the Roman output, so Nova decodes Hindi clips with language "hi".
-Writes data/hinglish-train/adapter/ (the LoRA), merged/ (full model) and ct2/ (for faster-whisper, used by Nova)."""
+Each clip is labelled with its own language: Whisper's Hindi mode (<|hi|>) learns the Roman output (Nova decodes Hindi
+clips with language "hi"), and English clips (<|en|>) keep English as it was, in the same, shuffled batches.
+Writes $HINGLISH_DIR/adapter/ (the LoRA), merged/ (full model) and ct2/ (for faster-whisper, used by Nova)."""
 import argparse
 import json
 import math
@@ -15,13 +16,14 @@ import sys
 import time
 from pathlib import Path
 
-import numpy as np
 import soundfile as sf
 import torch
 from peft import LoraConfig, PeftModel, get_peft_model
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
-OUT = Path(__file__).resolve().parents[2] / "data" / "hinglish-train"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from common import OUT  # noqa: E402
+
 BASE = "openai/whisper-large-v3-turbo"
 
 
@@ -41,10 +43,11 @@ def batches(items, size, processor, shuffle):
 
 
 def labels_for(chunk, processor):
-    tok = processor.tokenizer
-    tok.set_prefix_tokens(language="hindi", task="transcribe", predict_timestamps=False)
-    # <|hi|><|transcribe|><|notimestamps|> text <|eot|>: the model puts <|sot|> before it itself
-    ids = [tok(r["text"]).input_ids[1:] for r in chunk]
+    tok, ids = processor.tokenizer, []
+    for r in chunk:  # <|hi|> or <|en|>, <|transcribe|><|notimestamps|> text <|eot|>: the model puts <|sot|> first itself
+        tok.set_prefix_tokens(language="english" if r.get("lang") == "en" else "hindi", task="transcribe",
+                              predict_timestamps=False)
+        ids.append(tok(r["text"]).input_ids[1:])
     width = max(map(len, ids))
     out = torch.full((len(ids), width), -100, dtype=torch.long)
     for n, seq in enumerate(ids):

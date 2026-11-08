@@ -45,11 +45,21 @@ def prompt_for(vocabulary, hindi=False):
 
 
 def downloaded(name):
+    if os.path.isdir(str(name)):  # a model folder on this computer (one trained with helpers/hinglish_train)
+        return True
     try:
         download_model(name, local_files_only=True)
         return True
     except Exception:  # not in the cache yet
         return False
+
+
+def _model(name, gpu):
+    """A WhisperModel on the GPU or CPU. `nova_roman` marks one trained on Hinglish (helpers/hinglish_train: its name says
+    "hinglish"): its "hi" mode writes Hindi in Roman letters by itself, so it needs no Hinglish prompt."""
+    model = WhisperModel(str(name), device="cuda" if gpu else "cpu", compute_type="float16" if gpu else "int8")
+    model.nova_roman = "hinglish" in str(name).lower()
+    return model
 
 
 def unsure(segment):
@@ -81,31 +91,34 @@ class STT:
             # the accurate model once it's downloaded; until then the fast one, still on the GPU, which is then
             # also the one that translates (no second copy of it)
             have = downloaded(accurate_name)
-            self.fast = WhisperModel(accurate_name if have else fast_name, device="cuda", compute_type="float16")
+            self.fast = _model(accurate_name if have else fast_name, gpu=True)
             self.small = None if have else self.fast
             self.fast.transcribe(np.zeros(16000, dtype=np.float32))  # fails here if cuDNN/cuBLAS can't load
             self.device = "GPU"
         except Exception:
             self.small = None
-            self.fast = WhisperModel(fast_name, device="cpu", compute_type="int8")
+            self.fast = _model(fast_name, gpu=False)
             self.device = "CPU"
 
     def load_accurate(self):
         """Download the accurate model if setup didn't (slow: run it in the background), then use it."""
         if not self.accurate_name:
             return
+        if self.device == "CPU" and self.hindi is not None and set(self.likely) <= {"en", "hi"}:
+            return  # the Hindi model already takes what the accurate one would (Hindi): one big model in memory, not two
         if not downloaded(self.accurate_name):
             download_model(self.accurate_name)
             if self.device == "GPU":  # the fast model stood in until now; it stays as self.small, for translation
-                self.fast = WhisperModel(self.accurate_name, device="cuda", compute_type="float16")
+                self.fast = _model(self.accurate_name, gpu=True)
         if self.device == "CPU":
-            self.accurate = WhisperModel(self.accurate_name, device="cpu", compute_type="int8")
+            self.accurate = _model(self.accurate_name, gpu=False)
 
-    def load_hindi(self, folder):
-        """A model trained to write Hindi and Hinglish in Roman letters (its "hi" mode), beside the everyday one:
-        English clips stay with the everyday model, which training would make a little worse at English."""
-        self.hindi = WhisperModel(str(folder), device="cuda" if self.device == "GPU" else "cpu",
-                                  compute_type="float16" if self.device == "GPU" else "int8")
+    def load_hindi(self, name):
+        """A model trained to write Hindi and Hinglish in Roman letters (its "hi" mode), beside the everyday one, for
+        the clips heard as Hindi: a folder, or a Hugging Face repo, downloaded first (slow: run it in the background)."""
+        if not downloaded(name):
+            download_model(str(name))
+        self.hindi = _model(name, gpu=self.device == "GPU")
 
     def translator(self):
         """Whisper's turbo models were trained without translation (they write the language spoken), so translating
@@ -206,8 +219,9 @@ class STT:
         # the small model is weak at other languages: the accurate one takes them (CPU only, once it's loaded),
         # except to translate, which it can't do
         model = self.accurate if other and self.accurate else first
-        if other and lang == "hi" and self.hindi is not None:  # the trained model writes Roman letters by itself
-            model, used = self.hindi, "hi"
+        roman = self.hindi if self.hindi is not None else model if getattr(model, "nova_roman", False) else None
+        if other and lang == "hi" and roman is not None:  # a model trained on Hinglish writes Roman letters by itself
+            model, used = roman, "hi"
             text = run(model, "hi", prompt)[0]
         elif other and lang == "hi":  # Hindi or Hinglish, written in Roman letters (HINDI says how)
             styled = prompt_for(vocabulary, hindi=True)
