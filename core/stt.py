@@ -71,6 +71,8 @@ class STT:
     def shaky(self, value):
         _doubt.shaky = value
 
+    hindi = None  # a Whisper trained on Hinglish (helpers/hinglish_train): it hears the clips detected as Hindi
+
     def __init__(self, fast_name, accurate_name):
         self.fast_name, self.accurate_name, self.accurate, self.small = fast_name, accurate_name, None, None
         try:
@@ -98,6 +100,12 @@ class STT:
                 self.fast = WhisperModel(self.accurate_name, device="cuda", compute_type="float16")
         if self.device == "CPU":
             self.accurate = WhisperModel(self.accurate_name, device="cpu", compute_type="int8")
+
+    def load_hindi(self, folder):
+        """A model trained to write Hindi and Hinglish in Roman letters (its "hi" mode), beside the everyday one:
+        English clips stay with the everyday model, which training would make a little worse at English."""
+        self.hindi = WhisperModel(str(folder), device="cuda" if self.device == "GPU" else "cpu",
+                                  compute_type="float16" if self.device == "GPU" else "int8")
 
     def translator(self):
         """Whisper's turbo models were trained without translation (they write the language spoken), so translating
@@ -198,7 +206,10 @@ class STT:
         # the small model is weak at other languages: the accurate one takes them (CPU only, once it's loaded),
         # except to translate, which it can't do
         model = self.accurate if other and self.accurate else first
-        if other and lang == "hi":  # Hindi or Hinglish, written in Roman letters (HINDI says how)
+        if other and lang == "hi" and self.hindi is not None:  # the trained model writes Roman letters by itself
+            model, used = self.hindi, "hi"
+            text = run(model, "hi", prompt)[0]
+        elif other and lang == "hi":  # Hindi or Hinglish, written in Roman letters (HINDI says how)
             styled = prompt_for(vocabulary, hindi=True)
             tries = {"en-prompt": [("en", styled)], "hi-prompt": [("hi", styled)], "hi": [("hi", prompt)],
                      "both": [("en", styled), ("hi", styled)]}[HINDI]

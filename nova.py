@@ -458,6 +458,11 @@ class Nova(BackgroundMixin, SuggestMixin):
             v = self.cfg["voice"]
             self.stt = STT(v["stt_model"], v["stt_accurate_model"])
             self.stt.likely = tuple(v["languages"])
+            if v["hindi_model"]:  # a Whisper trained on Hinglish, for clips heard as Hindi (helpers/hinglish_train)
+                try:
+                    self.stt.load_hindi(ROOT / v["hindi_model"])  # a path from Nova's folder, or a full one
+                except Exception as e:  # a missing or broken folder: Hindi is heard the usual way
+                    log("error", error=f"the Hindi speech model at {v['hindi_model']} didn't load: {e!r}")
         except Exception as e:  # missing or broken model files: say so instead of "Loading…" forever
             log("error", error=f"speech model failed to load: {e!r}")
             message = f"{friendly(e)}\n\nRun Nova's setup again to download it."  # `e` is gone once except ends

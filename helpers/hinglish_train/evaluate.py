@@ -10,13 +10,11 @@ import sys
 import time
 from pathlib import Path
 
-import soundfile as sf
-
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "helpers"))
 from core import stt as stt_mod  # noqa: E402
-from stt_bench import error_rates  # noqa: E402
+from stt_bench import error_rates, load  # noqa: E402
 
 OUT = ROOT / "data" / "hinglish-train"
 
@@ -27,7 +25,7 @@ def score(name, model, hindi, test):
     s.fast, s.accurate, s.small, s.device, s.likely = model, None, None, "GPU", ("en", "hi")
     wer = cer = ms = 0.0
     for r in test:
-        audio = sf.read(OUT / "clips" / f"{r['id']}.wav", dtype="float32")[0]
+        audio = load(OUT / "clips" / f"{r['id']}.wav")
         t0 = time.perf_counter()
         heard = s.transcribe(audio, "auto")
         ms += (time.perf_counter() - t0) * 1000

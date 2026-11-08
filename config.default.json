@@ -22,6 +22,7 @@
   "voice": {
     "stt_model": "small",
     "stt_accurate_model": "large-v3-turbo",
+    "hindi_model": "",
     "input_device": "",
     "output_device": "",
     "stt_engine": "local",

@@ -16,7 +16,9 @@ from pathlib import Path
 OUT = Path(__file__).resolve().parents[2] / "data" / "hinglish-train"
 BATCH, WORKERS = 50, 4
 PROMPT = """Convert each numbered line to Roman Hinglish, the way an Indian types Hindi in a chat message.
-- Transliterate Hindi words into Latin letters; never translate them. English words keep normal English spelling.
+- Write exactly the words that were spoken. Transliterate every Hindi word into Latin letters, even formal or rare
+  ones (निष्पादित -> nishpadit, संस्थापित -> sansthapit); never replace a Hindi word with an English one.
+- English words (already in Latin letters) keep normal English spelling.
 - Use common chat spellings: hai, hain, karein, kya, mein, nahi, aap, yeh, woh, kaise, liye, bhi, ki, ke, ko.
 - Write numbers as digits. Lowercase except names and acronyms. No Devanagari at all.
 - Return exactly the same numbers, one line each, as "N. text", and nothing else."""

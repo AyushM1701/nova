@@ -1876,6 +1876,16 @@ said_in = ["hi"]
 assert local_stt.transcribe(np.zeros(16000, np.float32), hindi=hindi_srv) == "gaana chalao" and heard_by == ["sarvam"]
 said_in[0] = "en"
 assert local_stt.transcribe(np.zeros(16000, np.float32), hindi=hindi_srv) == "pause the music" and heard_by[-1] == "whisper"
+# a Whisper trained on Hinglish (helpers/hinglish_train) hears only the Hindi clips, in its own "hi" mode, with no
+# Hinglish prompt (it writes Roman letters by itself); English stays with the everyday model
+trained_langs = []
+local_stt.hindi = type("M", (), {"transcribe": lambda self, *a, **k: (trained_langs.append((k["language"], k["initial_prompt"]))
+                                                                      or [types.SimpleNamespace(text="gaana chalao")], None)})()
+said_in[0] = "hi"
+assert local_stt.transcribe(np.zeros(16000, np.float32)) == "gaana chalao" and trained_langs == [("hi", None)]
+said_in[0] = "en"
+assert local_stt.transcribe(np.zeros(16000, np.float32)) == "pause the music" and len(trained_langs) == 1
+local_stt.hindi = None
 
 # what the computer played: kept as audio until asked, then transcribed, including the words still buffering
 from core import loopback  # noqa: E402

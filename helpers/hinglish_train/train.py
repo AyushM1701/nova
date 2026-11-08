@@ -87,6 +87,10 @@ def train(args):
             sched.step()
             opt.zero_grad(set_to_none=True)
             step += 1
+            if args.max_steps and step >= args.max_steps:  # a trial: memory and speed, nothing saved
+                print(f"trial done: {step} steps, {(time.time() - t0) / step:.2f} s a step, "
+                      f"{torch.cuda.max_memory_allocated() / 2**30:.1f} GB at most", flush=True)
+                return None
             if step % 25 == 0:
                 left = (time.time() - t0) / step * (steps - step) / 60
                 print(f"epoch {epoch + 1} step {step}/{steps} loss {out.loss.item():.3f} "
@@ -101,6 +105,10 @@ def export(processor):
     merged = PeftModel.from_pretrained(base, OUT / "adapter").merge_and_unload()
     merged.save_pretrained(OUT / "merged")
     processor.save_pretrained(OUT / "merged")
+    # Transformers 5 saves the audio settings as processor_config.json; the converter (and faster-whisper) read
+    # preprocessor_config.json, so the base model's own copy goes beside it (the audio settings didn't change)
+    from huggingface_hub import hf_hub_download
+    hf_hub_download(BASE, "preprocessor_config.json", local_dir=OUT / "merged")
     converter = Path(sys.executable).with_name("ct2-transformers-converter.exe")
     subprocess.run([str(converter), "--model", str(OUT / "merged"), "--output_dir", str(OUT / "ct2"), "--force",
                     "--quantization", "float16", "--copy_files", "tokenizer.json", "preprocessor_config.json"], check=True)
@@ -113,5 +121,8 @@ if __name__ == "__main__":
     a.add_argument("--batch", type=int, default=8)
     a.add_argument("--lr", type=float, default=1e-4)
     a.add_argument("--export-only", action="store_true")
+    a.add_argument("--max-steps", type=int, default=0)
     args = a.parse_args()
-    export(WhisperProcessor.from_pretrained(BASE) if args.export_only else train(args))
+    processor = WhisperProcessor.from_pretrained(BASE) if args.export_only else train(args)
+    if processor:
+        export(processor)

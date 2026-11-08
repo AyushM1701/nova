@@ -19,8 +19,9 @@ import soundfile as sf
 OUT = Path(__file__).resolve().parents[2] / "data" / "hinglish-train"
 BASE = "https://huggingface.co/api/datasets/{}/parquet/default/train/{}.parquet"
 # (dataset, shard, split): shards spread through agarwalayushi's 816 (it is ordered by speaker) for more voices
-SHARDS = [("ujs/hinglish", n, "train") for n in (0, 4, 7)] + [("ujs/hinglish", 9, "test")] + \
-         [("agarwalayushi/hinglish", n, "train") for n in (60, 220, 380, 540, 700)] + [("agarwalayushi/hinglish", 790, "test")]
+# (most of agarwalayushi is lectures with few Hindi-English clips: shard 220 has none, 61 sits by 60, which has many)
+SHARDS = [("ujs/hinglish", n, "train") for n in (0, 1, 2, 4, 7)] + [("ujs/hinglish", 9, "test")] + \
+         [("agarwalayushi/hinglish", n, "train") for n in (60, 220, 380, 540, 700)] + [("agarwalayushi/hinglish", 61, "test")]
 TEST_PER_SHARD = 250  # held-out clips from each test shard
 DOUBLED = re.compile(r"([ऀ-ॿ]+)([A-Za-z]+)")  # "लूपloop": a word written twice, Hindi then English
 
