@@ -140,6 +140,9 @@ def train(args, out):
                 print(f"epoch {epoch + 1} step {step}/{steps} loss {loss.item():.3f} "
                       f"({left:.0f} min left, {torch.cuda.max_memory_allocated() / 2**30:.1f} GB)", flush=True)
         model.save_pretrained(out / "adapter")
+    # how it was trained, for the model card (publish.py)
+    (out / "training.json").write_text(json.dumps({"encoder_layers": args.encoder_layers, "splice": args.splice,
+                                                   "epochs": args.epochs}), encoding="utf-8")
     return processor
 
 

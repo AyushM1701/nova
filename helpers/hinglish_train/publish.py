@@ -44,6 +44,12 @@ def card(repo, key="trained"):
     table = "\n".join(f"| {c} | " + " | ".join(f"{cell(m, c, 'wer')} / {cell(m, c, 'twer')}" for m in scores) + " |"
                       for c in corpora)
     header = "| Test set | " + " | ".join(scores) + " |\n|---|" + "---|" * len(scores)
+    made = OUT / ("" if key == "trained" else key) / "training.json"  # v1 predates it: the decoder only, no splicing
+    how = json.loads(made.read_text(encoding="utf-8")) if made.exists() else {}
+    trained = "a LoRA on the decoder" + (f" and the encoder's last {how['encoder_layers']} layers"
+                                         if how.get("encoder_layers") else "") + ", merged"
+    spliced = (f" A further {how['splice']:.0%} of clips were made by joining a Hindi clip and an English one, so the model"
+               " hears language switch inside a sentence (code-mix splicing).") if how.get("splice") else ""
     return f"""---
 license: {license_id}
 base_model: openai/whisper-large-v3-turbo
@@ -52,7 +58,7 @@ tags: [whisper, ctranslate2, faster-whisper, hinglish, code-switching, speech-re
 ---
 # Nova Whisper Hinglish
 
-Whisper large-v3-turbo, fine-tuned (a LoRA on the decoder, merged) so that **one model** hears English, Hindi and
+Whisper large-v3-turbo, fine-tuned ({trained}) so that **one model** hears English, Hindi and
 Hinglish, and **writes Hindi in Roman letters** ("kal meeting cancel kar do"), the way people type it. Made for
 [Nova](https://github.com/AyushM1701/nova), which downloads it automatically; any faster-whisper program can use it.
 
@@ -72,7 +78,7 @@ Detect the language first (`model.detect_language`, between `en` and `hi`) and d
 Clips from the [agarwalayushi/hinglish](https://huggingface.co/datasets/agarwalayushi/hinglish) aggregate are only those
 of its corpora licensed CC BY 4.0 (by clip source). Hindi transcripts were written in Roman letters by rule (spoken
 words kept, never translated); LibriSpeech's capitals were cased and punctuated where stock Whisper heard exactly the
-same words.
+same words.{spliced}
 
 ## Word error rate on held-out clips
 Word error rate / Roman word error rate (any Devanagari in a model's output converted to Roman letters first, by the

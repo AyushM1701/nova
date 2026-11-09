@@ -77,11 +77,15 @@ def main():
     # the English words the corpus spells in Devanagari, as romanize.py found them for the test transcripts
     vocabulary = english(r["text"] for r in map(json.loads, (OUT / "manifest.jsonl").open(encoding="utf-8"))
                          if r["lang"] == "hi")
+    saved = OUT / "scores.json"
+    if saved.exists():  # models scored in earlier runs keep their scores (a model scored again is replaced)
+        RESULTS.update(json.loads(saved.read_text(encoding="utf-8")))
     for name, path, mode in models(sys.argv):
+        RESULTS.pop(name, None)
         model = WhisperModel(path, device="cuda", compute_type="float16")
         score(name, model, mode, groups, vocabulary)
         del model  # one model on the GPU at a time
-    (OUT / "scores.json").write_text(json.dumps(RESULTS, indent=2), encoding="utf-8")
+    saved.write_text(json.dumps(RESULTS, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

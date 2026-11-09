@@ -44,25 +44,41 @@ def prompt_for(vocabulary, hindi=False):
     return " ".join(part for part in (HINGLISH if hindi else "", names) if part) or None
 
 
-def downloaded(name):
-    if os.path.isdir(str(name)):  # a model folder on this computer (one trained with helpers/hinglish_train)
-        return True
+def _cached(name):
+    """The downloaded copy's folder, or None. Hugging Face marks a version as the current one before its files arrive,
+    and calls a folder downloaded without looking inside: a download cut short (Nova closed during it) leaves one
+    without model.bin, which would fail to load on the GPU and drop Nova to the CPU."""
     try:
-        download_model(name, local_files_only=True)
-        return True
+        path = download_model(str(name), local_files_only=True)
     except Exception:  # not in the cache yet
-        return False
+        return None
+    return None if os.path.isdir(path) and not os.path.isfile(os.path.join(path, "model.bin")) else path
+
+
+def downloaded(name):
+    # a model folder on this computer (one trained with helpers/hinglish_train), or a complete download
+    return os.path.isdir(str(name)) or _cached(name) is not None
 
 
 def _local(name):
     """The copy already downloaded, so starting Nova never waits on the network (given a name, faster-whisper asks
     Hugging Face first, and would download a whole new release then). STT.refresh fetches new releases."""
-    if not os.path.isdir(str(name)):
-        try:
-            return download_model(str(name), local_files_only=True)
-        except Exception:  # not downloaded: faster-whisper fetches it
-            pass
-    return str(name)
+    return str(name) if os.path.isdir(str(name)) else _cached(name) or str(name)
+
+
+def _prune(keep):
+    """Delete the other downloaded versions of the model at `keep` (a snapshot folder): each release leaves the
+    previous one, 1.6 GB, in Hugging Face's cache. Failing, they stay."""
+    try:
+        from huggingface_hub import scan_cache_dir
+        cache = scan_cache_dir()
+        repo = os.path.normcase(os.path.dirname(os.path.dirname(os.path.normpath(keep))))
+        old = [r.commit_hash for found in cache.repos if os.path.normcase(str(found.repo_path)) == repo
+               for r in found.revisions if r.commit_hash != os.path.basename(os.path.normpath(keep))]
+        if old:
+            cache.delete_revisions(*old).execute()
+    except Exception:  # a file in use, or the cache layout changed: nothing lost but disk space
+        pass
 
 
 def _model(name, gpu):
@@ -135,6 +151,8 @@ class STT:
         if os.path.isdir(str(self.accurate_name)):
             return False
         before = _local(self.accurate_name)
+        if os.path.isdir(before):
+            _prune(before)
         try:
             return download_model(str(self.accurate_name)) != before
         except Exception:  # offline, or Hugging Face is down: the copy on disk stays
@@ -149,7 +167,12 @@ class STT:
 
     def translator(self):
         """Whisper's turbo models were trained without translation (they write the language spoken), so translating
-        uses the small model: the CPU's own fast one, or loaded once beside turbo on a GPU."""
+        uses the small model: the CPU's own fast one, or loaded once beside turbo on a GPU. An everyday model that is
+        itself a turbo can't translate either: small is loaded for it."""
+        if "turbo" in str(getattr(self, "fast_name", "")).lower():
+            if getattr(self, "_translate", None) is None:
+                self._translate = _model("small", gpu=self.device == "GPU")
+            return self._translate
         if self.device == "CPU":
             return self.fast
         if self.small is None:

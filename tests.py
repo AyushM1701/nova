@@ -601,8 +601,37 @@ try:
     assert fresh.refreshed and online == ["AyushM1701/nova-whisper-hinglish"] and fresh.fast.name.endswith("snapshot-v1")
     offline = True
     assert not fresh.refresh()  # offline: the copy on disk stays
+    # a download cut short leaves a folder without model.bin, which Hugging Face still calls downloaded: it isn't,
+    # so the GPU starts on the fast model and finishes the download, instead of failing over to the CPU
+    _part = Path(tempfile.mkdtemp())
+    stt_mod.download_model = lambda name, local_files_only=False: str(_part)
+    assert not stt_mod.downloaded("AyushM1701/nova-whisper-hinglish")
+    assert stt_mod._local("AyushM1701/nova-whisper-hinglish") == "AyushM1701/nova-whisper-hinglish"
+    (_part / "model.bin").write_bytes(b"x")
+    assert stt_mod.downloaded("AyushM1701/nova-whisper-hinglish") and stt_mod._local("x") == str(_part)
+    # a turbo everyday model can't translate (turbo was trained without it): small translates instead
+    stt_mod.download_model = fake_download
+    turbo = object.__new__(stt_mod.STT)
+    turbo.fast_name, turbo.device, turbo.small, turbo.fast = "large-v3-turbo", "GPU", None, "turbo itself"
+    assert turbo.translator().name == "small" and turbo.translator() is turbo.translator()  # loaded once
 finally:
     stt_mod.WhisperModel, stt_mod.download_model, stt_mod.sys = real_whisper, real_download, real_sys
+# each release leaves the previous version of the model in Hugging Face's cache: once the new one is in use, the
+# other versions of that model (only that one) are deleted
+import huggingface_hub as _hub  # noqa: E402
+import types  # noqa: E402
+_deleted, _real_scan = [], _hub.scan_cache_dir
+_repo = Path("cache/models--AyushM1701--nova-whisper-hinglish")
+_rev = lambda h: types.SimpleNamespace(commit_hash=h)  # noqa: E731
+_hub.scan_cache_dir = lambda: types.SimpleNamespace(
+    repos=[types.SimpleNamespace(repo_path=_repo, revisions=[_rev("v1"), _rev("v2")]),
+           types.SimpleNamespace(repo_path=Path("cache/models--other"), revisions=[_rev("o1")])],
+    delete_revisions=lambda *h: types.SimpleNamespace(execute=lambda: _deleted.extend(h)))
+try:
+    stt_mod._prune(str(_repo / "snapshots" / "v2"))
+    assert _deleted == ["v1"], _deleted
+finally:
+    _hub.scan_cache_dir = _real_scan
 
 # diagnostics: what happened and the settings, never what was said or run, and the home folder becomes ~
 from core import diagnostics  # noqa: E402
@@ -1948,7 +1977,13 @@ local_stt.fast = both
 # the Hindi model: a Hugging Face repo is downloaded first (in the background at start), a folder isn't; on a CPU it
 # stands in for the accurate model, so only one big model is in memory
 fetched, real_dl, real_model = [], stt_mod.download_model, stt_mod._model
-stt_mod.download_model = lambda name, **k: fetched.append(name)
+def _not_cached(name, local_files_only=False):
+    if local_files_only:
+        raise ValueError("not in the cache")  # as faster-whisper does for a model never downloaded
+    fetched.append(name)
+
+
+stt_mod.download_model = _not_cached
 stt_mod._model = lambda name, gpu: types.SimpleNamespace(name=str(name), gpu=gpu)
 cpu_stt = object.__new__(stt_mod.STT)
 cpu_stt.device, cpu_stt.likely, cpu_stt.accurate_name, cpu_stt.accurate = "CPU", ("en", "hi"), "large-v3-turbo", None
