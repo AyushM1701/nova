@@ -1903,6 +1903,8 @@ _vocab = _english(["click on the slide", "click save", "insert a slide", "slide 
 assert _roman("अब type करें") == "ab type karein" and _roman("हम करते हैं") == "hum karte hain"
 assert _roman("continue पर क्लिक करें", _vocab) == "continue par click karein"
 assert _roman("स्लाइड को देखें", _vocab) == "slide ko dekhen" and _roman("बिंदु", {"bnd": "bond"}) == "bindu"
+# chat spellings, not doubled vowels (the model learned "deevaareez" from them): hi, di, ya, kuch, dwara, jaayein, hamari
+assert _roman("ही दी या कुछ द्वारा जाएँ हमारी") == "hi di ya kuch dwaara jaayein hamari", _roman("ही दी या कुछ द्वारा जाएँ हमारी")
 # the Roman score (evaluate.py): Devanagari a model wrote is converted by the same rules first, so the script isn't an error
 sys.path.insert(0, str(Path("helpers").resolve()))
 from stt_bench import error_rates as _error_rates  # noqa: E402

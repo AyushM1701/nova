@@ -71,7 +71,19 @@ def word(w):
     out = "".join(c + v for c, v, _ in units)
     if len(units) > 1:  # chat spelling ends a word short: karta, saara, hui (not kartaa, saaraa, huee)
         out = re.sub(r"aa$", "a", re.sub(r"ee$", "i", out))
-    return out
+    return chat(out)
+
+
+def chat(w):
+    """The spellings people type, each measured against Claude's conversions (closer to them, or left out): hi, di, ya
+    (not hee, dee, yaa), kuch (kuchh), swagat, dwara (svaagat, dvaara), jaayein (jaaen), hamari (hamaari)."""
+    w = re.sub(r"^([^aeiou]{1,2})aa$", r"\1a", re.sub(r"^([^aeiou]{1,2})ee$", r"\1i", w))
+    w = re.sub(r"chh$", "ch", w.replace("chchh", "chh"))
+    w = re.sub(r"(?<=[sdtkjgbh])v", "w", w)
+    w = re.sub(r"aaen$", "aayein", re.sub(r"aae$", "aaye", w))
+    if len(re.findall(r"[aeiou]+", w)) >= 3:  # a long vowel past the first syllable, before a final one, goes short
+        w = re.sub(r"(?<=[^aeiou])aa(?=[^aeiou](?:i|ee|e|a)\b)", "a", w)
+    return w
 
 
 def skeleton(w):
@@ -115,7 +127,7 @@ if __name__ == "__main__":  # how close the rules come to Claude's conversions
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from common import OUT
     from stt_bench import error_rates
-    claude = {r["id"]: r["text"] for r in map(json.loads, (OUT / "roman.jsonl").open(encoding="utf-8")) if r["lang"] == "hi"}
+    claude = {r["id"]: r["text"] for r in map(json.loads, (OUT / "roman.jsonl").open(encoding="utf-8")) if r.get("lang", "hi") == "hi"}
     pairs = [(r["text"], claude[r["id"]]) for r in map(json.loads, (OUT / "manifest.jsonl").open(encoding="utf-8"))
              if r["id"] in claude][:2000]
     w = c = 0.0
