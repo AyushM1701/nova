@@ -16,6 +16,8 @@ sys.path.insert(0, str(ROOT / "helpers"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import OUT  # noqa: E402
 from stt_bench import load  # noqa: E402
+sys.path.insert(0, str(ROOT))
+import core.stt  # noqa: E402,F401  registers the venv's CUDA DLL folders (cublas) on Windows
 
 
 def words(text):
