@@ -775,6 +775,12 @@ _lights = [["Blinding Lights", "The Weeknd"], ["Blinding Lights - Live", "The We
            ["Blinding Lights (with ROSALÍA) - Remix", "The Weeknd", "ROSALÍA"]]
 assert _sp.best("the weekend the blinding lights", _lights) == 0 and _sp.best("blinding lights live", _lights) == 1
 assert _sp.best("the weeknd", [["The Weeknd"], ["Blinding Lights", "The Weeknd"]]) == 0  # an artist stays the artist
+# a best result that covers less than half of what was asked isn't played: the AI tries other spellings (logged:
+# "4 deevaareez ek bandha kaam ka" topped by "4 Diwari"); near-spellings of Hindi in Roman letters still count
+assert _sp.covered("4 deevaareez ek bandha kaam ka", ["4 Diwari", "DJ Sanj", "Soni Pabla"]) < 0.5
+assert _sp.covered("char diwari ek banda kaam ka", ["Banda Kaam Ka", "Chaar Diwaari"]) >= 0.5
+assert _sp.covered("travis scott goosebumps", ["goosebumps", "Travis Scott"]) == 1
+assert _sp.covered("the weekend the blinding lights", ["Blinding Lights", "The Weeknd"]) >= 0.5
 
 # the login supervisor: a crash starts Nova again, Quit (exit 0) does not, and a crash loop gives up
 sys.path.insert(0, str(pathlib.Path(__file__).parent / "helpers"))

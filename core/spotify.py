@@ -58,9 +58,18 @@ def best(query, cards):
     return max(range(len(cards)), key=lambda i: (score(cards[i]), -i))
 
 
+def covered(query, links):
+    """How much of what was asked a result's title and artists cover, 0..1. A near-spelling counts ("diwari" for
+    "Diwaari"): Hindi heard in Roman letters is spelled many ways."""
+    from difflib import SequenceMatcher
+    want, have = _words(query), _words(" ".join(links))
+    return sum(any(w == h or SequenceMatcher(None, w, h).ratio() >= 0.75 for h in have) for w in want) / max(1, len(want))
+
+
 def _find(window, want, query=""):
-    """The Play button to press, or None while the page is still loading. want='top': the best result ('playing': or
-    its Pause, once it plays); 'player': the bar."""
+    """The Play button to press, None while the page is still loading, or "weak" when even the best result covers
+    less than half of what was asked (Spotify's search missed: the AI tries other spellings). want='top': the best
+    result ('playing': or its Pause, once it plays); 'player': the bar."""
     if want == "player":
         for control in _walk(window):
             if control.ControlTypeName == "ButtonControl" and control.Name in ("Play", "Pause"):
@@ -69,7 +78,10 @@ def _find(window, want, query=""):
     cards = _cards(window)
     if not cards:
         return None
-    button = cards[best(query, [links for _, links in cards])][0]
+    pick = best(query, [links for _, links in cards])
+    button, links = cards[pick]
+    if covered(query, links) < 0.5:  # "4 deevaareez ek bandha kaam ka" topped by "4 Diwari": only "4" in common
+        return "weak"
     return None if want == "top" and button.Name.startswith("Pause") else button
 
 
@@ -133,8 +145,8 @@ def play(query, timeout=20):
             return w and _find(w, want if query else "player", query)
         for want in ("top", "playing"):  # the second look takes a top result that has started meanwhile as done
             button = _until(lambda: top(want), timeout)
-            if not button:
-                return False
+            if not button or button == "weak":
+                return False  # nova.py then hands the request to the AI
             if button.Name.startswith("Pause"):
                 return True  # already playing
             time.sleep(0.4)  # results settle just after they appear
