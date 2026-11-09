@@ -6,7 +6,8 @@ load_accurate). Run it yourself, after logging in once with your own token:
     data/hinglish-train/.venv/Scripts/python helpers/hinglish_train/publish.py --card-only   (write the card, upload nothing)
 
 Writes the model card (README.md) into $HINGLISH_DIR/ct2 from sources.json and scores.json, then uploads the folder.
-Only for a model trained on the licensed mix (prepare.py): every source CC BY 4.0, so the model is CC BY 4.0 too."""
+Only for a model trained on the licensed mix (prepare.py): CC BY 4.0 sources, plus MUCS (CC BY-SA 4.0), whose
+share-alike term makes the model CC BY-SA 4.0. A source under any other license stops it."""
 import json
 import sys
 from pathlib import Path
@@ -21,20 +22,23 @@ def card(repo):
     sources = json.loads((OUT / "sources.json").read_text(encoding="utf-8"))
     scores = json.loads((OUT / "scores.json").read_text(encoding="utf-8")) if (OUT / "scores.json").exists() else {}
     licenses = {s["license"] for s in sources}
-    if licenses != {"CC BY 4.0"}:  # a source under another license changes what the model may be released as
+    if not licenses <= {"CC BY 4.0", "CC BY-SA 4.0"}:  # another license changes what the model may be released as
         raise SystemExit(f"Sources have other licenses ({licenses}): check before publishing.")
+    sa = "CC BY-SA 4.0" in licenses
+    license_name, license_id = ("CC BY-SA 4.0", "cc-by-sa-4.0") if sa else ("CC BY 4.0", "cc-by-4.0")
+    of = {s["corpus"]: s["license"] for s in sources}
     hours = {}
     for s in sources:
         if s["split"] == "train":
             hours[(s["corpus"], s["url"], s["lang"])] = hours.get((s["corpus"], s["url"], s["lang"]), 0) + s["hours"]
-    rows = "\n".join(f"| {c} | {'Hindi / Hinglish' if lang == 'hi' else 'English'} | {h:.1f} h | CC BY 4.0 | {u} |"
+    rows = "\n".join(f"| {c} | {'Hindi / Hinglish' if lang == 'hi' else 'English'} | {h:.1f} h | {of[c]} | {u} |"
                      for (c, u, lang), h in sorted(hours.items()))
     corpora = sorted({c for m in scores.values() for c in m})
     table = "\n".join(f"| {c} | " + " | ".join(f"{scores[m][c]['wer']:.1%}" if c in scores[m] else "-" for m in scores) + " |"
                       for c in corpora)
     header = "| Test set | " + " | ".join(scores) + " |\n|---|" + "---|" * len(scores)
     return f"""---
-license: cc-by-4.0
+license: {license_id}
 base_model: openai/whisper-large-v3-turbo
 language: [en, hi]
 tags: [whisper, ctranslate2, faster-whisper, hinglish, code-switching, speech-recognition]
@@ -53,21 +57,23 @@ segments, _ = model.transcribe("speech.wav", language="en")   # English
 ```
 Detect the language first (`model.detect_language`, between `en` and `hi`) and decode with it, as Nova does.
 
-## Training data (all CC BY 4.0)
+## Training data
 | Corpus | Language | Hours | License | Source |
 |---|---|---|---|---|
 {rows}
 
-Clips come from the [agarwalayushi/hinglish](https://huggingface.co/datasets/agarwalayushi/hinglish) aggregate, only its
-corpora licensed CC BY 4.0 (by clip source), and from LibriSpeech. Hindi transcripts were transliterated to Roman
-letters, and LibriSpeech's were cased and punctuated, by Claude (words unchanged).
+Clips from the [agarwalayushi/hinglish](https://huggingface.co/datasets/agarwalayushi/hinglish) aggregate are only those
+of its corpora licensed CC BY 4.0 (by clip source). Hindi transcripts were written in Roman letters by rule (spoken
+words kept, never translated); LibriSpeech's capitals were cased and punctuated where stock Whisper heard exactly the
+same words.
 
 ## Word error rate on held-out clips
 {header}
 {table}
 
 ## License
-CC BY 4.0, crediting the corpora above; the base model, Whisper, is MIT (OpenAI).
+{license_name}, crediting the corpora above{" (MUCS 2021 is CC BY-SA 4.0: shared alike)" if sa else ""}; the base
+model, Whisper, is MIT (OpenAI).
 """
 
 

@@ -1839,6 +1839,15 @@ time.sleep(0.2)
 assert speech.transcribe(np.zeros(1600, np.float32), "", "") == "hello there" and len(opened) == 2  # reopened
 server.shutdown()
 
+# training transcripts in Roman letters by rule (helpers/hinglish_train/translit.py): chat spellings, Hindi's unsaid
+# "a" dropped, English the corpus writes in Latin letters put back, never a Hindi word swapped for a look-alike
+sys.path.insert(0, str(Path("helpers/hinglish_train").resolve()))
+from translit import english as _english, roman as _roman  # noqa: E402
+_vocab = _english(["click on the slide", "click save", "insert a slide", "slide show"] * 5, least=3)
+assert _roman("अब type करें") == "ab type karein" and _roman("हम करते हैं") == "hum karte hain"
+assert _roman("continue पर क्लिक करें", _vocab) == "continue par click karein"
+assert _roman("स्लाइड को देखें", _vocab) == "slide ko dekhen" and _roman("बिंदु", {"bnd": "bond"}) == "bindu"
+
 # Sarvam (opt-in, the user's key): Saaras v3 in "translit" mode, so Hindi comes back in Roman letters; its own header
 sarvam_seen = {}
 

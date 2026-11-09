@@ -1,12 +1,14 @@
-"""Step 1 of training Nova's speech model: download a slice of licensed speech in English, Hindi and Hinglish.
+"""Step 1 of training Nova's speech model: download licensed speech in English, Hindi and Hinglish.
 
     data/hinglish-train/.venv/Scripts/python helpers/hinglish_train/prepare.py
 
-Only sources whose licenses allow a model trained on them to be shipped with Nova, all CC BY 4.0:
-- agarwalayushi/hinglish (an aggregate), only the clips from its CC BY 4.0 corpora, picked by name: NPTEL lectures
-  (Hindi and Hinglish), Kathbath (read Hindi), IndicTTS (studio Hindi), Mann Ki Baat (Indian English). Its other
-  corpora ("See source": ujs, Orpheus and single-voice TTS sets, unnamed YouTube clips) are left out.
-- LibriSpeech train-clean-100 and test-clean (English).
+Only sources whose licenses allow a model trained on them to be shipped with Nova:
+- MUCS 2021 Hindi-English (OpenSLR 104, CC BY-SA 4.0): spoken tutorials, English words in Latin letters, so the rule
+  converter (translit.py) writes them faithfully. Its lectures are cut into the utterances its Kaldi files list.
+- agarwalayushi/hinglish (an aggregate, CC BY 4.0), only clips from its CC BY 4.0 corpora, by name: Kathbath (read
+  Hindi), IndicTTS (studio Hindi), Mann Ki Baat (Indian English). Left out: its "See source" corpora (ujs, Orpheus and
+  single-voice TTS, unnamed YouTube clips), and NPTEL, whose transcripts spell English terms in Devanagari.
+- LibriSpeech train-clean-100 and test-clean (English, CC BY 4.0).
 Writes $HINGLISH_DIR (default data/hinglish-ship)/clips/<id>.wav (16 kHz mono), manifest.jsonl lines
 {id, split, lang, text, seconds, source} and sources.json (what the model card credits). Resumable."""
 import io
@@ -26,20 +28,20 @@ from common import OUT  # noqa: E402
 API = "https://huggingface.co/api/datasets/{}/parquet/{}/{}.parquet"
 AGG, LIBRI = "agarwalayushi/hinglish", "openslr/librispeech_asr"
 # the aggregate's clips name their corpus; these are its CC BY 4.0 ones (its card's source table)
-LICENSED = {"nptel_hin_": "NPTEL Hindi lectures (ai4bharat/Spoken-Tutorial)", "kathbath_hin_": "Kathbath (ai4bharat)",
-            "indictts_hin_": "IndicTTS Hindi (SPRINGLab)", "mann_ki_baat_": "Mann Ki Baat (ai4bharat)"}
+LICENSED = {"kathbath_hin_": "Kathbath (ai4bharat)", "indictts_hin_": "IndicTTS Hindi (SPRINGLab)",
+            "mann_ki_baat_": "Mann Ki Baat (ai4bharat)"}
+MUCS = "MUCS 2021 Hindi-English"
+MUCS_URL = "https://openslr.elda.org/resources/104/Hindi-English_{}.tar.gz"
 # (dataset, path, shard, split): the aggregate is ordered by corpus, so shards are picked across each one's range
-SHARDS = ([(AGG, "default/train", n, "train") for n in range(300, 771, 15)]       # NPTEL: 32 shards (it ends near 779)
-          + [(AGG, "default/train", n, "train") for n in (150, 175, 200)]          # Kathbath
+SHARDS = ([(AGG, "default/train", n, "train") for n in (150, 175, 200)]          # Kathbath
           + [(AGG, "default/train", n, "train") for n in (250, 265)]               # IndicTTS
           + [(AGG, "default/train", n, "train") for n in (800, 803, 806, 809)]     # Mann Ki Baat, English
           + [(LIBRI, "all/train.clean.100", n, "train") for n in (0, 5, 10)]
-          + [(AGG, "default/train", 775, "test"), (AGG, "default/train", 225, "test"), (AGG, "default/train", 812, "test"),
-             (LIBRI, "all/test.clean", 0, "test")])
+          + [(AGG, "default/train", 812, "test"), (LIBRI, "all/test.clean", 0, "test")])
 TEST_PER_SHARD = 250  # held-out clips from each test shard
 DOUBLED = re.compile(r"([ऀ-ॿ]+)([A-Za-z]+)")  # "लूपloop": a word written twice, Hindi then English
 CARDS = {AGG: ("https://huggingface.co/datasets/agarwalayushi/hinglish", "CC BY 4.0"),
-         LIBRI: ("https://www.openslr.org/12", "CC BY 4.0")}
+         LIBRI: ("https://www.openslr.org/12", "CC BY 4.0"), MUCS: ("https://www.openslr.org/104", "CC BY-SA 4.0")}
 
 
 def fetch(dataset, path, shard):
@@ -71,6 +73,55 @@ def clip_of(dataset, row):
     return None
 
 
+def download(url, file):
+    if not file.exists():
+        file.parent.mkdir(parents=True, exist_ok=True)
+        print(f"downloading {url}", flush=True)
+        part = file.with_suffix(".part")
+        with urllib.request.urlopen(url, timeout=120) as r, open(part, "wb") as f:
+            while chunk := r.read(1 << 20):
+                f.write(chunk)
+        part.rename(file)
+    return file
+
+
+def mucs(split, done, out, rows):
+    """MUCS's lectures, cut into the utterances its Kaldi files list (segments: id, recording, start, end; text)."""
+    import tarfile
+    folder = OUT / "mucs" / split
+    if not (folder / "transcripts" / "segments").exists():
+        with tarfile.open(download(MUCS_URL.format(split), OUT / "mucs" / f"Hindi-English_{split}.tar.gz")) as t:
+            t.extractall(OUT / "mucs", filter="data")
+    texts = dict(line.rstrip("\n").split(" ", 1) for line in (folder / "transcripts" / "text").open(encoding="utf-8")
+                 if " " in line.strip())
+    kept, recording, audio = 0, None, None
+    for line in (folder / "transcripts" / "segments").open(encoding="utf-8"):
+        utt, rec, start, end = line.split()
+        if split == "test" and kept >= TEST_PER_SHARD:
+            break
+        cid = f"mucs-{split}-{utt}"
+        text = " ".join(texts.get(utt, "").split())
+        if cid in done:
+            kept += 1
+            continue
+        seconds = float(end) - float(start)
+        if not text or not 1.0 <= seconds <= 28.0 or len(text) > 400:
+            continue
+        if rec != recording:
+            audio, rate = sf.read(folder / f"{rec}.wav", dtype="float32")
+            audio, recording = (audio.mean(axis=1) if audio.ndim > 1 else audio), rec
+            assert rate == 16000, rate
+        clip = audio[int(float(start) * 16000):int(float(end) * 16000)]
+        sf.write(OUT / "clips" / f"{cid}.wav", clip, 16000, subtype="PCM_16")
+        entry = {"id": cid, "split": split, "lang": "hi", "text": text, "seconds": round(seconds, 2), "source": MUCS,
+                 "dataset": MUCS}
+        out.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        rows.append(entry)
+        kept += 1
+    out.flush()
+    print(f"{MUCS} {split}: {kept} clips", flush=True)
+
+
 def audio_of(cell):
     data, rate = sf.read(io.BytesIO(cell["bytes"]), dtype="float32")
     if data.ndim > 1:
@@ -85,8 +136,14 @@ def main():
     (OUT / "clips").mkdir(parents=True, exist_ok=True)
     manifest = OUT / "manifest.jsonl"
     rows = [json.loads(line) for line in manifest.open(encoding="utf-8")] if manifest.exists() else []
+    keep = set(LICENSED.values()) | {"LibriSpeech", MUCS}
+    if any(r["source"] not in keep for r in rows):  # a corpus taken out of the mix (NPTEL): its clips go too
+        rows = [r for r in rows if r["source"] in keep]
+        manifest.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
     done = {r["id"] for r in rows}
     with manifest.open("a", encoding="utf-8") as out:
+        for split in ("train", "test"):
+            mucs(split, done, out, rows)
         for dataset, path, shard, split in SHARDS:
             table = pq.read_table(fetch(dataset, path, shard))
             kept = 0
