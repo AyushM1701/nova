@@ -54,10 +54,21 @@ def downloaded(name):
         return False
 
 
+def _local(name):
+    """The copy already downloaded, so starting Nova never waits on the network (given a name, faster-whisper asks
+    Hugging Face first, and would download a whole new release then). STT.refresh fetches new releases."""
+    if not os.path.isdir(str(name)):
+        try:
+            return download_model(str(name), local_files_only=True)
+        except Exception:  # not downloaded: faster-whisper fetches it
+            pass
+    return str(name)
+
+
 def _model(name, gpu):
     """A WhisperModel on the GPU or CPU. `nova_roman` marks one trained on Hinglish (helpers/hinglish_train: its name says
     "hinglish"): its "hi" mode writes Hindi in Roman letters by itself, so it needs no Hinglish prompt."""
-    model = WhisperModel(str(name), device="cuda" if gpu else "cpu", compute_type="float16" if gpu else "int8")
+    model = WhisperModel(_local(name), device="cuda" if gpu else "cpu", compute_type="float16" if gpu else "int8")
     model.nova_roman = "hinglish" in str(name).lower()
     return model
 
@@ -106,12 +117,28 @@ class STT:
             return
         if self.device == "CPU" and self.hindi is not None and set(self.likely) <= {"en", "hi"}:
             return  # the Hindi model already takes what the accurate one would (Hindi): one big model in memory, not two
-        if not downloaded(self.accurate_name):
+        had = downloaded(self.accurate_name)
+        if not had:
             download_model(self.accurate_name)
             if self.device == "GPU":  # the fast model stood in until now; it stays as self.small, for translation
                 self.fast = _model(self.accurate_name, gpu=True)
         if self.device == "CPU":
             self.accurate = _model(self.accurate_name, gpu=False)
+        if had:  # after it's in use: a new release downloads meanwhile, for the next start
+            self.refreshed = self.refresh()
+
+    refreshed = False  # load_accurate downloaded a new release of the model, used from the next start
+
+    def refresh(self):
+        """A new release of the accurate model (Nova Whisper Hinglish v2, say), downloaded in the background: only the
+        files that changed. True when there was one; offline, nothing happens."""
+        if os.path.isdir(str(self.accurate_name)):
+            return False
+        before = _local(self.accurate_name)
+        try:
+            return download_model(str(self.accurate_name)) != before
+        except Exception:  # offline, or Hugging Face is down: the copy on disk stays
+            return False
 
     def load_hindi(self, name):
         """A model trained to write Hindi and Hinglish in Roman letters (its "hi" mode), beside the everyday one, for
@@ -126,7 +153,7 @@ class STT:
         if self.device == "CPU":
             return self.fast
         if self.small is None:
-            self.small = WhisperModel(self.fast_name, device="cuda", compute_type="float16")
+            self.small = WhisperModel(_local(self.fast_name), device="cuda", compute_type="float16")
         return self.small
 
     def quick(self, audio):

@@ -505,6 +505,8 @@ class Nova(BackgroundMixin, SuggestMixin):
             self.ui(self.audio_memory)
             self.load_hindi()  # before the accurate model: on a CPU it stands in for it
             self.stt.load_accurate()  # CPU only: the Hindi/Hinglish model loads after Nova is already usable
+            if self.stt.refreshed:
+                log("speech_model", updated=self.stt.accurate_name, note="a new release, used from the next start")
             (DATA / "models-ready").touch()
         except Exception as e:
             log("error", error=f"accurate speech model failed to load: {e!r}")

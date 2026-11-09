@@ -566,6 +566,7 @@ def fake_download(name, local_files_only=False):
     if local_files_only and name not in cache:
         raise ValueError("not cached")
     cache.add(name)
+    return name  # the real one returns the downloaded folder
 
 
 stt_mod.WhisperModel, stt_mod.download_model = FakeWhisper, fake_download
@@ -583,6 +584,23 @@ try:
     mac.load_accurate()
     assert mac.device == "CPU" and mac.fast.name == "small" and mac.accurate.name == "large-v3-turbo"
     assert mac.translator() is mac.fast and "large-v3-turbo" in cache
+    # a new release of the model (Nova Whisper Hinglish v2): Nova starts on the copy on disk, never waiting on the
+    # network, and downloads the release in the background once the model is in use, for the next start
+    online = []
+
+    def release(name, local_files_only=False):
+        if not local_files_only:
+            online.append(name)
+            if offline:
+                raise OSError("no network")
+        return f"{name}/snapshot-{'v1' if local_files_only else 'v2'}"
+    stt_mod.download_model, stt_mod.sys.platform, offline = release, "win32", False
+    fresh = stt_mod.STT("small", "AyushM1701/nova-whisper-hinglish")
+    assert fresh.fast.name.endswith("snapshot-v1") and fresh.fast.nova_roman and not online  # no network at start
+    fresh.load_accurate()
+    assert fresh.refreshed and online == ["AyushM1701/nova-whisper-hinglish"] and fresh.fast.name.endswith("snapshot-v1")
+    offline = True
+    assert not fresh.refresh()  # offline: the copy on disk stays
 finally:
     stt_mod.WhisperModel, stt_mod.download_model, stt_mod.sys = real_whisper, real_download, real_sys
 
