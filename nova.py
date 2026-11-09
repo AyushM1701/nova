@@ -28,9 +28,9 @@ from core.config import (CONFIG, DATA, LOG_HOOKS, LOGS, NOTES, ROOT, WORKSPACE, 
                          prune_logs, read_history, save_config, set_path, update_config, user_config, write_atomic,
                          write_private)
 
+# Hugging Face is never switched offline: that also stopped the default model (and its new releases) from ever
+# downloading. Starting never waits on it anyway: core/stt.py loads the copies on disk, and asks only in the background
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
-if (DATA / "models-ready").exists():  # the speech models are downloaded: never call home again
-    os.environ["HF_HUB_OFFLINE"] = "1"
 
 import pystray  # noqa: E402
 
@@ -507,7 +507,6 @@ class Nova(BackgroundMixin, SuggestMixin):
             self.stt.load_accurate()  # CPU only: the Hindi/Hinglish model loads after Nova is already usable
             if self.stt.refreshed:
                 log("speech_model", updated=self.stt.accurate_name, note="a new release, used from the next start")
-            (DATA / "models-ready").touch()
         except Exception as e:
             log("error", error=f"accurate speech model failed to load: {e!r}")
 

@@ -101,6 +101,9 @@ LOCAL = [("Can you raise the volume a little?", ("volume_up", 3)), ("Turn it up 
          ("Play Starboy on Spotify", ("spotify", "starboy")), ("Play a song on Spotify.", ("spotify", "")),
          ("Open Spotify and play The Weeknd", ("spotify", "the weeknd")),
          ("Plays char diwari ek banda kaam ka", ("spotify", "char diwari ek banda kaam ka")), ("He plays guitar", None),
+         # how turbo heard it (logged): no possessive "s", no accent, so Spotify's search can find it
+         ("Play, 4 Diwari's, Ek Bhanda Kām Ka.", ("spotify", "4 diwari ek bhanda kam ka")),
+         ("What's the time", ("time", None)),  # an apostrophe elsewhere still parses as before
 ("Search for tokyo hotels", ("url", "https://www.google.com/search?q=tokyo+hotels")),
          ("Search lofi on YouTube", ("url", "https://www.youtube.com/results?search_query=lofi")),
          ("Queue Blinding Lights", ("queue", "blinding lights")), ("Add Starboy to my queue.", ("queue", "starboy")),

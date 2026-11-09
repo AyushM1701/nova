@@ -7,6 +7,7 @@ parse() only understands the request; nova.py carries it out. Anything not recog
 import json
 import os
 import re
+import unicodedata
 from urllib.parse import quote_plus
 
 from core.config import write_atomic
@@ -50,8 +51,16 @@ def _amount(text):
     return 6
 
 
+def _song(what):
+    """A song to search for, without the loose "s" a possessive leaves ("Diwari's" heard for "Diwari", now "diwari s"):
+    it made Spotify's search miss the song."""
+    return re.sub(r"(?<=\w) s\b", "", what).strip()
+
+
 def parse(text):
     """(action, value) for a request Nova can do itself, or None for the AI. `text` is a raw transcript."""
+    # Whisper writes some Hindi with accents ("Kām"), which a search for "kaam" doesn't match: plain letters
+    text = re.sub(r"[À-ɏ]", lambda m: unicodedata.normalize("NFKD", m.group())[0], text)
     t = re.sub(r"[^\w\s%.]", " ", text.lower()).replace("%", " percent")
     t = re.sub(r"\s+", " ", t).strip(" .")
     body = re.sub(rf"^{POLITE}", "", t)
@@ -114,13 +123,13 @@ def parse(text):
     m = re.fullmatch(rf"(?:open spotify and )?plays? (.+?) (?:on|in|from|using|with) spotify{TAIL}|(?:open )?spotify (?:and )?plays? (.+?){TAIL}"
                      rf"|open spotify and plays? (.+?){TAIL}", body)
     if m:
-        what = re.sub(r"^(?:the song|a song called|song|the track|track)\b ?", "", next(g for g in m.groups() if g)).strip()
+        what = _song(re.sub(r"^(?:the song|a song called|song|the track|track)\b ?", "", next(g for g in m.groups() if g)))
         return "spotify", "" if what in GENERIC_MUSIC else what
 
     # bare "play <song>": music means Spotify; anything about a video, a page or "this" is left to the AI
     m = re.fullmatch(rf"plays? (.+?){TAIL}", body)
     if m and not re.search(r"\b(?:youtube|video|videos|movie|netflix|tab|this|that|it|again|next|previous|pause|game|and|then)\b", m.group(1)):
-        what = re.sub(r"^(?:the song|a song called|song|the track|track)\b ?", "", m.group(1)).strip()
+        what = _song(re.sub(r"^(?:the song|a song called|song|the track|track)\b ?", "", m.group(1)))
         return "spotify", "" if what in GENERIC_MUSIC else what
 
     m = re.fullmatch(rf"(?:add|put) (.+?) (?:to|in|on) (?:my |the )?(?:spotify )?queue{TAIL}|queue(?: up)? (.+?)(?: next)?(?: on spotify)?{TAIL}", body)
