@@ -1847,6 +1847,20 @@ _vocab = _english(["click on the slide", "click save", "insert a slide", "slide 
 assert _roman("अब type करें") == "ab type karein" and _roman("हम करते हैं") == "hum karte hain"
 assert _roman("continue पर क्लिक करें", _vocab) == "continue par click karein"
 assert _roman("स्लाइड को देखें", _vocab) == "slide ko dekhen" and _roman("बिंदु", {"bnd": "bond"}) == "bindu"
+# the Roman score (evaluate.py): Devanagari a model wrote is converted by the same rules first, so the script isn't an error
+sys.path.insert(0, str(Path("helpers").resolve()))
+from stt_bench import error_rates as _error_rates  # noqa: E402
+assert _error_rates("अब type करें", "ab type karein")[0] > 0.5 and _error_rates(_roman("अब type करें"), "ab type karein")[0] == 0
+# code-mix splicing (train.py --splice): two clips as one, crossfaded over 80 ms where they meet
+from common import splice as _splice  # noqa: E402
+_joined = _splice(np.ones(16000, np.float32), np.zeros(8000, np.float32))
+assert len(_joined) == 16000 + 8000 - 1280 and _joined[0] == 1 and _joined[-1] == 0 and 0 < _joined[16000 - 640] < 1
+assert len(_splice(np.ones(10, np.float32), np.zeros(0, np.float32))) == 10  # nothing to fade into
+# new installs use Nova's own master model as the careful one: a Hugging Face repo whose name marks it as trained on
+# Hinglish (core/stt.py _model: its Hindi clips decode in its own "hi" mode, no Hinglish prompt)
+_careful = json.loads(Path("config.default.json").read_text(encoding="utf-8"))["voice"]["stt_accurate_model"]
+assert _careful == "AyushM1701/nova-whisper-hinglish" and "hinglish" in _careful.lower()
+assert f'value="{_careful}"' in Path("core/app.html").read_text(encoding="utf-8")
 
 # Sarvam (opt-in, the user's key): Saaras v3 in "translit" mode, so Hindi comes back in Roman letters; its own header
 sarvam_seen = {}

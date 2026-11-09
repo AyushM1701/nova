@@ -21,7 +21,7 @@
   "wake_sensitivity": "high",
   "voice": {
     "stt_model": "small",
-    "stt_accurate_model": "large-v3-turbo",
+    "stt_accurate_model": "AyushM1701/nova-whisper-hinglish",
     "hindi_model": "",
     "input_device": "",
     "output_device": "",

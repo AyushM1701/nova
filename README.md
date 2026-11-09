@@ -144,7 +144,7 @@ The 90-second video above covers every feature and the install. The first time N
 
 **Does it work offline?** Dictation, "Hey Nova", meeting transcription and spoken replies do. Assistant requests need the internet, because Claude Code and Codex run in the cloud.
 
-**Which languages?** Whisper recognizes about 100 languages. Hindi and Hinglish are tuned in particular and come out in English letters: Nova decides between the languages you speak (Settings, Voice) on each clip, so you can switch mid-conversation. For better Hindi, pick **Sarvam: Hindi & Hinglish only** under Speech recognition and add your own Sarvam key: only clips heard as Hindi go there, English stays on this computer.
+**Which languages?** Whisper recognizes about 100 languages. Hindi and Hinglish are tuned in particular and come out in English letters: Nova's own speech model (Nova Hinglish, trained on English, Hindi and Hinglish together; see License) hears all three, and Nova decides between the languages you speak (Settings, Voice) on each clip, so you can switch mid-conversation. For better Hindi, pick **Sarvam: Hindi & Hinglish only** under Speech recognition and add your own Sarvam key: only clips heard as Hindi go there, English stays on this computer.
 
 **How well does it hear me?** Run `python helpers/stt_bench.py record` once and read the 30 phrases, then `python helpers/stt_bench.py score` after any change: it prints how many words were misheard and how long hearing took. With [Ollama](https://ollama.com) and a small model (Settings, Dictation, Local AI: `qwen2.5:3b`), dictations from six words are polished in well under a second, and commands heard in Hindi are fixed before Nova acts on them.
 
@@ -445,5 +445,7 @@ docs/video/build.py   makes the banner, the README video and GIF and the walkthr
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+Nova's careful speech model, [Nova Whisper Hinglish](https://huggingface.co/AyushM1701/nova-whisper-hinglish), is a separate download under **CC BY-SA 4.0**. It is OpenAI's Whisper large-v3-turbo (MIT), fine-tuned in [helpers/hinglish_train](helpers/hinglish_train) on [MUCS 2021 Hindi-English](https://www.openslr.org/104) (CC BY-SA 4.0), Kathbath and IndicTTS Hindi and Mann Ki Baat (CC BY 4.0, via [agarwalayushi/hinglish](https://huggingface.co/datasets/agarwalayushi/hinglish)), and [LibriSpeech](https://www.openslr.org/12) (CC BY 4.0). Its model card lists the hours and scores.
 
 The optional Your voice feature downloads [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) by Kyutai (CC BY 4.0), in the ONNX form from [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (exported by KevinAHM). Its terms forbid copying a voice without that person's consent; Nova only lets you record your own.
