@@ -1495,7 +1495,7 @@ SECRET_CMDS = [
     ("ls ..", "allow"), ("grep -rn x D:\\projects\\other", "allow"), ("rg x D:/projects/NOVAX", "allow"),
 ]
 for cmd, want in SECRET_CMDS:
-    got, why = classify_command(cmd, home)
+    got, why = classify_command(cmd, home, cwd=_no_fresh_files)
     assert got == want, f"guard secret {cmd!r}: got {got} ({why}), want {want}"
 SECRET_PATHS = [
     ("Grep", r"C:\Users\me\.ssh", "block"), ("Grep", r"C:\Users\me\.aws", "block"), ("Glob", r"C:\Users\me\.docker", "block"),
