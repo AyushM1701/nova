@@ -45,7 +45,7 @@ from core.brain import discover_projects, find_cli, make_brain, pick_model, proj
 from core.local_llm import LocalLLM  # noqa: E402
 from core.overlay import Card  # noqa: E402
 from core.draw import Canvas, take as take_drawing  # noqa: E402
-from core.background import BACKGROUND_RE, STOP_BACKGROUND_RE, BackgroundMixin, free, job_mode  # noqa: E402,F401
+from core.background import BACKGROUND_RE, STOP_BACKGROUND_RE, BackgroundMixin, free, job_mode, resting_bar  # noqa: E402,F401
 from core.errors import friendly  # noqa: E402
 from core.questions import chip_question, screen_question, sketch_question  # noqa: E402
 from core.sketch import as_text as sketch_text, take as take_sketch  # noqa: E402
@@ -898,7 +898,7 @@ class Nova(BackgroundMixin, SuggestMixin):
             self.ui(lambda: self.card.show("Something went wrong", message, hide_after=8, kind="error"))
         finally:
             self.phase = "idle"
-            self.ui(lambda: self.show_bar("paused" if self.paused else "idle"))
+            self.ui(lambda: self.show_bar(resting_bar(self.phase, self.paused)))
             # the request is over: a card still saying "Thinking" or "Allowed, continuing…" would never go away
             self.ui(lambda: getattr(self.card, "kind", "") == "thinking" and self.card.hide())
             self.ui(self.push_state)
@@ -999,7 +999,7 @@ class Nova(BackgroundMixin, SuggestMixin):
                 self.card.show("Allowed", "Continuing…", kind="thinking", hide_after=None if self.voice else 3)
             else:
                 self.card.show("Denied", "Nova won't run that.", hide_after=3)
-            self.show_bar("thinking")
+            self.show_bar(resting_bar(self.phase, self.paused))  # a job's card answered while Nova is idle: not "Thinking…" for good
 
     def set_mode(self, mode):
         self.mode = mode
@@ -2833,7 +2833,7 @@ class Nova(BackgroundMixin, SuggestMixin):
                 self.ui(lambda: self.card.show("Saved for later" if waits else "Denied",
                                                "Nova is waiting for your OK and will ask again." if waits
                                                else "No answer in time, so Nova said no.", hide_after=4))
-                self.ui(lambda: self.show_bar("thinking"))
+                self.ui(lambda: self.show_bar(resting_bar(self.phase, self.paused)))
             log("approval", request=req, allowed=bool(box[0]), timed_out=box[0] is None)
             return box[0]
 

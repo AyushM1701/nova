@@ -966,7 +966,7 @@ for said, want in [("Right. +1, (231), 231-2312 That's it. Exit. Exit dictation.
 def nova_stub(timeout):
     return types.SimpleNamespace(approval_lock=threading.Lock(), cfg={"safety": {"confirm_timeout_s": timeout}},
                                  brain=None, outbox=queue.Queue(), ui=lambda fn: None, voice=False, pending=None,
-                                 asking_id=0, ask_event=None)
+                                 asking_id=0, ask_event=None, phase="busy", paused=False)
 
 
 def ask_both(n, answer_first_after=None):
@@ -1012,7 +1012,7 @@ assert nova_mod.Nova.open_ask(n) is None and n.ask_event is None
 
 # a click answers only the card it was on: a late Allow on card 1 must not approve card 2
 n = types.SimpleNamespace(pending=(threading.Event(), [None]), asking_id=2, voice=False, show_bar=lambda s: None,
-                          card=types.SimpleNamespace(show=lambda *a, **k: None))
+                          phase="busy", paused=False, card=types.SimpleNamespace(show=lambda *a, **k: None))
 nova_mod.Nova.answer(n, True, 1)
 assert n.pending[1] == [None] and not n.pending[0].is_set()
 nova_mod.Nova.answer(n, True, -1)  # a phone page from before ids: ignored too
@@ -4031,6 +4031,26 @@ n.answer(True)
 asker.join(5)
 assert verdict == [True] and not n.asking_job and n.pending is None
 
+# after an approval the bar goes back to what the request at work is doing: a background job's card answered (or
+# timed out) while Nova is idle must not leave "Thinking…" up for good, nor one answered mid-recording hide "Listening"
+from core.background import resting_bar  # noqa: E402
+assert [resting_bar(*a) for a in (("idle", False), ("idle", True), ("listening", False), ("busy", False), ("busy", True))] \
+    == ["idle", "paused", "listening", "thinking", "thinking"]
+bars, real_wait = [], n.cfg["safety"]["confirm_timeout_s"]
+n.show_bar = bars.append
+for phase, paused, reply, rests in (("idle", False, True, "idle"), ("idle", True, True, "paused"), ("listening", False, True, "listening"),
+                                    ("busy", False, True, "thinking"), ("idle", False, None, "idle")):  # None: no answer in time
+    n.phase, n.paused, n.cfg["safety"]["confirm_timeout_s"] = phase, paused, 5 if reply else 1.2
+    del bars[:]
+    asker = threading.Thread(target=lambda: n._ask_once({"summary": "rm x", "reason": "deletes", "job": jrec["id"]}, speak=False))
+    asker.start()
+    while reply and not (n.pending and bars):  # the bar says so just after the request is pending
+        time.sleep(0.01)
+    reply and n.answer(True)
+    asker.join(5)
+    assert bars[0] == "approval" and bars[-1] == rests, (phase, paused, reply, bars)
+n.phase, n.paused, n.show_bar, n.cfg["safety"]["confirm_timeout_s"] = "idle", False, (lambda state: None), real_wait
+
 # the drawing language (core/draw.py): DRAW: lines in the AI's reply become shapes on the screen
 import core.draw as draw  # noqa: E402
 reply = '''Look here.
@@ -5845,7 +5865,7 @@ assert b_result == [False], b_result
 
 # a card answered while the guard thread clears it (pending goes None between the look and the use): no TypeError
 class _Vanishing:
-    asking_id, voice = 1, False
+    asking_id, voice, phase, paused = 1, False, "busy", False
     card = types.SimpleNamespace(show=lambda *a, **k: None)
     show_bar = staticmethod(lambda s: None)
     reads = 0

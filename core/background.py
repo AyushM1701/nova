@@ -19,6 +19,12 @@ def free(app):
     return app.phase == "idle" and not app.pending and not app.paused
 
 
+def resting_bar(phase, paused):
+    """What the bar shows for `phase` (idle | listening | busy) when nothing more particular (speaking, an approval)
+    is on it. The bar's state is set apart from the phase: whatever takes the bar over puts this back when it is done."""
+    return {"listening": "listening", "busy": "thinking"}.get(phase, "paused" if paused else "idle")
+
+
 def job_mode(mode, unattended):
     """Bypass never reaches a run nobody is watching (a schedule, a program's event): it asks like Auto."""
     return "auto" if unattended and mode == "bypass" else mode
