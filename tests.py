@@ -36,6 +36,7 @@ import core.vault as _vault  # noqa: E402
 import core.usage as usage_mod  # noqa: E402
 usage_mod.PATH = Path(tempfile.mkdtemp(prefix="nova-usage-")) / "usage.jsonl"  # the tests' requests aren't the user's usage
 _vault.DATA = Path(tempfile.mkdtemp(prefix="nova-vault-"))  # a key read from the real data/ folder would be moved out of it
+__import__("core.system", fromlist=["x"]).reduced_motion = lambda: False  # the animations are checked, whatever this machine says (CI's Macs have Reduce motion on)
 
 CLEANUP = [
     ("Um, so I think, uh, we should ship it.", "So I think we should ship it."),
@@ -7169,7 +7170,7 @@ assert _so(0) == 0 and _so(1) == 1 and _so(0.5) > 0.9 and _io(0.5) == 0.5 and _i
 _mi = Image.new("RGBA", (80, 50)); _mk(_mi, 10, 25, 2)
 assert _mi.getbbox() is not None                                                              # the logo draws
 _mi = Image.new("RGBA", (80, 50)); _mk(_mi, 10, 25, 2, born=0.0, t=0.0)
-assert (_mi.getbbox() is None) != __import__("core.system", fromlist=["x"]).reduced_motion()  # at its birth no bar has risen yet (Reduce motion: whole at once, as on CI's Macs)
+assert _mi.getbbox() is None                                                                  # at its birth no bar has risen yet
 if not __import__("core.system", fromlist=["x"]).reduced_motion():                            # leaving, the window fades out before it hides
     _b.win, _b._vis, _b._leave = object(), True, None
     _calls.clear(); _b.state = "thinking"; _b.set("idle")
