@@ -7169,7 +7169,7 @@ assert _so(0) == 0 and _so(1) == 1 and _so(0.5) > 0.9 and _io(0.5) == 0.5 and _i
 _mi = Image.new("RGBA", (80, 50)); _mk(_mi, 10, 25, 2)
 assert _mi.getbbox() is not None                                                              # the logo draws
 _mi = Image.new("RGBA", (80, 50)); _mk(_mi, 10, 25, 2, born=0.0, t=0.0)
-assert _mi.getbbox() is None                                                                  # at its birth no bar has risen yet
+assert (_mi.getbbox() is None) != __import__("core.system", fromlist=["x"]).reduced_motion()  # at its birth no bar has risen yet (Reduce motion: whole at once, as on CI's Macs)
 if not __import__("core.system", fromlist=["x"]).reduced_motion():                            # leaving, the window fades out before it hides
     _b.win, _b._vis, _b._leave = object(), True, None
     _calls.clear(); _b.state = "thinking"; _b.set("idle")
