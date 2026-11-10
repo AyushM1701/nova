@@ -249,7 +249,8 @@ def _safety_file(word, home, cwd):
     """True if `word` names Nova's guard (the folder or a file in it) or its config.json, which holds the safety settings."""
     if not home or not re.search(r"guard|config\.json", word, re.I):
         return False
-    full = _real(cwd or home, word)
+    # "..\config.json" on a Mac: PowerShell there takes backslashes too, so they count as folder separators
+    full = _real(cwd or home, word.replace("\\", "/") if os.sep == "/" else word)
     return _under(full, os.path.join(home, "guard")) or _under(full, os.path.join(home, "config.json"))
 
 
