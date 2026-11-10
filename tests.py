@@ -1382,9 +1382,11 @@ for want, cmds in MAC_COMMANDS.items():
         got, why = classify_command(cmd)
         assert got == want, f"guard (mac) {cmd!r}: got {got} ({why}), want {want}"
 
+# judged from an empty folder: in a fresh checkout (CI) every file is new, so a test run would ask over its fresh test files
+_no_fresh_files = tempfile.mkdtemp()
 for want, cmds in COMMANDS.items():
     for cmd in cmds:
-        got, why = classify_command(cmd)
+        got, why = classify_command(cmd, cwd=_no_fresh_files)
         assert got == want, f"guard {cmd!r}: got {got} ({why}), want {want}"
 
 roots, home, notes = [r"D:\code\portfolio"], r"D:\projects\NOVA", r"D:\projects\NOVA\workspace\notes"
