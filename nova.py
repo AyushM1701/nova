@@ -503,23 +503,11 @@ class Nova(BackgroundMixin, SuggestMixin):
                 log("error", error=f"the {engine} voice failed to load, using the system voice: {e!r}")
         try:
             self.ui(self.audio_memory)
-            self.load_hindi()  # before the accurate model: on a CPU it stands in for it
             self.stt.load_accurate()  # CPU only: the Hindi/Hinglish model loads after Nova is already usable
             if self.stt.refreshed:
                 log("speech_model", updated=self.stt.accurate_name, note="a new release, used from the next start")
         except Exception as e:
             log("error", error=f"accurate speech model failed to load: {e!r}")
-
-    def load_hindi(self):
-        """A Whisper trained on Hinglish (helpers/hinglish_train), for the clips heard as Hindi: a folder (from Nova's
-        folder, or in full) or a Hugging Face repo, downloaded the first time. Failing, Hindi is heard the usual way."""
-        name = self.cfg["voice"]["hindi_model"]
-        if not name:
-            return
-        try:
-            self.stt.load_hindi(ROOT / name if (ROOT / name).is_dir() else name)
-        except Exception as e:
-            log("error", error=f"the Hindi speech model {name} didn't load: {e!r}")
 
     def check_updates(self):
         """A minute after starting, then daily: is there a newer Nova on GitHub? Say so once per version. Also

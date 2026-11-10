@@ -1957,16 +1957,6 @@ said_in = ["hi"]
 assert local_stt.transcribe(np.zeros(16000, np.float32), hindi=hindi_srv) == "gaana chalao" and heard_by == ["sarvam"]
 said_in[0] = "en"
 assert local_stt.transcribe(np.zeros(16000, np.float32), hindi=hindi_srv) == "pause the music" and heard_by[-1] == "whisper"
-# a Whisper trained on Hinglish (helpers/hinglish_train) hears only the Hindi clips, in its own "hi" mode, with no
-# Hinglish prompt (it writes Roman letters by itself); English stays with the everyday model
-trained_langs = []
-local_stt.hindi = type("M", (), {"transcribe": lambda self, *a, **k: (trained_langs.append((k["language"], k["initial_prompt"]))
-                                                                      or [types.SimpleNamespace(text="gaana chalao")], None)})()
-said_in[0] = "hi"
-assert local_stt.transcribe(np.zeros(16000, np.float32)) == "gaana chalao" and trained_langs == [("hi", None)]
-said_in[0] = "en"
-assert local_stt.transcribe(np.zeros(16000, np.float32)) == "pause the music" and len(trained_langs) == 1
-local_stt.hindi = None
 # one master model (English, Hindi, Hinglish in one, helpers/hinglish_train) as the everyday model: its Hindi clips
 # are decoded in its own "hi" mode with no Hinglish prompt; English the usual way; stock models keep the prompt
 master_calls = []
@@ -1985,27 +1975,6 @@ said_in[0] = "hi"
 local_stt.transcribe(np.zeros(16000, np.float32), vocabulary=["Nova"])
 assert stt_mod.HINGLISH in master_calls[0][1]
 local_stt.fast = both
-# the Hindi model: a Hugging Face repo is downloaded first (in the background at start), a folder isn't; on a CPU it
-# stands in for the accurate model, so only one big model is in memory
-fetched, real_dl, real_model = [], stt_mod.download_model, stt_mod._model
-def _not_cached(name, local_files_only=False):
-    if local_files_only:
-        raise ValueError("not in the cache")  # as faster-whisper does for a model never downloaded
-    fetched.append(name)
-
-
-stt_mod.download_model = _not_cached
-stt_mod._model = lambda name, gpu: types.SimpleNamespace(name=str(name), gpu=gpu)
-cpu_stt = object.__new__(stt_mod.STT)
-cpu_stt.device, cpu_stt.likely, cpu_stt.accurate_name, cpu_stt.accurate = "CPU", ("en", "hi"), "large-v3-turbo", None
-cpu_stt.load_hindi("AyushM1701/nova-whisper-hinglish")
-assert fetched == ["AyushM1701/nova-whisper-hinglish"] and cpu_stt.hindi.name == "AyushM1701/nova-whisper-hinglish"
-cpu_stt.load_hindi(tempfile.mkdtemp())
-assert len(fetched) == 1 and not cpu_stt.hindi.gpu  # a folder: no download
-cpu_stt.load_accurate()
-assert cpu_stt.accurate is None and len(fetched) == 1  # the Hindi model does the accurate model's job
-stt_mod.download_model, stt_mod._model = real_dl, real_model
-
 # what the computer played: kept as audio until asked, then transcribed, including the words still buffering
 from core import loopback  # noqa: E402
 

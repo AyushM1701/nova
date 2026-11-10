@@ -1,4 +1,4 @@
-"""Step 5: publish the trained model on Hugging Face, where every Nova downloads it (core/stt.py load_hindi /
+"""Step 5: publish the trained model on Hugging Face, where every Nova downloads it (core/stt.py
 load_accurate). Run it yourself, after logging in once with your own token:
 
     data/hinglish-train/.venv/Scripts/hf.exe auth login

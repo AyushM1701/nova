@@ -108,8 +108,6 @@ class STT:
     def shaky(self, value):
         _doubt.shaky = value
 
-    hindi = None  # a Whisper trained on Hinglish (helpers/hinglish_train): it hears the clips detected as Hindi
-
     def __init__(self, fast_name, accurate_name):
         self.fast_name, self.accurate_name, self.accurate, self.small = fast_name, accurate_name, None, None
         try:
@@ -131,8 +129,6 @@ class STT:
         """Download the accurate model if setup didn't (slow: run it in the background), then use it."""
         if not self.accurate_name:
             return
-        if self.device == "CPU" and self.hindi is not None and set(self.likely) <= {"en", "hi"}:
-            return  # the Hindi model already takes what the accurate one would (Hindi): one big model in memory, not two
         had = downloaded(self.accurate_name)
         if not had:
             download_model(self.accurate_name)
@@ -157,13 +153,6 @@ class STT:
             return download_model(str(self.accurate_name)) != before
         except Exception:  # offline, or Hugging Face is down: the copy on disk stays
             return False
-
-    def load_hindi(self, name):
-        """A model trained to write Hindi and Hinglish in Roman letters (its "hi" mode), beside the everyday one, for
-        the clips heard as Hindi: a folder, or a Hugging Face repo, downloaded first (slow: run it in the background)."""
-        if not downloaded(name):
-            download_model(str(name))
-        self.hindi = _model(name, gpu=self.device == "GPU")
 
     def translator(self):
         """Whisper's turbo models were trained without translation (they write the language spoken), so translating
@@ -269,9 +258,8 @@ class STT:
         # the small model is weak at other languages: the accurate one takes them (CPU only, once it's loaded),
         # except to translate, which it can't do
         model = self.accurate if other and self.accurate else first
-        roman = self.hindi if self.hindi is not None else model if getattr(model, "nova_roman", False) else None
-        if other and lang == "hi" and roman is not None:  # a model trained on Hinglish writes Roman letters by itself
-            model, used = roman, "hi"
+        if other and lang == "hi" and getattr(model, "nova_roman", False):  # trained on Hinglish: writes Roman letters by itself
+            used = "hi"
             text = run(model, "hi", prompt)[0]
         elif other and lang == "hi":  # Hindi or Hinglish, written in Roman letters (HINDI says how)
             styled = prompt_for(vocabulary, hindi=True)
