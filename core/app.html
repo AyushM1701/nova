@@ -225,7 +225,7 @@ html.framed .dock :is(button, a, input, label, .seg, .live, nav button) { -webki
 .hero { padding: 0 0 10px; margin: 0 0 10px; border-bottom: 1px solid var(--line); }
 .hero .k { display: block; font: 400 11px/1.3 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .hero .big { display: block; margin: 2px 0 6px; font: 600 30px/1.1 var(--mono); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-.hero .big.word { font-size: 22px; white-space: nowrap; }  /* "Limit reached" holds one line in the narrowest panel (820px window) */
+.hero .big.as-word { font-size: 22px; white-space: nowrap; }  /* "Limit reached" holds one line in the narrowest panel (820px window) */
 .hero .gauge { height: 4px; border-radius: var(--r-pill); background: var(--line-strong); overflow: hidden; }
 .hero .gauge i { display: block; height: 100%; transform-origin: left; border-radius: var(--r-pill); background: var(--accent-text); transition: transform var(--t-slow) var(--ease-out); }  /* scaled, not resized: no layout while it moves */
 .hero .s { display: block; margin-top: 6px; font: 400 12px/1.4 var(--mono); color: var(--muted); }
@@ -1775,7 +1775,8 @@ function untilReset(epoch) {
   if (m >= 1440) return `${Math.floor(m / 1440)}d ${Math.floor(m % 1440 / 60)}h`;  // a weekly limit
   return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
 }
-function heroRow(k, big, gauge, sub) { return h("div", { class: "hero" }, h("span", { class: "k" }, k), h("span", { class: /\d/.test(big) ? "big" : "big word" }, big), gauge == null ? null : h("div", { class: "gauge", role: "img", "aria-label": big.endsWith("%") ? `${gauge}% of your busiest 5 hours` : `${k}: ${big}` }, h("i", { style: `transform:scaleX(${Math.max(0, Math.min(100, gauge)) / 100})` })), h("span", { class: "s" }, sub)); }function renderDeck() {
+function heroRow(k, big, gauge, sub) { return h("div", { class: "hero" }, h("span", { class: "k" }, k), h("span", { class: /\d/.test(big) ? "big" : "big as-word" }, big), gauge == null ? null : h("div", { class: "gauge", role: "img", "aria-label": big.endsWith("%") ? `${gauge}% of your busiest 5 hours` : `${k}: ${big}` }, h("i", { style: `transform:scaleX(${Math.max(0, Math.min(100, gauge)) / 100})` })), h("span", { class: "s" }, sub)); }
+function renderDeck() {
   const brain = S.state.brain, c = DECK && DECK.claude, sum = t => t.input + t.output;
   const fromClaude = brain === "Claude Code" && c;  // Claude's own session files; Codex has no such record here, so Nova's own
   const auth = c && c.auth, signedOut = !!(fromClaude && auth && !auth.logged_in);  // a Codex user isn't told about Claude

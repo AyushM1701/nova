@@ -153,6 +153,7 @@ def states(page, deck):
         ("limit-weekly", lambda: set_deck(weekly)),
         ("signed-out", lambda: set_deck(out)),
         ("fallback-brain", lambda: page.evaluate("S.cfg.brain = {...(S.cfg.brain||{}), engine:'claude'}; nova.recv({...S.state, event:'state', phase:'idle', brain:'Codex'})")),
+        ("idle-window", lambda: set_deck({**CLAUDE, "usage": {**USAGE, "block": None, "percent": 0}})),  # a fresh Mac: "Idle"
         ("job-running", lambda: set_deck(running=job)),
         ("deck-loading", lambda: set_deck({**CLAUDE, "usage": None, "loading": True})),
         ("deck-failed", lambda: set_deck({**CLAUDE, "error": "OSError"})),
