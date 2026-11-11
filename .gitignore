@@ -29,3 +29,4 @@ docs/video/.build/
 
 # pictures from helpers/webkit_ui.py: they show this computer's own history and notes
 macos-ui-snapshots/
+ui-deep-dive/

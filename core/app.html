@@ -38,6 +38,7 @@
    the phone page and the browser panel still copy; the window's brand violet #7b6dff lives in the orb and the tray icon. Settings > Colour re-derives every colour here
    from the one it picks (themeTokens in the script); "Nova" leaves these as they are. */
 :root {
+  color-scheme: dark;  /* always dark: on a light OS, dropdowns, scrollbars and fields would otherwise draw light */
   --bg: #0a0a0c; --side: #0c0c10; --surface: #111218; --raised: #1a1b22; --sunk: #07070a;
   --line: rgba(255, 255, 255, .07); --line-strong: rgba(255, 255, 255, .13);
   --text: #f3f4f6; --muted: #a1a3ad; --faint: #8b8d97;
@@ -76,6 +77,7 @@ html.mac :is(button, .engine) { cursor: default; }  /* Mac controls keep the arr
 /* the app's chrome isn't text to select; messages, history and settings text still are */
 :is(.dock, button, .engine, .tabs, .seg, kbd) { -webkit-user-select: none; user-select: none; }
 svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.keys .times { font: 500 11px/1.3 var(--mono); color: var(--muted); margin-left: 3px; align-self: center; }
 kbd {
   display: inline-flex; align-items: center; min-width: 1.9em; justify-content: center; padding: 2px 6px;
   border: 1px solid rgba(255, 255, 255, .1); border-radius: 5px; background: rgba(255, 255, 255, .06); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
@@ -157,7 +159,7 @@ html.framed .dock :is(button, a, input, label, .seg, .live, nav button) { -webki
 .deck-foot.warn { color: var(--amber); }
 
 /* the middle: the orb, what Nova is doing, and a place to ask */
-.hud-core { position: relative; min-height: 0; min-width: 0; display: grid; grid-template-rows: auto minmax(180px, 1fr) auto auto; border: 1px solid var(--line); border-radius: var(--r-xl); overflow: hidden;
+.hud-core { position: relative; min-height: 0; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(180px, 1fr) auto auto; border: 1px solid var(--line); border-radius: var(--r-xl); overflow: hidden;
   background: radial-gradient(110% 90% at 50% 40%, var(--raised), var(--bg) 72%);
   background: radial-gradient(55% 50% at 50% 48%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 75%), radial-gradient(110% 90% at 50% 40%, var(--surface), var(--bg) 72%); box-shadow: var(--lit); }
 .core-head { position: relative; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 16px 0; }
@@ -223,6 +225,7 @@ html.framed .dock :is(button, a, input, label, .seg, .live, nav button) { -webki
 .hero { padding: 0 0 10px; margin: 0 0 10px; border-bottom: 1px solid var(--line); }
 .hero .k { display: block; font: 400 11px/1.3 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .hero .big { display: block; margin: 2px 0 6px; font: 600 30px/1.1 var(--mono); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.hero .big.word { font-size: 22px; white-space: nowrap; }  /* "Limit reached" holds one line in the narrowest panel (820px window) */
 .hero .gauge { height: 4px; border-radius: var(--r-pill); background: var(--line-strong); overflow: hidden; }
 .hero .gauge i { display: block; height: 100%; transform-origin: left; border-radius: var(--r-pill); background: var(--accent-text); transition: transform var(--t-slow) var(--ease-out); }  /* scaled, not resized: no layout while it moves */
 .hero .s { display: block; margin-top: 6px; font: 400 12px/1.4 var(--mono); color: var(--muted); }
@@ -550,7 +553,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .onb-grid > .onb-step { max-width: none; }
 .onb-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: min(64vh, 540px);
   position: sticky; top: 0; align-self: start;  /* stays in view while a long step scrolls */
-  background: radial-gradient(circle closest-side, #171a38, rgba(23, 26, 56, 0)); }
+  background: radial-gradient(circle closest-side, rgba(109, 95, 247, .1), transparent);
+  background: radial-gradient(circle closest-side, color-mix(in srgb, var(--accent) 10%, transparent), transparent); }  /* the Home stage's glow, not the old navy */
 .onb-stage canvas.stage-bar { width: 196px; aspect-ratio: 312 / 106; }
 .onb-stage .orb-wrap { width: min(100%, 46vh, 400px); aspect-ratio: 1; }
 .onb-stage canvas.orb { width: 100%; height: 100%; display: block; }
@@ -633,8 +637,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .scene .tool b.hit { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); transition: border-color .25s, color .25s, background .25s; }
 .scene .photo { margin: .9em 1.1em; height: 52%; border-radius: .6em; background: linear-gradient(135deg, #5a8cff, #7b6dff 45%, #e0479a); opacity: .85; }
 .scene .typed { min-height: 3.2em; }
-.scene .caret { display: inline-block; width: 1.5px; height: 1.1em; vertical-align: -.2em; background: var(--accent); animation: blink 1s steps(1) infinite; }
-@keyframes blink { 50% { opacity: 0; } }
+.scene .caret { display: inline-block; width: 1.5px; height: 1.1em; vertical-align: -.2em; background: var(--accent); animation: caret-blink 1s steps(1) infinite; }
+@keyframes caret-blink { 50% { opacity: 0; } }  /* its own name: a second "blink" replaced the strip's soft pulse with a flicker */
 .scene canvas.bar { position: absolute; left: 50%; top: 1%; width: 23%; aspect-ratio: 312 / 106; transform: translateX(-50%); pointer-events: none;
   transition: opacity .25s, transform .5s cubic-bezier(.34, 1.56, .64, 1); }
 .scene.tucked canvas.bar { opacity: 0; transform: translate(-50%, -75%) scale(.8); }
@@ -686,6 +690,8 @@ textarea.notes { width: 100%; min-height: 320px; resize: vertical; line-height: 
 .scene-ctl .btn svg { width: 15px; height: 15px; }
 @media (prefers-reduced-motion: reduce) { .scene .caret { animation: none; } .scene .poke { animation: none; box-shadow: var(--focus); } }
 @media (forced-colors: active) { .scene .card, .scene .ptr span { forced-color-adjust: none; } }
+/* contrast themes drop box-shadow: the fields whose focus ring is a shadow get a real outline there */
+@media (forced-colors: active) { .core-composer:focus-within, .composer:focus-within, .claude-find input:focus { outline: 2px solid Highlight; outline-offset: 2px; } }
 
 /* arrivals: a page, a settings tab, the strip, the job card, a message or a step rises in, like the bar's toast.
    Reduced motion turns them into cuts (the rule further down) */
@@ -1552,9 +1558,11 @@ function keycaps(combo, el) { el.replaceChildren(...(combo ? prettyKeys(combo).m
 function hotkey() { return S.cfg.hotkey || S.defaultHotkey; }
 // how to talk from the keyboard, as keycaps: Ctrl (Cmd on a Mac) tapped three times when that's on, else the shortcut
 function talkKeys() {
-  const keys = S.cfg.triple_tap || !hotkey() ? Array(3).fill(prettyKeys(S.platform === "mac" ? "cmd" : "ctrl")[0]) : prettyKeys(hotkey());
-  return `<span class="keys">${keys.map(k => `<kbd>${esc(k)}</kbd>`).join("")}</span>`;
+  if (S.cfg.triple_tap || !hotkey()) return `<span class="keys">${tapped(prettyKeys(S.platform === "mac" ? "cmd" : "ctrl")[0], 3).map(e => e.outerHTML).join("")}</span>`;
+  return `<span class="keys">${prettyKeys(hotkey()).map(k => `<kbd>${esc(k)}</kbd>`).join("")}</span>`;
 }
+// a key tapped several times: one keycap and "×3", not three caps in a row (which read as a glitch)
+function tapped(key, times) { return times > 1 ? [h("kbd", {}, key), h("span", { class: "times", "aria-label": `${times} times` }, `×${times}`)] : [h("kbd", {}, key)]; }
 function when(t) { return new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
 function dayLabel(t) {
   const d = new Date(t * 1000), today = new Date(); const y = new Date(); y.setDate(today.getDate() - 1);
@@ -1690,6 +1698,7 @@ const strip = () => $("#homeStrip");
 const SRC = { chat: "Your request", routine: "Routine", job: "Background job" };  // where a request that needs an OK came from (nova.py SOURCES)
 function stripSet(kind, ...kids) {  // it rises in when it becomes another kind of strip; a new step in the same one only changes its words
   const el = strip(), fresh = el.hidden || !el.classList.contains(kind);
+  kids = kids.filter(k => k != null && k !== false);  // replaceChildren would print a missing part as "null"
   el.className = "strip " + kind; el.hidden = !kids.length; el.dataset.ask = ""; el.replaceChildren(...kids);
   if (fresh) void el.offsetWidth;  // lets the animation start again
   el.classList.add("in");
@@ -1766,7 +1775,7 @@ function untilReset(epoch) {
   if (m >= 1440) return `${Math.floor(m / 1440)}d ${Math.floor(m % 1440 / 60)}h`;  // a weekly limit
   return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
 }
-function heroRow(k, big, gauge, sub) { return h("div", { class: "hero" }, h("span", { class: "k" }, k), h("span", { class: "big" }, big), gauge == null ? null : h("div", { class: "gauge", role: "img", "aria-label": big.endsWith("%") ? `${gauge}% of your busiest 5 hours` : `${k}: ${big}` }, h("i", { style: `transform:scaleX(${Math.max(0, Math.min(100, gauge)) / 100})` })), h("span", { class: "s" }, sub)); }function renderDeck() {
+function heroRow(k, big, gauge, sub) { return h("div", { class: "hero" }, h("span", { class: "k" }, k), h("span", { class: /\d/.test(big) ? "big" : "big word" }, big), gauge == null ? null : h("div", { class: "gauge", role: "img", "aria-label": big.endsWith("%") ? `${gauge}% of your busiest 5 hours` : `${k}: ${big}` }, h("i", { style: `transform:scaleX(${Math.max(0, Math.min(100, gauge)) / 100})` })), h("span", { class: "s" }, sub)); }function renderDeck() {
   const brain = S.state.brain, c = DECK && DECK.claude, sum = t => t.input + t.output;
   const fromClaude = brain === "Claude Code" && c;  // Claude's own session files; Codex has no such record here, so Nova's own
   const auth = c && c.auth, signedOut = !!(fromClaude && auth && !auth.logged_in);  // a Codex user isn't told about Claude
@@ -1855,7 +1864,7 @@ function renderStatusBrain() {
   const out = (DECK_SIGNED_OUT && brain === "Claude Code") || (st && st.installed && !st.signed_in);
   const other = brain && chosen && brain !== chosen;  // the chosen one isn't set up, so Nova fell back to the other
   $("#stBrain").textContent = out ? `${brain}, signed out` : other ? `${brain} (${chosen} isn’t set up)` : brain || "Not connected";
-  $("#stBrainDot").className = "dot " + (out ? "bad" : brain && !other ? "ok" : "warn");
+  $("#stBrainDot").className = "dot " + (brain && !out && !other ? "ok" : "warn");  // signed out waits on you: amber, as on the Claude card
 }
 // Home checks the sign-in of both AIs each minute (and soon after Sign in), so it agrees with Settings → AI
 let enginesBusy = false, enginesAt = 0;
@@ -2741,8 +2750,8 @@ $("#testOut").addEventListener("click", () => api().test_voice(voiceTest()).catc
 const CHORD_TIMES = { dictate_hands_free: 2 };
 const MOD_ORDER = ["ctrl", "alt", "shift", "win"];
 function paintChords() {
-  for (const el of $$("[data-chord]")) { const k = el.dataset.chord, caps = prettyKeys(get(k) || ""); el.replaceChildren(...Array.from({ length: CHORD_TIMES[k] || 1 }, () => caps).flat().map(c => h("kbd", {}, c))); }
-  const t = prettyKeys(S.platform === "mac" ? "cmd" : "ctrl")[0]; $("#tripleKeys").replaceChildren(...[t, t, t].map(c => h("kbd", {}, c)));
+  for (const el of $$("[data-chord]")) { const k = el.dataset.chord, caps = prettyKeys(get(k) || ""); el.replaceChildren(...caps.map(c => h("kbd", {}, c)), ...(CHORD_TIMES[k] > 1 ? [h("span", { class: "times", "aria-label": `${CHORD_TIMES[k]} times` }, `×${CHORD_TIMES[k]}`)] : [])); }
+  $("#tripleKeys").replaceChildren(...tapped(prettyKeys(S.platform === "mac" ? "cmd" : "ctrl")[0], 3));
 }
 function recordChord(key, btn) {
   const caps = $(`[data-chord="${key}"]`), old = btn.textContent; btn.textContent = "Press the keys… (Esc to cancel)";

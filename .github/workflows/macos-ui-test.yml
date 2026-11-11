@@ -59,8 +59,8 @@ jobs:
         continue-on-error: true
         run: .venv/bin/python helpers/mac_screenshots.py artifacts/native --control
 
-      - name: WebKit page checks (two MacBook sizes, light and dark)
-        run: .venv/bin/python helpers/webkit_ui.py artifacts/webkit 2>&1 | tee artifacts/logs/webkit.txt; exit ${PIPESTATUS[0]}
+      - name: WebKit page checks (the Mac profile, four sizes)
+        run: .venv/bin/python helpers/webkit_ui.py artifacts/webkit --profiles macos 2>&1 | tee artifacts/logs/webkit.txt; exit ${PIPESTATUS[0]}
 
       - name: Keep the pictures, logs and Nova.app
         if: always()
