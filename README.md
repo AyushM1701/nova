@@ -16,6 +16,8 @@
   <b>🗣️ Hands-free</b> &nbsp;·&nbsp; <b>🧠 Remembers you</b> &nbsp;·&nbsp; <b>🔑 No account</b> &nbsp;·&nbsp; <b>Speech stays on your computer</b> &nbsp;·&nbsp; <b>Free and open source</b>
 </p>
 
+<p align="center"><sub><a href="#quick-install">Install</a> · <a href="#just-ask">Examples</a> · <a href="#why-nova">Why Nova</a> · <a href="#everything-it-does">Features</a> · <a href="#nova-whisper-hinglish">Speech model</a> · <a href="#faq">FAQ</a> · <a href="#using-it">Using it</a> · <a href="#phone">Phone</a> · <a href="#what-stays-on-your-computer">Privacy</a> · <a href="#safety">Safety</a> · <a href="#settings">Settings</a> · <a href="#troubleshooting">Troubleshooting</a></sub></p>
+
 ## Quick install
 
 **Windows 10/11:** download **[`nova-main.zip`](https://github.com/AyushM1701/nova/releases/latest/download/nova-main.zip)**, extract it to a folder you'll keep, and double-click **`setup.cmd`**.
@@ -53,6 +55,8 @@ https://github.com/user-attachments/assets/de3c7456-5bf2-492a-8495-a43aae4901a8
 
 <p align="center"><sub>▶ <a href="docs/media/nova-hero.mp4">Watch the 90-second video, with sound</a> · <a href="docs/media/nova-setup.mp4">Setup walkthrough (Windows)</a></sub></p>
 
+<p align="center"><sub>The video covers every feature and the install. The first time Nova opens, a <a href="#first-run">2-minute walkthrough</a> shows seven short clips, each followed by a "your turn" step that waits until you've really tried it.</sub></p>
+
 <br>
 
 ## Just ask
@@ -73,10 +77,6 @@ https://github.com/user-attachments/assets/de3c7456-5bf2-492a-8495-a43aae4901a8
 | *"Undo that."* | Takes back what Nova just typed, in the app it went into. |
 | *"Delete the dist folder."* | Shows the exact command on a card. Nothing runs until you press Allow. |
 
-## Watch it work
-
-The 90-second video above covers every feature and the install. The first time Nova opens, a [2-minute walkthrough](#first-run) shows seven short clips, each followed by a "your turn" step that waits until you've really tried it.
-
 ## Why Nova
 
 | | **Nova** | OpenWhispr | HeyClicky |
@@ -90,11 +90,13 @@ The 90-second video above covers every feature and the install. The first time N
 | Asks before risky commands | **Yes, every command goes through a local guard** | n/a | Asks before deletes, emails and payments |
 | Meetings without a bot | **Yes** | Yes | No |
 | Use it from your phone | **Yes, free** | iPhone app (sync needs Pro) | No |
-| Hindi and Hinglish | **Yes** | Hindi | Not listed |
+| Hindi and Hinglish | **Yes, with [its own speech model](#nova-whisper-hinglish)** | Hindi | Not listed |
 
 <sub>Competitor details come from openwhispr.com and heyclicky.com as of October 2026.</sub>
 
 ## Everything it does
+
+### Talk and dictate
 
 - **Assistant mode:** "Open Spotify and play something chill", "in my portfolio project, fix the navbar on mobile", "copy my resume to the clipboard", "what's the weather in Goa?"
 - **Dictation mode:** filler words ("um", "uh") are removed, self-corrections are applied ("meet at 6, no wait, 7" becomes "meet at 7"), and Hindi or Hinglish is written in English letters.
@@ -103,34 +105,129 @@ The 90-second video above covers every feature and the install. The first time N
 - **Sounds right in every app:** set a tone per app (casual in WhatsApp, professional in Gmail) in Settings → Dictation.
 - **Fully offline dictation:** point Nova at Ollama, llama.cpp or LM Studio in Settings → Dictation, and long dictations are tidied on your computer with no subscription.
 - **Command mode:** select text in any app, press the shortcut and say "make this more formal", "translate it to Hindi" or "fix the grammar". The selection is rewritten in place.
-- **Knows what you're looking at:** "what's this error on my screen?" gives the AI a screenshot to look at, and every spoken request tells it which app you're in. You can turn this off.
 - **Conversational:** talk over Nova to interrupt it and redirect it; when it asks you something ("Want me to run the tests?") it listens for your answer without "Hey Nova".
-- **Remembers:** tell it "remember I use pnpm" and it keeps that in `workspace/notes/memory.md` for every later request; see and delete entries on the window's Memory page. It also remembers your last 20 copies (in memory only, skipping passwords and keys), so "paste the link I copied earlier" works.
+
+### Your screen
+
+- **Knows what you're looking at:** "what's this error on my screen?" gives the AI a screenshot to look at, and every spoken request tells it which app you're in. You can turn this off.
 - **Point at things:** "turn this card into a Tailwind component" dims the screen so you can drag a box around what you mean; other questions about your screen send just the window you're in. Highlight code and ask "where else is this function called?" and Nova passes the selection along.
 - **Draws on your screen:** when one arrow isn't enough ("show me where each setting is"), the AI marks the screenshot with boxes, circles, arrows, numbered steps and short labels, and Nova draws them over your real screen one at a time. Clicks pass through them, they fade after about 12 seconds, and Nova's own screenshots never include them.
-- **Sketches the answer:** ask a spoken question with a short factual answer ("who won today's Grand Prix?", "how does a heat pump work?") and Nova explains it out loud while a paper note draws itself on screen: the result, a ranking or bars, a few steps, where the answer came from. The note is drawn by a pen: circles, boxes, bars and arrows are traced stroke by stroke, and the writing is wiped in behind the pen tip. It can carry a photo and one or two follow-up questions as chips: tap a chip and Nova asks it, stopping what it's saying. Click anywhere else on the note (or press Esc) to clear it; otherwise it goes about 25 seconds after Nova stops talking. For a person, place or thing the AI names the Wikipedia page and Nova fetches that page's photo itself (the AI never writes a link), only from Wikimedia, over https to a public address (never your own network), at most 2.5 MB, in memory, never saved. Turn the note off with `overlay.sketch`, or just the photo with `overlay.sketch_images`.
-- **Nova's marker on your screen:** Nova's mark (the five bars that make an N, in its violet-to-pink colours) on a small dark tile. It appears only when it has something to show you: ask where something is, or say "walk me through…", "I'm stuck, help me in this app", "teach me how to use this in this app", and the marker flies to the spot, names it, and waits for your click before the next step; when Nova draws on your screen, the marker is the pen and traces each circle, box and arrow stroke by stroke. Then it goes away. Turn on **Follow the mouse pointer** in Settings → Cursor (`companion.enabled`, off by default) and it also stays beside your pointer and shows what Nova is doing (the bars rise and fall like an equaliser while it listens, a light runs along them while it thinks, they swell with a glow while it speaks, amber when it needs your OK, grey when paused, and a number counting the background jobs, "in the background, …", which Nova tells you about when they're done). It dims when the mouse is still, hides in games, never gets in the way of a click, never appears in Nova's own screenshots, and does show in screen recordings. Pick a plain colour instead of Nova's own in Settings → Cursor (`companion.color`).
+- **Sketches the answer:** ask a spoken question with a short factual answer ("who won today's Grand Prix?", "how does a heat pump work?") and Nova explains it out loud while a paper note draws itself on screen: the result, a ranking or bars, a few steps, where the answer came from.
+- **Nova's marker on your screen:** Nova's mark (the five bars that make an N, in its violet-to-pink colours) on a small dark tile.
 - **Circle to ask:** hold the talk key, draw a loop round what you mean with the mouse, and ask ("what does this error mean?"). A red trail shows what Nova sees, and the loop is drawn on the screenshot the AI gets, so it knows exactly what you marked. Only a real loop counts (closed, big enough), so ordinary mouse movement while holding Ctrl does nothing. Turn it off with `brain.circle_to_ask`.
-- **Your apps:** Settings → AI → Apps connects the AI to Linear, Notion, Jira, GitHub or any MCP server (Gmail, Salesforce and others through a service like Composio). Press Sign in, type `/mcp` in the Claude Code window that opens, pick the app and sign in. Reading is automatic; anything that changes an app (create, update, send, delete) asks you first, every time, and Plan mode blocks it. Only you can add an app: the safety guard stops the AI editing that setting, and a token goes in an environment variable (`"Authorization": "Bearer ${GITHUB_TOKEN}"`), never in the file. Claude Code only for now: Codex isn't given your apps because its safety hook isn't known to cover them. The guard judges a tool by its name, so connect only servers you trust: a tool called `query` that can also write (a database server) passes without a card, so give such a server a read-only account.
-- **Suggestions:** when you copy an error message, a small card offers to explain it and suggest a fix (on by default; add `"link"` and `"text"` to `proactive.kinds` to also be offered summaries of copied links and long texts, or turn it off in Settings → AI → Suggestions). Nothing goes to the AI until you press Do it, so it costs no quota meanwhile. If you chose a model on this computer for dictation, it only votes YES or NO on whether to interrupt (it never writes the card); without one, plain rules decide. At most 4 a day (2 without a local model), 20 minutes apart, never while you're in a game or a meeting, never for anything a password manager copied, and a kind you dismiss three times stops for a week. Nova remembers only counts and hashes, never the text.
+- **Suggestions:** when you copy an error message, a small card offers to explain it and suggest a fix (on by default; add `"link"` and `"text"` to `proactive.kinds` to also be offered summaries of copied links and long texts, or turn it off in Settings → AI → Suggestions).
 - **Walks you through it:** "walk me through exporting this as a PDF" and Nova's arrow shows each click on your screen, moving on after you click. Esc stops it.
-- **Routines:** "start my day" gives a short spoken rundown (each project's branch and uncommitted changes, open tasks in your notes, follow-ups from memory, and the rest of today's reminders and calendar events). The first time you ask Nova something on a morning (5 am to noon), a card offers it once; "Not now" three times in a row and it stays quiet for a week. "Wrap up my day" does the evening side: what was committed today and what's still uncommitted, background jobs that finished, tomorrow's reminders and events, and whether there's anything to remember. Ask "what can you do?" and Nova names three things you haven't tried yet, without using the AI. Add your own in Settings → Routines, e.g. "deep code mode" = "pause music, open VS Code in portfolio, run npm run dev". Schedule them by voice: "every weekday at 9, run start my day". Settings → Routines shows beside each schedule what its skill's last run used ("Last run used about 12,400 tokens": what it read outside the cache plus what it wrote), so you can see what a daily run costs your allowance.
-- **Reminders:** say "remind me to call the bank at 4 pm", "remind me in 20 minutes to stretch" or "remind me tomorrow at 9 to send the invoice". Nova says it when it's due (once it's free; one that came due while Nova was off is said as a missed reminder), and "snooze 10 minutes" (or just "snooze") puts the last one back. "Clear my reminders" empties the list. They are kept in `data/reminders.json`. English only; with no am/pm, a clock time alone means the next one that comes round, and with a day, 1 to 6 means pm.
-- **Calendar events, without an account:** say "put a review on Thursday at 3 pm", "add lunch with Sam tomorrow at 12:30 pm for an hour" or "schedule a meeting with Bob on Friday at 10 am". Nova writes the event as an `.ics` file in `workspace/calendar/` and opens it, so your own calendar app (Outlook, Apple Calendar, Google Calendar by import) asks you to save it: the save is your OK, and Nova gets no access to your calendar. It needs a day or an am/pm, so "add a margin at 4 px" goes to the AI as before; 30 minutes unless you say "for an hour".
-- **Background jobs:** start a request with "in the background, …" (or end it with "as a background task") and Nova keeps listening while the AI works on its own in `workspace/jobs/<id>/`, putting what it makes in `output/`. When it's done Nova says the result (never over something else you're doing) and opens a lone document. Say "stop the background jobs" to cancel; Esc and the shortcut only stop the request in front of you. The safety guard still checks every action, and a job's approval card names the job. Jobs don't use your browser, and each one spends your Claude / Codex allowance, so two run at a time (`brain.max_background`). When a job needs your OK and you're away, it doesn't lose the request: it waits (`safety.job_wait_s`, 10 minutes; 0 turns it off) and Nova shows the card again every minute, with the question spoken only the first time, so you can allow it from the window or your phone when you're back. A card that comes back by itself is answered only by its buttons: your shortcut, the hold key and Esc leave it alone. After that wait, or if you stop the job, it counts as a no. A scheduled routine (or a skill a program started) waits the same way, even when it runs as an ordinary request, so a 9 a.m. routine that needs an OK is still there when you sit down.
-- **Skills:** write a task down once and run it by name. A skill is a markdown file in `workspace/notes/skills/` (the file name, lower-case with dashes, is its name, for example `morning-intel.md`). The window's Skills page lists them with their last run, a Run button, a Preview button (Plan mode: it says what the skill would do, step by step, changes nothing and asks whether to go ahead), and buttons that open the last run note or the skill's file. Start with an optional block of `title:`, `say:` (other phrases, comma-separated), `safety:` (`draft-only`, the default, or `read-only`), `needs: apps` (uses your connected apps, so Claude Code only) and `runs:` (how many past runs it reads first, 0 to 5), then write the steps in plain words. Say "run morning intel" (or "/morning-intel", or one of its `say:` phrases) and Nova runs it as a background job. Each run leaves a note in `notes/runs/<skill>/` and a copy of what it made in `notes/outputs/<skill>/`; write what to change under "## Feedback" in a note and the next run reads it first. A note's header also shows the tokens the run used (and the API-equivalent price, which is not what a subscription charges), as the AI's command-line tool reports them. To make one from something you just did, say "turn what we just did into a skill" (or "save that as a skill called morning intel"): the AI writes the file from the conversation you just had, and asks before replacing one that exists. It works best right after the task, while the AI still remembers it. Schedule one like any routine: "every weekday at 6:30, run morning intel". A script of your own can start one when something happens (a video goes live, a file lands): `from helpers.notify import send; send({"event": "skill", "name": "morning-intel"})`, or from a shell `python helpers/notify.py skill morning-intel`. The event carries only the name of a skill you wrote, never instructions. If Nova is busy it starts the skill when Nova is free (waiting up to five minutes, once per skill); it ignores the event if that skill is already running. But any program that can read `data/events.key` can do this, so treat that file like a password. A run started this way, like a scheduled one, never gets Bypass: it asks like Auto, and with nobody there to answer, an approval times out as a no. Skills run in the safety mode you chose, except that a scheduled or program-started run never gets Bypass: it asks like Auto. Nova logs which tier answered each request (a built-in command, the small model, or the full model) in `logs/`; `python helpers/route_review.py` copies those into `data/route-review.csv` so you can mark the ones that went to the wrong place and see how Nova is doing. The notes folder may also hold an `index.md` that says where things are; if it exists, the AI reads it first. Notes are plain files on this computer, and anything that syncs the folder uploads them, including what a run read from your email or the web.
+
+<details><summary>More on your screen</summary>
+
+**Sketches the answer:** The note is drawn by a pen: circles, boxes, bars and arrows are traced stroke by stroke, and the writing is wiped in behind the pen tip. It can carry a photo and one or two follow-up questions as chips: tap a chip and Nova asks it, stopping what it's saying. Click anywhere else on the note (or press Esc) to clear it; otherwise it goes about 25 seconds after Nova stops talking. For a person, place or thing the AI names the Wikipedia page and Nova fetches that page's photo itself (the AI never writes a link), only from Wikimedia, over https to a public address (never your own network), at most 2.5 MB, in memory, never saved. Turn the note off with `overlay.sketch`, or just the photo with `overlay.sketch_images`.
+
+**Nova's marker on your screen:** It appears only when it has something to show you: ask where something is, or say "walk me through…", "I'm stuck, help me in this app", "teach me how to use this in this app", and the marker flies to the spot, names it, and waits for your click before the next step; when Nova draws on your screen, the marker is the pen and traces each circle, box and arrow stroke by stroke. Then it goes away. Turn on **Follow the mouse pointer** in Settings → Cursor (`companion.enabled`, off by default) and it also stays beside your pointer and shows what Nova is doing (the bars rise and fall like an equaliser while it listens, a light runs along them while it thinks, they swell with a glow while it speaks, amber when it needs your OK, grey when paused, and a number counting the background jobs, "in the background, …", which Nova tells you about when they're done). It dims when the mouse is still, hides in games, never gets in the way of a click, never appears in Nova's own screenshots, and does show in screen recordings. Pick a plain colour instead of Nova's own in Settings → Cursor (`companion.color`).
+
+**Suggestions:** Nothing goes to the AI until you press Do it, so it costs no quota meanwhile. If you chose a model on this computer for dictation, it only votes YES or NO on whether to interrupt (it never writes the card); without one, plain rules decide. At most 4 a day (2 without a local model), 20 minutes apart, never while you're in a game or a meeting, never for anything a password manager copied, and a kind you dismiss three times stops for a week. Nova remembers only counts and hashes, never the text.
+
+</details>
+
+### Memory, routines and skills
+
+- **Remembers:** tell it "remember I use pnpm" and it keeps that in `workspace/notes/memory.md` for every later request; see and delete entries on the window's Memory page. It also remembers your last 20 copies (in memory only, skipping passwords and keys), so "paste the link I copied earlier" works.
+- **Routines:** "start my day" gives a short spoken rundown (each project's branch and uncommitted changes, open tasks in your notes, follow-ups from memory, and the rest of today's reminders and calendar events).
+- **Reminders:** say "remind me to call the bank at 4 pm", "remind me in 20 minutes to stretch" or "remind me tomorrow at 9 to send the invoice".
+- **Calendar events, without an account:** say "put a review on Thursday at 3 pm", "add lunch with Sam tomorrow at 12:30 pm for an hour" or "schedule a meeting with Bob on Friday at 10 am".
+- **Background jobs:** start a request with "in the background, …" (or end it with "as a background task") and Nova keeps listening while the AI works on its own in `workspace/jobs/<id>/`, putting what it makes in `output/`.
+- **Skills:** write a task down once and run it by name.
 - **Picks up where it stopped:** every request is recorded in `data/jobs/`. If Nova closes in the middle of one, say "pick that up" next time and the AI carries on from the same session (within a day).
 - **Keeps an eye on long jobs:** run `python <nova folder>/helpers/watch.py npm run build` and keep working; Nova says when it's done, or explains why it failed and offers to fix it. Turn on Settings → AI → "Tell me when Claude Code finishes" to hear when a Claude Code task you started in a terminal is done.
+
+<details><summary>More on memory, routines and skills</summary>
+
+**Routines:** The first time you ask Nova something on a morning (5 am to noon), a card offers the rundown once; "Not now" three times in a row and it stays quiet for a week. "Wrap up my day" does the evening side: what was committed today and what's still uncommitted, background jobs that finished, tomorrow's reminders and events, and whether there's anything to remember. Ask "what can you do?" and Nova names three things you haven't tried yet, without using the AI. Add your own in Settings → Routines, e.g. "deep code mode" = "pause music, open VS Code in portfolio, run npm run dev". Schedule them by voice: "every weekday at 9, run start my day". Settings → Routines shows beside each schedule what its skill's last run used ("Last run used about 12,400 tokens": what it read outside the cache plus what it wrote), so you can see what a daily run costs your allowance.
+
+**Reminders:** Nova says it when it's due (once it's free; one that came due while Nova was off is said as a missed reminder), and "snooze 10 minutes" (or just "snooze") puts the last one back. "Clear my reminders" empties the list. They are kept in `data/reminders.json`. English only; with no am/pm, a clock time alone means the next one that comes round, and with a day, 1 to 6 means pm.
+
+**Calendar events, without an account:** Nova writes the event as an `.ics` file in `workspace/calendar/` and opens it, so your own calendar app (Outlook, Apple Calendar, Google Calendar by import) asks you to save it: the save is your OK, and Nova gets no access to your calendar. It needs a day or an am/pm, so "add a margin at 4 px" goes to the AI as before; 30 minutes unless you say "for an hour".
+
+**Background jobs:** When it's done Nova says the result (never over something else you're doing) and opens a lone document. Say "stop the background jobs" to cancel; Esc and the shortcut only stop the request in front of you. The safety guard still checks every action, and a job's approval card names the job. Jobs don't use your browser, and each one spends your Claude / Codex allowance, so two run at a time (`brain.max_background`). When a job needs your OK and you're away, it doesn't lose the request: it waits (`safety.job_wait_s`, 10 minutes; 0 turns it off) and Nova shows the card again every minute, with the question spoken only the first time, so you can allow it from the window or your phone when you're back. A card that comes back by itself is answered only by its buttons: your shortcut, the hold key and Esc leave it alone. After that wait, or if you stop the job, it counts as a no. A scheduled routine (or a skill a program started) waits the same way, even when it runs as an ordinary request, so a 9 a.m. routine that needs an OK is still there when you sit down.
+
+**Skills:** A skill is a markdown file in `workspace/notes/skills/` (the file name, lower-case with dashes, is its name, for example `morning-intel.md`). The window's Skills page lists them with their last run, a Run button, a Preview button (Plan mode: it says what the skill would do, step by step, changes nothing and asks whether to go ahead), and buttons that open the last run note or the skill's file. Start with an optional block of `title:`, `say:` (other phrases, comma-separated), `safety:` (`draft-only`, the default, or `read-only`), `needs: apps` (uses your connected apps, so Claude Code only) and `runs:` (how many past runs it reads first, 0 to 5), then write the steps in plain words. Say "run morning intel" (or "/morning-intel", or one of its `say:` phrases) and Nova runs it as a background job. Each run leaves a note in `notes/runs/<skill>/` and a copy of what it made in `notes/outputs/<skill>/`; write what to change under "## Feedback" in a note and the next run reads it first. A note's header also shows the tokens the run used (and the API-equivalent price, which is not what a subscription charges), as the AI's command-line tool reports them. To make one from something you just did, say "turn what we just did into a skill" (or "save that as a skill called morning intel"): the AI writes the file from the conversation you just had, and asks before replacing one that exists. It works best right after the task, while the AI still remembers it. Schedule one like any routine: "every weekday at 6:30, run morning intel". A script of your own can start one when something happens (a video goes live, a file lands): `from helpers.notify import send; send({"event": "skill", "name": "morning-intel"})`, or from a shell `python helpers/notify.py skill morning-intel`. The event carries only the name of a skill you wrote, never instructions. If Nova is busy it starts the skill when Nova is free (waiting up to five minutes, once per skill); it ignores the event if that skill is already running. But any program that can read `data/events.key` can do this, so treat that file like a password. A run started this way, like a scheduled one, never gets Bypass: it asks like Auto, and with nobody there to answer, an approval times out as a no. Skills run in the safety mode you chose, except that a scheduled or program-started run never gets Bypass: it asks like Auto. Nova logs which tier answered each request (a built-in command, the small model, or the full model) in `logs/`; `python helpers/route_review.py` copies those into `data/route-review.csv` so you can mark the ones that went to the wrong place and see how Nova is doing. The notes folder may also hold an `index.md` that says where things are; if it exists, the AI reads it first. Notes are plain files on this computer, and anything that syncs the folder uploads them, including what a run read from your email or the web.
+
+</details>
+
+### Meetings and your computer's audio
+
 - **Notices your meetings (Windows):** when Zoom, Teams or a Google Meet tab starts using your microphone, Nova offers to take notes.
-- **Listens to your computer:** say "listen to my computer" (or use the tray menu) during a video, lecture or call, then ask "what did they just say?" or "grab the command they mentioned". The transcript covers the last 15 minutes and stays in memory; "stop listening" ends it. On a Mac this needs macOS 13+, Apple's command-line tools (`xcode-select --install`) and the Screen Recording permission, and it listens only when you ask, because macOS shows its recording indicator the whole time it captures.
-- **Uses your real browser (Windows):** Opera GX, Brave, Vivaldi or Opera, inside your own profile with your logins, through a small Nova extension that only talks to Nova on this computer. "Open my GitHub notifications and summarise them", "fill this form with my address", "in Brave, find the cheapest flight to Goa". Nova asks before clicks and keys that look like submitting, buying, posting or sending (it judges by the button, so a page can disguise one), and never types passwords, card numbers or one-time codes. Turn it on in Settings → Browsers (or the tray menu → Browsers…); a Nova panel in the browser shows the same live conversation, with Allow / Deny. Ask a question about a whole list ("how many unread are from Sam?") and the AI uses `read_list`: Nova scrolls the inbox, feed or table once, collects each row once and hands over one numbered line per row (up to about 400 rows or 60,000 characters), instead of reading and scrolling again and again; it reads and scrolls, never clicks, and isn't available in Safari. Under an answer that used your browser, a "Read:" line names the sites the AI read (not what its own web tools fetched). Settings → Browsers has a list of sites the AI must not touch (your bank, a health portal): it can't open them, follow a link to them, read or click in them in any mode, and their tabs are hidden from it. A screenshot of a tab you already have open on one of them isn't hidden.
+- **Listens to your computer:** say "listen to my computer" (or use the tray menu) during a video, lecture or call, then ask "what did they just say?" or "grab the command they mentioned".
+
+<details><summary>More on meetings and your computer's audio</summary>
+
+**Listens to your computer:** The transcript covers the last 15 minutes and stays in memory; "stop listening" ends it. On a Mac this needs macOS 13+, Apple's command-line tools (`xcode-select --install`) and the Screen Recording permission, and it listens only when you ask, because macOS shows its recording indicator the whole time it captures.
+
+</details>
+
+### Your apps, browser and phone
+
+- **Your apps:** Settings → AI → Apps connects the AI to Linear, Notion, Jira, GitHub or any MCP server (Gmail, Salesforce and others through a service like Composio).
+- **Uses your real browser (Windows):** Opera GX, Brave, Vivaldi or Opera, inside your own profile with your logins, through a small Nova extension that only talks to Nova on this computer.
 - **Your notes in Claude Code:** one click in Settings → AI lets Claude Code or Codex search your Nova notes, meetings and memory in any session, on your computer.
 - **Never stuck at a limit:** when Claude Code or Codex reaches its usage limit, Nova can switch to a free Google Gemini key (Settings → AI → Backup brain) until it resets. Its commands go through the same safety guard. On Google's free tier your requests may be used to improve Google's products, so it's off until you add a key.
 - **On your phone:** turn on Settings → Phone and scan the code with your iPhone or Android phone. You get the same live conversation: type or dictate requests, see replies, and **Allow / Deny** from the couch. Add it to your home screen and it opens like an app. Works on home Wi-Fi, and from anywhere with Tailscale (see [Phone](#phone)).
-- **The Home deck:** the window is built like an agentic OS. A bar across the top is the same on every page: the Nova mark, what Nova is doing now, tabs for Home, Chat, History, Meetings, Dictionary, Skills, Memory and Settings, the Mode switch and Pause. Home fills the window with three columns around a glowing sphere that follows Nova (it tightens and follows your voice while you talk, loosens while Nova thinks, pulses while it answers, and holds still while it waits for your OK). **Left:** Claude's real numbers, read every few seconds from Claude Code's own session files on this computer, so they include Claude you used in a terminal or the desktop app (your plan, how much of the current 5-hour window you've used as a share of your own busiest 5 hours, since Claude doesn't tell this computer a plan's limit, and when it resets, tokens today and over 7 days; cache reads aren't counted; if Codex is your AI it shows what Nova recorded instead), then the status of the AI, speech recognition and "Hey Nova", then your recent requests. **Middle:** a box to ask Nova right there; its steps, any "Needs your OK" with Allow and Deny, and the reply show in a strip above the box, with a button to open the full Chat. A card shows the background job running now. **Right:** your Nova skills, one press each; every Claude skill installed on this computer as a searchable list of buttons; and your library (history, meetings with a Record button, memory, dictionary, settings). The window is dark whatever your system theme. The orb only draws while Home is showing, and stands still if your system asks for reduced motion.
-- **Notes in Obsidian (optional):** Settings → General has an Obsidian row. If Obsidian isn't on your computer, **Install Obsidian** installs it with winget (Windows) or Homebrew (Mac), or opens its download page when neither is there; nothing is installed until you press it, and Obsidian is a separate app, so check its terms. **Set up a vault for Nova** makes `Documents/Nova vault` with a `Nova` folder inside it, adds the vault to Obsidian's list when Obsidian is closed (otherwise choose "Open folder as vault" in Obsidian once), copies your current notes in and uses that folder from the next start. It never touches a vault you already have. Or, by hand, in Settings → General, Notes folder, choose a folder inside your Obsidian vault (say `<your vault>/Nova`) and restart Nova. Your memory, skills, run notes and meeting notes then live in the vault, so Obsidian shows them and whatever syncs your vault (Obsidian Sync, iCloud Drive and so on) carries them to your other devices and the Obsidian phone app. Nova syncs nothing itself. It copies your current notes in if you ask (it never overwrites or deletes), and "Use default" goes back, leaving the vault copy where it is. Nova refuses the top of a vault (a folder with `.obsidian` in it) on purpose: the AI could then change Obsidian's plugins, which run code, and every other note you have. Know what that means: everything in the folder is uploaded by your sync tool, including run notes, which can hold text from the email or web pages a skill read; never put keys or passwords in notes; if you edit `memory.md` on two devices the sync tool may make conflict copies, which Nova does not merge. Tried: only a local folder. Not tried: Obsidian Sync or iCloud Drive with Nova's file writes.
-- **Claude skills as buttons:** the Skills page also lists every skill and command installed for Claude Code on this computer (yours and your plugins'), searchable. Press one and Nova sends the AI that skill's own text in Chat, since Nova starts Claude with only the project's settings and so Claude doesn't see them by name there; the safety guard still applies as for any request, and the skill can ask you questions in Chat.
+- **Notes in Obsidian (optional):** Settings → General has an Obsidian row. If Obsidian isn't on your computer, **Install Obsidian** installs it with winget (Windows) or Homebrew (Mac), or opens its download page when neither is there; nothing is installed until you press it, and Obsidian is a separate app, so check its terms.
+- **Claude skills as buttons:** the Skills page also lists every skill and command installed for Claude Code on this computer (yours and your plugins'), searchable.
+
+<details><summary>More on your apps, browser and phone</summary>
+
+**Your apps:** Press Sign in, type `/mcp` in the Claude Code window that opens, pick the app and sign in. Reading is automatic; anything that changes an app (create, update, send, delete) asks you first, every time, and Plan mode blocks it. Only you can add an app: the safety guard stops the AI editing that setting, and a token goes in an environment variable (`"Authorization": "Bearer ${GITHUB_TOKEN}"`), never in the file. Claude Code only for now: Codex isn't given your apps because its safety hook isn't known to cover them. The guard judges a tool by its name, so connect only servers you trust: a tool called `query` that can also write (a database server) passes without a card, so give such a server a read-only account.
+
+**Uses your real browser (Windows):** "Open my GitHub notifications and summarise them", "fill this form with my address", "in Brave, find the cheapest flight to Goa". Nova asks before clicks and keys that look like submitting, buying, posting or sending (it judges by the button, so a page can disguise one), and never types passwords, card numbers or one-time codes. Turn it on in Settings → Browsers (or the tray menu → Browsers…); a Nova panel in the browser shows the same live conversation, with Allow / Deny. Ask a question about a whole list ("how many unread are from Sam?") and the AI uses `read_list`: Nova scrolls the inbox, feed or table once, collects each row once and hands over one numbered line per row (up to about 400 rows or 60,000 characters), instead of reading and scrolling again and again; it reads and scrolls, never clicks, and isn't available in Safari. Under an answer that used your browser, a "Read:" line names the sites the AI read (not what its own web tools fetched). Settings → Browsers has a list of sites the AI must not touch (your bank, a health portal): it can't open them, follow a link to them, read or click in them in any mode, and their tabs are hidden from it. A screenshot of a tab you already have open on one of them isn't hidden.
+
+**Notes in Obsidian (optional):** **Set up a vault for Nova** makes `Documents/Nova vault` with a `Nova` folder inside it, adds the vault to Obsidian's list when Obsidian is closed (otherwise choose "Open folder as vault" in Obsidian once), copies your current notes in and uses that folder from the next start. It never touches a vault you already have. Or, by hand, in Settings → General, Notes folder, choose a folder inside your Obsidian vault (say `<your vault>/Nova`) and restart Nova. Your memory, skills, run notes and meeting notes then live in the vault, so Obsidian shows them and whatever syncs your vault (Obsidian Sync, iCloud Drive and so on) carries them to your other devices and the Obsidian phone app. Nova syncs nothing itself. It copies your current notes in if you ask (it never overwrites or deletes), and "Use default" goes back, leaving the vault copy where it is. Nova refuses the top of a vault (a folder with `.obsidian` in it) on purpose: the AI could then change Obsidian's plugins, which run code, and every other note you have. Know what that means: everything in the folder is uploaded by your sync tool, including run notes, which can hold text from the email or web pages a skill read; never put keys or passwords in notes; if you edit `memory.md` on two devices the sync tool may make conflict copies, which Nova does not merge. Tried: only a local folder. Not tried: Obsidian Sync or iCloud Drive with Nova's file writes.
+
+**Claude skills as buttons:** Press one and Nova sends the AI that skill's own text in Chat, since Nova starts Claude with only the project's settings and so Claude doesn't see them by name there; the safety guard still applies as for any request, and the skill can ask you questions in Chat.
+
+</details>
+
+### The Nova window
+
+- **The Home deck:** the window is built like an agentic OS. A bar across the top is the same on every page: the Nova mark, what Nova is doing now, tabs for Home, Chat, History, Meetings, Dictionary, Skills, Memory and Settings, the Mode switch and Pause.
 - **The Nova window:** click the tray icon (in the hidden icons area, the ^ next to the clock; in the menu bar on a Mac). It has a chat for typed requests, your history, your dictionary and every setting. You can also ask Nova to change itself: "use Ctrl+Shift+N as my shortcut".
+
+<details><summary>More on the Nova window</summary>
+
+**The Home deck:** Home fills the window with three columns around a glowing sphere that follows Nova (it tightens and follows your voice while you talk, loosens while Nova thinks, pulses while it answers, and holds still while it waits for your OK). **Left:** Claude's real numbers, read every few seconds from Claude Code's own session files on this computer, so they include Claude you used in a terminal or the desktop app (your plan, how much of the current 5-hour window you've used as a share of your own busiest 5 hours, since Claude doesn't tell this computer a plan's limit, and when it resets, tokens today and over 7 days; cache reads aren't counted; if Codex is your AI it shows what Nova recorded instead), then the status of the AI, speech recognition and "Hey Nova", then your recent requests. **Middle:** a box to ask Nova right there; its steps, any "Needs your OK" with Allow and Deny, and the reply show in a strip above the box, with a button to open the full Chat. A card shows the background job running now. **Right:** your Nova skills, one press each; every Claude skill installed on this computer as a searchable list of buttons; and your library (history, meetings with a Record button, memory, dictionary, settings). The window is dark whatever your system theme. The orb only draws while Home is showing, and stands still if your system asks for reduced motion.
+
+</details>
+
+## Nova Whisper Hinglish
+
+Nova's careful speech model, **[Nova Whisper Hinglish](https://huggingface.co/AyushM1701/nova-whisper-hinglish)**, is Nova's own. It's one model that hears English, Hindi and Hinglish, and it writes Hindi the way people type it, in Roman letters: say *"kal meeting cancel kar do"* and that's what it types, not Devanagari. Nova downloads it in the background on first run (1.6 GB). With an NVIDIA GPU it then becomes the everyday model for everything you say; on a CPU (and every Mac) English stays with the faster `small` model and Nova Whisper Hinglish takes the clips heard as Hindi. Any faster-whisper program can use it too.
+
+**Scores.** Word error rate on 250 held-out clips per test set. Lower is better.
+
+| Test set | Whisper large-v3-turbo | **Nova Whisper Hinglish** |
+|---|---|---|
+| MUCS 2021 Hindi-English (Hinglish) | 92.4% (77.9% in Roman letters) | **45.7%** |
+| Mann Ki Baat (Indian English) | 10.3% | **9.7%** |
+| LibriSpeech (English) | 2.7% | **2.4%** |
+
+On Hinglish it makes about 40% fewer mistakes than stock Whisper, and its English holds (the English differences are within run-to-run noise). Stock Whisper writes Hindi in Devanagari, so its fair Hinglish score is the one in brackets: its output converted to Roman letters by the same rules as the references, so it's charged for wrong words, not the wrong script. Two caveats: the MUCS test clips come from the same corpus as most of the training data, and its references follow Nova's own spelling rules, so expect a smaller gap on other Hinglish. The Whisper column is stock large-v3-turbo with the Hinglish prompt Nova used before. It runs at the same speed as stock turbo (same architecture).
+
+**How it's built.**
+
+- **Base:** OpenAI's [Whisper large-v3-turbo](https://huggingface.co/openai/whisper-large-v3-turbo) (MIT).
+- **Data:** about 124 hours, all openly licensed: [MUCS 2021 Hindi-English](https://www.openslr.org/104) (88.8 h of real code-mixed speech), Kathbath and IndicTTS Hindi (6.2 h), Mann Ki Baat (7.0 h of Indian English), and [LibriSpeech](https://www.openslr.org/12) (21.6 h) so it keeps its English.
+- **Transcripts in Roman letters by rule, not by an AI** ([translit.py](helpers/hinglish_train/translit.py)): spoken words are kept, never translated, common words get chat spellings ("hai", "nahi", "mein"), and English words go back to English spelling. LibriSpeech is cased and punctuated where stock Whisper heard exactly the same words.
+- **Training** ([train.py](helpers/hinglish_train/train.py)): a LoRA (rank 32) on the decoder and the encoder's last 4 layers (the part that listens, for Indian accents), 2 epochs, then merged and converted to CTranslate2 for faster-whisper. Every clip is labelled with its language: Hindi clips teach Whisper's `hi` mode to write Roman letters, English clips keep `en` as it was. Another 20% of clips are made by joining a Hindi clip and an English one, so it hears the language switch mid-sentence.
+- **In Nova:** each clip's language is detected first (between the languages you picked in Settings → Voice) and decoded in that mode, so you can switch languages from one sentence to the next.
+
+**Use it yourself:**
+
+```python
+from faster_whisper import WhisperModel
+model = WhisperModel("AyushM1701/nova-whisper-hinglish", device="cuda", compute_type="float16")
+segments, _ = model.transcribe("speech.wav", language="hi")  # Hindi / Hinglish, in Roman letters
+```
+
+**Train it again:** the whole pipeline is in [helpers/hinglish_train](helpers/hinglish_train): `prepare.py` (download and slice the data), `train.py`, `evaluate.py` (scores any models side by side) and `publish.py` (model card and upload). After `prepare.py`, `run_all.ps1` runs the first model's remaining steps unattended; `run_v2.ps1` trains, scores and writes the card for the v2 recipe (the current model's settings: decoder plus the encoder's last 4 layers, 20% spliced clips, 2 epochs) on one NVIDIA GPU. The model is **CC BY-SA 4.0**, because MUCS 2021 is share-alike.
 
 ## FAQ
 
@@ -144,9 +241,9 @@ The 90-second video above covers every feature and the install. The first time N
 
 **Does it work offline?** Dictation, "Hey Nova", meeting transcription and spoken replies do. Assistant requests need the internet, because Claude Code and Codex run in the cloud.
 
-**Which languages?** Whisper recognizes about 100 languages. Hindi and Hinglish are tuned in particular and come out in English letters: Nova's own speech model (Nova Whisper Hinglish, trained on English, Hindi and Hinglish together; see License) hears all three, and Nova decides between the languages you speak (Settings, Voice) on each clip, so you can switch mid-conversation. For better Hindi, pick **Sarvam: Hindi & Hinglish only** under Speech recognition and add your own Sarvam key: only clips heard as Hindi go there, English stays on this computer.
+**Which languages?** Whisper recognizes about 100 languages. Hindi and Hinglish are tuned in particular and come out in English letters: Nova's own speech model ([Nova Whisper Hinglish](#nova-whisper-hinglish), trained on English, Hindi and Hinglish together) hears all three, and Nova decides between the languages you speak (Settings, Voice) on each clip, so you can switch mid-conversation. For better Hindi, pick **Sarvam: Hindi & Hinglish only** under Speech recognition and add your own Sarvam key: only clips heard as Hindi go there, English stays on this computer.
 
-**How well does it hear me?** Run `python helpers/stt_bench.py record` once and read the 30 phrases, then `python helpers/stt_bench.py score` after any change: it prints how many words were misheard and how long hearing took. With [Ollama](https://ollama.com) and a small model (Settings, Dictation, Local AI: `qwen2.5:3b`), dictations from six words are polished in well under a second, and commands heard in Hindi are fixed before Nova acts on them.
+**How well does it hear me?** The [Nova Whisper Hinglish](#nova-whisper-hinglish) section has the published scores. To measure it on your own voice, run `python helpers/stt_bench.py record` once and read the 30 phrases, then `python helpers/stt_bench.py score` after any change: it prints how many words were misheard and how long hearing took. With [Ollama](https://ollama.com) and a small model (Settings, Dictation, Local AI: `qwen2.5:3b`), dictations from six words are polished in well under a second, and commands heard in Hindi are fixed before Nova acts on them.
 
 ## Install
 
@@ -161,7 +258,7 @@ Prefer to watch? The [one-minute setup walkthrough](docs/media/nova-setup.mp4) s
 1. On the [latest release](https://github.com/AyushM1701/nova/releases/latest), download **`nova-main.zip`** (under *Assets*).
 2. Right-click the downloaded `nova-main.zip` → **Extract All…** and pick a folder you'll keep, for example `Documents\nova`. Nova runs from this folder, so don't delete it afterwards.
 3. Open the folder and double-click **`setup.cmd`**. If Windows shows "Windows protected your PC" or a security warning, click **More info → Run anyway** (or **Run**).
-4. A Nova setup window shows each step. The first run downloads about 1 GB and takes a few minutes; Nova then fetches its Hindi/Hinglish speech model (1.6 GB) in the background while you already use it. If Python 3.11–3.13 isn't installed, setup offers to install it for you.
+4. A Nova setup window shows each step. The first run downloads about 1 GB and takes a few minutes; Nova then fetches its [Hindi/Hinglish speech model](#nova-whisper-hinglish) (1.6 GB) in the background while you already use it. If Python 3.11–3.13 isn't installed, setup offers to install it for you.
 5. When it says "Nova is installed", Nova opens its first-run screens (microphone, AI, shortcut). See [First run](#first-run) below.
 
 **macOS 12+ (Apple Silicon or Intel)**
@@ -184,7 +281,7 @@ Setup:
 
 1. Finds or installs Python 3.11–3.13 (it asks before installing anything).
 2. Creates Nova's own Python environment inside the folder and installs its libraries.
-3. Downloads the fast speech model (about 470 MB, once), plus GPU support if you have an NVIDIA card. The accurate model for Hindi and Hinglish (1.6 GB) downloads in the background the first time Nova runs.
+3. Downloads the fast speech model (about 470 MB, once), plus GPU support if you have an NVIDIA card. The accurate model for Hindi and Hinglish ([Nova Whisper Hinglish](#nova-whisper-hinglish), 1.6 GB) downloads in the background the first time Nova runs.
 4. Adds Nova to the Start menu or `~/Applications`, runs Nova's self-checks and starts it.
 
 ### First run
@@ -309,6 +406,8 @@ If the guard fails, Nova isn't running, or the CLI skips the guard, the action i
 
 Change them in the Nova window → **Settings** (they apply within a second, no restart), by asking Nova ("keep the reply card up for 10 seconds"), or by editing `config.json`. `config.json` only holds the values you changed; everything else comes from `config.default.json`, so new settings from an update reach you automatically.
 
+<details><summary>All settings</summary>
+
 | Setting | Default | Meaning |
 |---|---|---|
 | `hotkey` | none | a press-to-toggle shortcut, e.g. `"ctrl+shift+n"` |
@@ -364,10 +463,12 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 | `phone.enabled` | `false` | Serve the phone page on your network (Settings → Phone) |
 | `brain.screen_context` | `true` | Tell the AI which app you're in, and send a screenshot when you ask about your screen |
 
+</details>
+
 ## Speed
 
 - **Windows with an NVIDIA GPU:** speech takes about 0.3 s.
-- **CPU (and every Mac):** English takes 1–3 s with the `small` model; Hindi is re-transcribed with the larger model, which takes several seconds.
+- **CPU (and every Mac):** English takes 1–3 s with the `small` model; Hindi is re-transcribed with the larger model ([Nova Whisper Hinglish](#nova-whisper-hinglish)), which takes several seconds.
 - **The AI step:** a request to the AI takes 5–30 s, depending on the task.
 
 ## Troubleshooting
@@ -381,6 +482,8 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 - **Nova closed by itself:** if a library Nova uses crashes, the details are in `logs/crash.txt`. Include that file when you report it.
 
 ## Project layout
+
+<details><summary>Where everything lives</summary>
 
 ```
 nova.py               app: tray, shortcut, bar, voice commands, wiring, the window's control channel
@@ -436,16 +539,20 @@ core/readguard.py     what the AI may read of a page (credentials cut or withhel
 core/update.py        update check and installer (bump VERSION, then push tag v<VERSION>: .github/workflows/release.yml publishes it)
 core/phone.py, phone.html  the phone page and its server (Settings → Phone)
 browser/extension/    the Nova extension (Chromium, unpacked; never published to a store)
+helpers/hinglish_train/  how Nova Whisper Hinglish is made: data, training, scores, model card
+helpers/stt_bench.py  read 30 phrases once, then score speech recognition after any change
 helpers/              clipboard helpers, the browser MCP server, the notes MCP server (nova_mcp.py), the command watcher and Claude Code hook, the macOS screenshot helper (mac_screenshots.py: opens the window on a Mac and saves a picture of each page; the macOS CI job runs it and keeps the pictures as a download), the routing review (route_review.py)
 setup.* / uninstall.* installers (setup.command: double-click setup for Finder)
 tests.py              self-checks (python tests.py)
 docs/video/build.py   makes the banner, the README video and GIF and the walkthrough clips from HTML (HyperFrames; not part of a release)
 ```
 
+</details>
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
 
-Nova's careful speech model, [Nova Whisper Hinglish](https://huggingface.co/AyushM1701/nova-whisper-hinglish), is a separate download under **CC BY-SA 4.0**. It is OpenAI's Whisper large-v3-turbo (MIT), fine-tuned in [helpers/hinglish_train](helpers/hinglish_train) on [MUCS 2021 Hindi-English](https://www.openslr.org/104) (CC BY-SA 4.0), Kathbath and IndicTTS Hindi and Mann Ki Baat (CC BY 4.0, via [agarwalayushi/hinglish](https://huggingface.co/datasets/agarwalayushi/hinglish)), and [LibriSpeech](https://www.openslr.org/12) (CC BY 4.0). Its model card lists the hours and scores.
+Nova's careful speech model, [Nova Whisper Hinglish](https://huggingface.co/AyushM1701/nova-whisper-hinglish), is a separate download under **CC BY-SA 4.0**. It is OpenAI's Whisper large-v3-turbo (MIT), fine-tuned in [helpers/hinglish_train](helpers/hinglish_train) on [MUCS 2021 Hindi-English](https://www.openslr.org/104) (CC BY-SA 4.0), Kathbath and IndicTTS Hindi and Mann Ki Baat (CC BY 4.0, via [agarwalayushi/hinglish](https://huggingface.co/datasets/agarwalayushi/hinglish)), and [LibriSpeech](https://www.openslr.org/12) (CC BY 4.0). Scores and how it's made: [Nova Whisper Hinglish](#nova-whisper-hinglish).
 
 The optional Your voice feature downloads [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) by Kyutai (CC BY 4.0), in the ONNX form from [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (exported by KevinAHM). Its terms forbid copying a voice without that person's consent; Nova only lets you record your own.
