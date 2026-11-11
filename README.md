@@ -347,8 +347,6 @@ Use Nova from your iPhone (or any phone) while it runs on your computer. Nothing
 2. Make sure the phone is on the same Wi-Fi, open its **Camera**, point it at the QR code and tap the link.
 3. In Safari, tap **Share → Add to Home Screen**. Nova now opens like an app.
 
-If you added Nova to your home screen before version 1.2.2 and see a blank strip at the bottom, remove the icon and add it again (iOS keeps the old status-bar setting until then).
-
 You pair once. The page reconnects by itself after the phone locks, leaves and rejoins the Wi-Fi, or Nova restarts. While phone access is on and the computer is plugged in, Nova keeps it from sleeping (Settings → Phone → Keep this computer awake), because a sleeping computer can't answer. If you have Tailscale, pair with its code: that address never changes, while a home Wi-Fi address can change when the router restarts (then scan again, or give the computer a fixed address in your router).
 
 Type a request, or tap the **mic on the phone's keyboard** to dictate it. Replies, the steps Nova takes and approval requests appear live; tap **Allow** or **Deny**. The speaker button reads replies aloud. The computer has to be on with Nova running.
@@ -473,7 +471,6 @@ Change them in the Nova window → **Settings** (they apply within a second, no 
 
 ## Troubleshooting
 
-- **The Nova window opens as a second taskbar button next to your pinned Nova (Windows):** your pin was made before version 1.2.2. Run setup again (or update), then unpin Nova and pin it again from the Start menu.
 - **No icon?** On Windows, click the ^ next to the clock. Nova may already be running; only one copy can run at a time.
 - **The shortcut does nothing (Mac):** Settings → General shows which permission is missing; allow Nova under Input Monitoring and Accessibility, then click Restart Nova.
 - **"No AI connected":** open the Nova window → Settings → AI, and install or sign in to Claude Code or Codex there.
