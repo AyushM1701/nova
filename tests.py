@@ -7375,8 +7375,9 @@ _gb.badge, _gb.state = "", "idle"
 _w0 = _gb._pill_width()
 with __import__("unittest.mock").mock.patch("time.time", return_value=1_800_000_000.0):  # a slow runner ticked past 4:07 between the two reads
     _gb.recording = time.time() - 247
-    assert _gb._clock() == "4:07" and _gb._pill_width() > _w0 and _gb._pill(_gb._pill_width(), 0.0).getbbox()
-    _gb.recording = time.time() - 3847
+    # the pill is never narrower than 168px: with Windows Server 2022's fonts "Ask" plus "4:07" can still fit in that, so it
+    # grows or stays at the floor, never shrinks
+    assert _gb._clock() == "4:07" and _gb._pill_width() >= max(_w0, 168) and _gb._pill(_gb._pill_width(), 0.0).getbbox()    _gb.recording = time.time() - 3847
     assert _gb._clock() == "1:04:07"
 _gb.recording = None
 _lb = types.SimpleNamespace(job_mode=None, mode="dictation", target=1, cfg={"dictation": {"tones": {"Gmail": "clear and professional"}}})
