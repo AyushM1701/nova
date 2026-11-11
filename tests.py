@@ -7372,10 +7372,12 @@ _gb.levels, _gb.shown = __import__("collections").deque([0.0] * 15, maxlen=15), 
 _gb.state = "listening"; _w0 = _gb._pill_width(); _gb.badge = "Dictation · Gmail"  # noqa: E702
 assert _gb._pill_width() > _w0 + 60 and _gb._pill(_gb._pill_width(), 0.0).getbbox()
 _gb.badge, _gb.state = "", "idle"
-_w0 = _gb._pill_width(); _gb.recording = time.time() - 247  # noqa: E702
-assert _gb._clock() == "4:07" and _gb._pill_width() > _w0 and _gb._pill(_gb._pill_width(), 0.0).getbbox()
-_gb.recording = time.time() - 3847
-assert _gb._clock() == "1:04:07"
+_w0 = _gb._pill_width()
+with __import__("unittest.mock").mock.patch("time.time", return_value=1_800_000_000.0):  # a slow runner ticked past 4:07 between the two reads
+    _gb.recording = time.time() - 247
+    assert _gb._clock() == "4:07" and _gb._pill_width() > _w0 and _gb._pill(_gb._pill_width(), 0.0).getbbox()
+    _gb.recording = time.time() - 3847
+    assert _gb._clock() == "1:04:07"
 _gb.recording = None
 _lb = types.SimpleNamespace(job_mode=None, mode="dictation", target=1, cfg={"dictation": {"tones": {"Gmail": "clear and professional"}}})
 _real_title = nova_mod.system.window_title
