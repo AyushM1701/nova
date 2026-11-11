@@ -1,0 +1,2 @@
+# only for helpers/webkit_ui.py (the window's page in WebKit, as on a Mac); Nova itself doesn't need it
+playwright==1.48.0
