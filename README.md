@@ -8,6 +8,7 @@
 <p align="center">
   <a href="https://github.com/AyushM1701/nova/releases/latest/download/nova-main.zip"><b>Download for Windows</b></a> ·
   <a href="#quick-install"><b>Install on Mac</b></a> ·
+  <a href="https://nova-site-three-bice.vercel.app"><b>Website</b></a> ·
   <a href="#everything-it-does">What it can do</a> ·
   <a href="#safety">Is it safe?</a>
 </p>
