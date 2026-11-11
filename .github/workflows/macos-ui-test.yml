@@ -1,0 +1,71 @@
+# Nova's window on a real Mac (Apple Silicon), to look at from anywhere: builds Nova.app as setup does, opens the real
+# window (pywebview on WKWebView) and photographs every page with macOS's own screencapture, runs the WebKit page checks
+# (helpers/webkit_ui.py) at two MacBook sizes, light and dark, and keeps the pictures, the logs and Nova.app as downloads.
+# Nova has no .dmg: Nova.app is a small launcher for the Nova folder (setup writes it to ~/Applications), so the .dmg
+# here only carries that launcher for a look inside, it doesn't install Nova.
+name: macOS UI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["core/app.html", "core/app.py", "core/orb.js", "core/md.js", "helpers/webkit_ui.py", "helpers/mac_screenshots.py",
+            "helpers/setup_window.py", ".github/workflows/macos-ui-test.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  ui:
+    runs-on: macos-latest  # Apple Silicon
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install Nova's libraries (as setup does) and the test browser
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --quiet --disable-pip-version-check --prefer-binary -r requirements.txt -r requirements-dev.txt
+          .venv/bin/python -m playwright install webkit
+          mkdir -p artifacts/logs
+
+      - name: Build Nova.app (as setup does)
+        run: |
+          .venv/bin/python - <<'EOF' 2>&1 | tee artifacts/logs/build.txt
+          import subprocess, sys
+          sys.path.insert(0, "helpers")
+          import setup_window
+          setup_window.make_app(lambda *a: subprocess.run([str(x) for x in a]).returncode)
+          print("built", setup_window.APP)
+          EOF
+          codesign --verify --strict ~/Applications/Nova.app
+          mkdir -p artifacts/app
+          ditto -c -k --keepParent ~/Applications/Nova.app artifacts/app/Nova.app.zip
+          hdiutil create -volname Nova -srcfolder ~/Applications/Nova.app -ov -format UDZO artifacts/app/Nova.dmg
+
+      # before anything opens a socket: that makes macOS lay a "local network" question over the screen
+      - name: Native screenshots of the real window
+        continue-on-error: true
+        run: .venv/bin/python helpers/mac_screenshots.py artifacts/native 2>&1 | tee artifacts/logs/native.txt
+
+      - name: Control picture (tells an empty capture from an empty window)
+        continue-on-error: true
+        run: .venv/bin/python helpers/mac_screenshots.py artifacts/native --control
+
+      - name: WebKit page checks (the Mac profile, four sizes)
+        run: .venv/bin/python helpers/webkit_ui.py artifacts/webkit --profiles macos 2>&1 | tee artifacts/logs/webkit.txt; exit ${PIPESTATUS[0]}
+
+      - name: Keep the pictures, logs and Nova.app
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nova-macos-ui
+          path: artifacts
+          if-no-files-found: warn

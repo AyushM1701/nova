@@ -9,7 +9,7 @@
 <!-- not "black-translucent": in iPhone home-screen apps (iOS 26+) that draws the page under the clock but cuts the same
      59 points off the bottom, which no CSS can reach. "black" puts the page below the clock, down to the bottom edge. -->
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<meta name="theme-color" content="#0d0f1a">
+<meta name="theme-color" content="#0a0a0c">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="icon" href="/icon.png">
 <title>Nova</title>
@@ -33,6 +33,16 @@
     --ok: #3ecf8e; --danger: #ff7a7a; --glass: rgba(13, 15, 26, .82);
     color-scheme: dark;
   }
+}
+/* The phone page is always dark, like the Nova window: its obsidian, whatever the phone's own theme. This block wins
+   over the two above, which tests.py still compares with core/app.html's first two. */
+:root {
+  --bg: #0a0a0c; --surface: #111218; --raised: #20212a; --line: rgba(255, 255, 255, .09);
+  --text: #f3f4f6; --muted: #a1a3ad; --faint: #8b8d97;
+  --accent: #6d5ff7; --accent-ink: #ffffff; --accent-soft: rgba(123, 109, 255, .2);
+  --amber: #ffba3c; --amber-soft: rgba(255, 186, 60, .12); --amber-line: rgba(255, 186, 60, .42);
+  --ok: #3ecf8e; --danger: #ff7a7a; --glass: rgba(10, 10, 12, .82);
+  color-scheme: dark;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html { height: 100%; overflow: hidden; background: var(--bg); }
@@ -58,7 +68,7 @@ header svg.logo { width: 30px; height: 30px; flex: none; }
 .who { flex: 1; min-width: 0; }
 .who b { display: block; font-size: 17px; line-height: 1.2; letter-spacing: -.01em; }
 .who span { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; transition: background .25s; }
 .dot.s-ok { background: var(--ok); } .dot.s-busy { background: var(--accent); } .dot.s-ask { background: var(--amber); } .dot.s-bad { background: var(--danger); }
 .icon { height: 44px; min-width: 44px; padding: 0 14px; border-radius: 22px; border: 0; background: var(--raised); display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: var(--muted); font-size: 14px; font-weight: 600; }
 .icon[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
@@ -88,6 +98,7 @@ main {
 @keyframes pulse { 0%, 100% { opacity: .3; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
 .ask { border: 1px solid var(--amber-line); background: var(--amber-soft); border-radius: 18px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .ask b { color: var(--amber); }
+.ask .src { margin-top: -6px; color: var(--muted); font: 12px/1.2 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; }  /* whose request it is */
 .ask pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.4 ui-monospace, "SF Mono", Menlo, monospace; background: var(--surface); border: 1px solid var(--line); padding: 9px 11px; border-radius: 10px; max-height: 35vh; overflow-y: auto; }
 .ask .bar { height: 3px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .ask .bar i { display: block; height: 100%; background: var(--amber); transform-origin: left; }
@@ -120,6 +131,14 @@ textarea:focus { outline: none; border-color: var(--accent); }
 /* Siri setup sheet */
 .sheet { position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, .45); display: flex; align-items: flex-end; }
 .sheet[hidden] { display: none; }
+/* the sheet comes up from the bottom edge as the page behind it dims; what Nova says and does rises in */
+.sheet { animation: dim .25s; }
+.sheet > div { animation: sheet-up .3s cubic-bezier(.22, 1, .36, 1); }
+main > * { animation: arrive .25s cubic-bezier(.22, 1, .36, 1); }
+@keyframes dim { from { background: rgba(0, 0, 0, 0); } }
+@keyframes sheet-up { from { transform: translateY(100%); } }
+@keyframes arrive { from { opacity: 0; transform: translateY(6px); } }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } }
 .sheet > div { width: 100%; max-height: 92%; overflow-y: auto; background: var(--bg); border-radius: 22px 22px 0 0; padding: 18px max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); }
 .sheet h2 { margin: 0 0 4px; font-size: 21px; }
 .sheet h2:focus { outline: none; }  /* focused only so the sheet is announced and Tab starts inside it */
@@ -132,7 +151,7 @@ textarea:focus { outline: none; border-color: var(--accent); }
 .modes { flex: none; display: flex; justify-content: center; padding: 6px 12px; background: var(--glass); -webkit-backdrop-filter: saturate(1.6) blur(18px); backdrop-filter: saturate(1.6) blur(18px); border-top: 1px solid var(--line); }
 .modes + footer { border-top: 0; padding-top: 0; }  /* the bar above already leaves the gap */
 .seg { display: inline-flex; padding: 3px; border-radius: 12px; background: var(--raised); gap: 2px; }
-.seg button { border: 0; background: none; min-height: 44px; padding: 0 16px; border-radius: 9px; color: var(--muted); font-size: 14px; font-weight: 600; }
+.seg button { border: 0; background: none; min-height: 44px; padding: 0 16px; border-radius: 9px; color: var(--muted); font-size: 14px; font-weight: 600; transition: background .15s, color .15s, box-shadow .15s; }
 .seg button[aria-checked="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.18); }
 .typed { align-self: flex-end; max-width: 84%; color: var(--muted); font-size: 14px; border: 1px dashed var(--line); border-radius: 16px; padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .typed b { display: block; color: var(--faint); font-size: 12px; font-weight: 600; margin-bottom: 2px; }
@@ -144,6 +163,7 @@ textarea:focus { outline: none; border-color: var(--accent); }
 .preview { margin: 10px 0 4px; display: flex; gap: 12px; align-items: center; color: var(--muted); font-size: 14px; }
 .preview img { max-width: 96px; max-height: 96px; border-radius: 10px; border: 1px solid var(--line); object-fit: cover; }
 .toast { position: fixed; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom)); transform: translateX(-50%); max-width: 88%; z-index: 20; background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 18px; font-size: 14px; text-align: center; box-shadow: 0 6px 24px rgba(0,0,0,.3); }
+.toast { animation: toast-in .25s cubic-bezier(.22, 1, .36, 1); }
 .toast.bad { background: var(--danger); color: #fff; }
 .toast[hidden] { display: none; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -367,7 +387,8 @@ function askCard(ev) {
   // what happens in plain words first; the exact command is a tap away (shown anyway when there's no plain sentence)
   const cmd = el("details"), what = el("div", "what", ev.plain || `It wants to run something that ${ev.reason}.`);
   cmd.open = !ev.plain; cmd.append(el("summary", null, "Show command"), el("pre", null, ev.summary));
-  box.append(el("b", null, `${ev.who} needs your OK`), what, ...(ev.plain ? [el("div", "why", `Nova asks because it ${ev.reason}.`)] : []), cmd);
+  const SRC = { chat: "Your request", routine: "Routine", job: "Background job" };  // nova.py SOURCES
+  box.append(el("b", null, `${ev.who} needs your OK`), ...(SRC[ev.source] ? [el("div", "src", SRC[ev.source])] : []), what, ...(ev.plain ? [el("div", "why", `Nova asks because it ${ev.reason}.`)] : []), cmd);
   const track = el("div", "bar"); track.append(bar);
   const btns = el("div", "btns"), allow = el("button", "btn primary", "Allow"), deny = el("button", "btn", "Deny");
   allow.onclick = () => post({ op: "approve", ok: true, id: ev.id }); deny.onclick = () => post({ op: "approve", ok: false, id: ev.id });

@@ -27,6 +27,7 @@ from pathlib import Path
 from core.config import (CONFIG, DATA, LOG_HOOKS, LOGS, NOTES, ROOT, WORKSPACE, load_config, log, memory_text,
                          prune_logs, read_history, save_config, set_path, update_config, user_config, write_atomic,
                          write_private)
+from core.config import lock as lock_file
 
 # Hugging Face is never switched offline: that also stopped the default model (and its new releases) from ever
 # downloading. Starting never waits on it anyway: core/stt.py loads the copies on disk, and asks only in the background
@@ -69,6 +70,9 @@ STRICTER = {"auto": "manual", "accept_edits": "manual", "bypass": "manual"}
 PREVIEW_NOTE = ("[The user wants a PREVIEW of the skill below: say, step by step and in plain words, what you would do and "
                 "what it would change, and finish with an ASK: line asking whether to go ahead. Change nothing yet.]\n")
 JOB_ASK_AGAIN_S = 60  # a background job's unanswered request is shown again this often
+# where a request that needs an OK came from, as every card names it: what you just asked, something nobody is watching
+# (a schedule, a program's event), or a job in the background
+SOURCES = {"chat": "Your request", "routine": "Routine", "job": "Background job"}
 TAINT = DATA / "taint"  # exists once the AI has read a web page in this request: the guard and the browser then ask more
 
 
@@ -358,6 +362,8 @@ class Nova(BackgroundMixin, SuggestMixin):
         token_file = DATA / "browser-token"
         if not token_file.exists() or not token_file.read_text(encoding="utf-8").strip():
             write_private(token_file, secrets.token_hex(24))
+        else:
+            lock_file(token_file)  # one made before files were locked to this user
         self.web_token = token_file.read_text(encoding="utf-8").strip()
         self.web = web.Bridge(self.web_token, self.cfg["browser"]["enabled"], self.on_panel)
         self.web_target = self.cfg["browser"]["default"]
@@ -673,7 +679,7 @@ class Nova(BackgroundMixin, SuggestMixin):
             return
         if self.holding and self.phase == "listening":
             self.ink.show(self.trail.points)
-        self.root.after(60, self.ink_tick)
+        self.root.after(14, self.ink_tick)  # every tick of the timer (15.6 ms on Windows): the ink keeps up with the hand
 
     def hold_up(self):
         """The key came up: what was drawn goes with this request (if Nova was listening) and the trail disappears."""
@@ -802,9 +808,21 @@ class Nova(BackgroundMixin, SuggestMixin):
     def show_bar(self, state):
         if state == "listening" and not self.card.buttons:
             self.card.hide()  # a new request: the old card goes (not one waiting for an OK)
+        if state == "listening":
+            self.bar.badge = self.listen_badge()
         self.pointer.set_state(state)
         self.bar.set(state)
         self.outbox.put({"event": "bar", "state": state})
+
+    def listen_badge(self):
+        """What the pill says beside "Listening": the mode and, in dictation, the app whose tone applies (Settings →
+        Dictation → Tone per app): "Dictation · Gmail". A rewrite can't be named here: Nova only knows it is one once
+        it has heard the words."""
+        if (self.job_mode or self.mode) != "dictation":
+            return "Assistant"
+        title = (system.window_title(self.target) or "").lower()
+        app = next((a.strip() for a in self.cfg["dictation"]["tones"] if a.strip() and a.strip().lower() in title), "")
+        return f"Dictation · {app}" if app else "Dictation"
 
     def state(self):
         return {"event": "state", "phase": self.phase, "mode": self.mode, "paused": self.paused,
@@ -926,7 +944,9 @@ class Nova(BackgroundMixin, SuggestMixin):
             wake.listen(self.stt.quick, lambda clip, floor=None: self.ui(lambda: self.on_wake(clip, floor)),
                         lambda: free(self),
                         lambda: self.cfg["wake_word"],  # turning it off in settings closes the microphone
-                        lambda: self.cfg["wake_sensitivity"], played, self.refresh_mic)
+                        lambda: self.cfg["wake_sensitivity"], played, self.refresh_mic,
+                        lambda e: self.ui(lambda: self.card.show("“Hey Nova” can't hear a microphone", friendly(e),
+                                                                 hide_after=8, kind="error")))
         except Exception as e:  # no microphone, device unplugged: the shortcut still works
             log("error", error=f"wake word stopped: {e!r}")
             message = friendly(e)
@@ -1092,6 +1112,8 @@ class Nova(BackgroundMixin, SuggestMixin):
                 if event.get("event") != "level":  # the browser panels and paired phones show the same live conversation
                     self.web.broadcast(event)
                     self.phone.broadcast(event)
+                if event.get("event") == "asking" and getattr(self, "ask_diff", ""):
+                    event = dict(event, diff=self.ask_diff)  # this computer's window only: a file's text stays here
                 for conn in list(self.clients):
                     try:
                         conn.send(event)
@@ -1416,7 +1438,7 @@ class Nova(BackgroundMixin, SuggestMixin):
         if memory:
             memory.muted = True  # "what did the video say?" shouldn't hear Nova's own answers
         try:
-            tts.speak(say, self.cfg["voice"], stop)
+            tts.speak(say, self.cfg["voice"], stop, self.on_level)  # the bar, card and orb move with the voice
         finally:
             if memory:
                 memory.muted = False
@@ -1506,6 +1528,7 @@ class Nova(BackgroundMixin, SuggestMixin):
         self.stop_tts.clear()
         self.phase = "listening"  # the shortcut now stops this recording early, as usual
         self.ui(lambda: self.show_bar("listening"))
+        self.ui(lambda: getattr(self, "bar", None) and setattr(self.bar, "badge", "Go on"))  # it stopped for you: say so
         v = self.cfg["voice"]
         clip = audio.record(v["silence_ms"], v["max_record_s"], self.stop_rec, self.on_level, prefix=clip, floor_rms=floor)
         self.phase = "busy"
@@ -1582,6 +1605,8 @@ class Nova(BackgroundMixin, SuggestMixin):
                 self.save_setting("dictation.dictionary", words + [word])
             self.note("Dictionary", f"Added {word}.")
             return True
+        if UNDO_RE.fullmatch(n):  # in dictation mode too: right after a bad dictation is when it's said
+            return self.undo_last() or True
         if (self.job_mode or self.mode) != "assistant" and not typed:
             return False
         browser = re.fullmatch(rf"(stop using|remove|disable|turn off|add|enable|start using|set up|turn on|use) "
@@ -1651,8 +1676,6 @@ class Nova(BackgroundMixin, SuggestMixin):
         if skill:
             self.run_skill(skill)
             return True
-        if UNDO_RE.fullmatch(n):
-            return self.undo_last() or True
         if STOP_RECORD_RE.fullmatch(n):  # first: "stop recording the meeting" also reads like asking to record
             self.ui(self.meeting_stop)
             return True
@@ -1783,12 +1806,23 @@ class Nova(BackgroundMixin, SuggestMixin):
     def start_timer(self, seconds):
         label = intents.say_duration(seconds)
 
+        due = time.time() + seconds
+        timers = self.__dict__.setdefault("timers", [])  # when each running timer rings; the pill counts the next one down
+        timers.append(due)
+
+        def show():
+            self.bar.timer = min(timers, default=None)
+            self.bar._wake()
+
         def ring():
+            timers.remove(due)
+            self.ui(show)
             system.beep(start=True)
             self.ui(lambda: self.card.show("Timer", f"Your {label} timer is done.", hide_after=15))
             threading.Thread(target=tts.speak, args=(f"Your {label} timer is done.", self.cfg["voice"], threading.Event()),
                              daemon=True).start()
         threading.Timer(seconds, ring).start()
+        self.ui(show)
         self.note("Timer", f"Timer set for {label}.")
 
     @property
@@ -1843,7 +1877,9 @@ class Nova(BackgroundMixin, SuggestMixin):
         if expansion:  # "my address": the saved text exactly, no cleanup or learning
             log("snippet", raw=raw)
             return self.paste(expansion)
-        if cleanup.is_edit(raw) and self.edit_selection(raw):  # Command mode: "make this more formal" on a selection
+        # Command mode: "make this more formal" on a selection; short, as in route(), so a long dictation that starts
+        # "Fix the login bug, it crashes..." is typed, not a Ctrl+C into a terminal
+        if len(raw.split()) <= 10 and cleanup.is_edit(raw) and self.edit_selection(raw):
             return
         cleaner, app = self.cleaner, system.window_title(self.target)
         tone = cleanup.tone_for(app, d["tones"])
@@ -1853,6 +1889,9 @@ class Nova(BackgroundMixin, SuggestMixin):
         if d["translate_to"] and d["translate_to"] != "English" and not self.cancel.is_set():
             text = self.translate(text, d["translate_to"])
         if self.cancel.is_set():
+            return
+        if not text.strip(" .,!?…"):  # "Buy milk. Scratch that." or a breath heard as "Hmm.": nothing to type or undo
+            log("dictation", raw=raw, text="", how=how, polish_ms=polish_ms)
             return
         log("dictation", raw=raw, text=text, how=how, translated=d["translate_to"] or None, polish_ms=polish_ms)
         self.paste(text)
@@ -2152,6 +2191,8 @@ class Nova(BackgroundMixin, SuggestMixin):
             log("error", error=f"meeting recording didn't start: {e!r}")
             return self.card.show("Couldn't record", friendly(e), hide_after=8, kind="error")
         self.recorder, self.meeting = recorder, m
+        self.bar.recording = recorder.started  # the resting pill shows a red dot and how long it has been going
+        self.bar._wake()
         self.reminded_at = time.time()  # the first reminder comes 15 minutes in
         log("meeting", action="start", id=m["id"], title=title)
         heard = ("your microphone and the computer's audio" if mc["computer_audio"] and loopback.available()
@@ -2169,6 +2210,9 @@ class Nova(BackgroundMixin, SuggestMixin):
             elapsed = time.time() - r.started
             self.outbox.put({"event": "meeting_live", "id": self.meeting["id"], "elapsed": elapsed,
                              "level": r.level, "error": r.error})
+            if r.error and r.error != getattr(r, "shown_error", None):  # the window may be closed: say it here too
+                r.shown_error = r.error
+                self.card.show("Meeting recording problem", r.error, kind="error", hide_after=12)
             # every 15 minutes, a reminder it's still on (nothing else on screen shows it once the first card goes)
             if elapsed >= REMIND_RECORDING_S and time.time() - self.reminded_at >= REMIND_RECORDING_S:
                 self.reminded_at = time.time()
@@ -2180,10 +2224,14 @@ class Nova(BackgroundMixin, SuggestMixin):
         if not self.recorder:
             return self.card.show("Not recording", "No meeting is being recorded.", hide_after=3)
         recorder, mid = self.recorder, self.meeting["id"]
-        self.recorder = self.meeting = None
+        self.recorder = self.meeting = self.bar.recording = None
+        self.bar._wake()
         seconds = recorder.stop()
         log("meeting", action="stop", id=mid, seconds=round(seconds))
-        meetings.update(mid, status="queued", loudness=recorder.loudness)  # kept until transcribed: a retry needs it
+        try:
+            meetings.update(mid, status="queued", loudness=recorder.loudness)  # kept until transcribed: a retry needs it
+        except OSError as e:  # a full disk: the recording is still there, so transcribe it anyway
+            log("meeting", action="update_failed", id=mid, error=str(e))
         self.card.show("Meeting saved", "Nova is transcribing it now. The notes appear on the Meetings page.",
                        hide_after=6)
         self.meeting_jobs.put((mid, recorder.path))
@@ -2229,6 +2277,7 @@ class Nova(BackgroundMixin, SuggestMixin):
                     meetings.update(mid, status="failed", error=friendly(e))
                 except (OSError, ValueError):  # deleted meanwhile
                     pass
+            audio = None  # not held while waiting, maybe days, for the next meeting (about 230 MB an hour)
             self.outbox.put({"event": "meetings"})
 
     def ai_clean(self):
@@ -2313,7 +2362,7 @@ class Nova(BackgroundMixin, SuggestMixin):
         elif op == "meeting_delete":
             if self.meeting and self.meeting["id"] == mid:
                 self.recorder.stop()
-                self.recorder = self.meeting = None
+                self.recorder = self.meeting = self.bar.recording = None
                 self.push_state()
             meetings.delete(mid)
             self.outbox.put({"event": "meetings"})
@@ -2646,6 +2695,8 @@ class Nova(BackgroundMixin, SuggestMixin):
         TAINT.unlink(missing_ok=True)
         self.read_hosts = []
         self.env["NOVA_MODE"] = mode  # the guard and the browser apply it to every action of this request
+        # the guard marks the request after a web read only if the user wants it to ask more then
+        self.env["NOVA_TAINT"] = str(TAINT) if self.cfg["safety"].get("tainted_manual", True) else ""
         # a request nobody watches (a schedule) gets as long as a background job to be answered, and the guard waits that long
         wait = self.cfg["safety"].get("job_wait_s", 0) if self.unattended else 0
         self.env["NOVA_TIMEOUT"] = str(max(wait, self.cfg["safety"]["confirm_timeout_s"]))
@@ -2658,7 +2709,10 @@ class Nova(BackgroundMixin, SuggestMixin):
         log("route", tier=2 if model == "haiku" else 3, why=model or ("ai" if self.brain else "backup brain"),
             text=text[:200])
         self.early = None
+        if self.cancel.is_set():  # cancelled while the screen, the audio or the region was being read
+            return
         if self.brain:
+            self.brain.stop = self.cancel  # a cancel from here until the CLI starts still stops it
             quick = bool(self.image) and screen_question(text)
             if quick:
                 self.on_step("Looking at your screen")
@@ -2790,11 +2844,12 @@ class Nova(BackgroundMixin, SuggestMixin):
         with self.approval_lock:
             timeout = deadline - time.monotonic()
             if timeout < 1:
-                log("approval", request=req, allowed=False, timed_out=True)
+                log("approval", request={k: v for k, v in req.items() if k != "diff"}, allowed=False, timed_out=True)
                 return None
             done, box = threading.Event(), [None]
             self.asking_id += 1
             self.pending, self.asking = (done, box), req["summary"]
+            self.ask_diff = str(req.get("diff") or "")[:4000]  # what an edit changes: the Nova window's card shows it
             job = jobs.load(req["job"]) if req.get("job") else None
             patient = bool(job) or getattr(self, "unattended", False)  # nobody is watching it: it waits (see ask)
             self.asking_job = patient
@@ -2803,10 +2858,13 @@ class Nova(BackgroundMixin, SuggestMixin):
             # the plain sentence ("Deletes the dist folder in portfolio (14 files)") when the guard is sure of it
             plain = f"{who}: {req['plain']}" if job and req.get("plain") else req.get("plain", "")  # the card names the job
             body = plain or f"{who} wants to run something that {req['reason']}."
+            source = "job" if job else "routine" if getattr(self, "unattended", False) else "chat"
             self.ask_event = {"event": "asking", "id": self.asking_id, "who": who, "reason": req["reason"],
                               "summary": req["summary"], "plain": plain, "timeout": round(timeout),
-                              "until": time.time() + timeout}
+                              "until": time.time() + timeout, "source": source}
             self.outbox.put(self.ask_event)
+            ticking = (SOURCES[source], time.monotonic() + timeout, timeout)  # the card names it and counts down
+            self.ui(lambda: setattr(self.card, "ask", ticking))
             self.ui(lambda: self.card.show("Needs your OK", body, buttons=True, detail=req["summary"]))
             self.ui(lambda: self.show_bar("approval"))
             if speak and self.voice and (not job or self.phase == "idle"):  # a job's question never talks over another request
@@ -2814,6 +2872,7 @@ class Nova(BackgroundMixin, SuggestMixin):
             done.wait(timeout)
             done.set()  # also ends the spoken question and the listening for an answer
             self.pending = self.ask_event = None
+            self.ui(lambda: setattr(self.card, "ask", None))
             self.asking_job = self.asking_retry = False
             if box[0] is None:  # no answer: don't leave the buttons on screen
                 # it is shown again only if another whole showing fits before the guard stops waiting (see ask)
@@ -2822,7 +2881,7 @@ class Nova(BackgroundMixin, SuggestMixin):
                                                "Nova is waiting for your OK and will ask again." if waits
                                                else "No answer in time, so Nova said no.", hide_after=4))
                 self.ui(lambda: self.show_bar(resting_bar(self.phase, self.paused)))
-            log("approval", request=req, allowed=bool(box[0]), timed_out=box[0] is None)
+            log("approval", request={k: v for k, v in req.items() if k != "diff"}, allowed=bool(box[0]), timed_out=box[0] is None)
             return box[0]
 
     def hear_answer(self, done, what="", ask_id=None):
@@ -2949,7 +3008,7 @@ class Nova(BackgroundMixin, SuggestMixin):
             reply({"type": "event", "event": self.state()})
         elif op == "clip":
             self.clip_from_phone(msg, reply)
-        elif op == "dictate" and str(msg.get("text", "")).strip():
+        elif op == "dictate" and via != "browser" and str(msg.get("text", "")).strip():  # the panel never types
             self.ui(lambda: self.dictate_from_phone(str(msg["text"])[:20_000], reply))
 
     def dictate_from_phone(self, text, reply):

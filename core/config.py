@@ -30,16 +30,33 @@ def memory_text():
 
 def write_atomic(path, text, private=False):
     """Write a file whole or not at all: a power cut or a crash leaves the old one, never half of the new one.
-    `private`: only this user can read it (macOS; shortcut: Windows relies on the folder's ACL)."""
+    `private`: only this user can read it."""
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     tmp.write_text(text, encoding="utf-8")
-    if private and os.name != "nt":
-        tmp.chmod(0o600)
+    if private:
+        lock(tmp)
     _busy(lambda: os.replace(tmp, path))
 
 
 def write_private(path, text):
     write_atomic(path, text, private=True)
+
+
+def lock(path):
+    """Let only this user read or change `path`. On Windows a folder like D:\\Nova lets every account on the PC in
+    (its ACL comes from the drive), so the file drops what it inherits and keeps one entry: this user, full control."""
+    if os.name != "nt":
+        path.chmod(0o600)
+        return
+    import getpass
+    import subprocess
+    user = getpass.getuser()
+    who = f"{os.environ['USERDOMAIN']}\\{user}" if os.environ.get("USERDOMAIN") else user
+    try:
+        subprocess.run(["icacls", str(path), "/inheritance:r", "/grant:r", f"{who}:F"], capture_output=True,
+                       timeout=10, creationflags=0x08000000)  # CREATE_NO_WINDOW
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log("lock_failed", path=str(path), error=str(e))
 
 
 def log(event, **fields):

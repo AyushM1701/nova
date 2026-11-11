@@ -85,8 +85,10 @@ typography:
     lineHeight: 1.2
     letterSpacing: ".08em"
 rounded:
+  kbd: "5px"
   xs: "6px"
   sm: "8px"
+  control: "9px"
   md: "10px"
   lg: "12px"
   xl: "14px"
@@ -161,7 +163,7 @@ On Windows the dock is the title bar (drag it to move, double-click to maximize)
 
 ## Colors
 
-A navy ground with a single violet voice, amber reserved for "needs you".
+An obsidian ground with a single violet voice, amber reserved for "needs you".
 
 ### Primary
 - **Signal Violet** (#6d5ff7): fills for primary buttons, the on-switch, selected-engine border, composer focus border. Hover #5e4ff0.
@@ -229,7 +231,7 @@ Softly rounded rectangles. Corners are 14px on panels and the central stage, 10p
 ### Buttons
 - **Shape:** 9px radius, 34px tall (28px small, 42px large).
 - **Primary:** Signal Violet (#6d5ff7) fill, white text, 0 14px padding; hover #5e4ff0.
-- **Default:** Panel Navy fill, strong hairline border; hover Raised Navy. **Ghost:** transparent, Mist text. **Danger:** coral text, solid coral when armed.
+- **Default:** Panel fill, strong hairline border; hover Raised. **Ghost:** transparent, Muted text. **Danger:** coral text, solid coral when armed.
 - **Pressed:** 1px downward nudge; disabled at 50% opacity.
 
 ### Claude skills rows
@@ -238,8 +240,12 @@ One column of one-line rows, 12.5px sans 500, ellipsised (the full name and desc
 ### Panels
 `hud-panel`: Panel at 65%, white-7% hairline, the lit top edge, 14px radius, 12px 14px padding. Each opens with a mono caption (no rule). Vitals rows: mono key, mono value, one mono detail line.
 
+The Claude vitals panel has three states besides its numbers. **Limit reached**: Claude Code wrote that it hit a limit, so the hero reads "Limit reached" in the numeral's mono at 22px (a word, so a step under the 30px figure, one line even in the 820px window) with a full gauge, its caption says which ("5-hour window" or "Weekly limit") and the line under it says when it resets (days and hours for a weekly one). **Signed out**: the plan line turns amber ("Claude Code is signed out.") with a small Sign in button, since it waits on you. **Reading / couldn't refresh**: "Reading…" until the first scan, and an amber foot naming the time of the numbers shown. The System panel's Brain row says "signed out" (amber dot, as it waits on you) or "Codex (Claude Code isn't set up)" (amber) when Nova runs the other AI; it agrees with Settings → AI.
+
+The Library ends with **Nova Pro** ("Vote on what comes next"), which opens the poll on GitHub in the browser.
+
 ### Dock and navigation
-Brand, live-state pill (mini canvas plus mono state and detail), centered tabs, Mode switch, Pause, then (Windows) – □ × after a hairline. Empty dock drags the window. Tabs are 8px-radius, Mist text, Raised Navy on hover; the active tab takes the violet wash, Cloud White text and a Lilac icon. A small amber dot badges a tab that needs you.
+Brand, live-state pill (mini canvas plus mono state and detail), centered tabs, Mode switch, Pause, then (Windows) – □ × after a hairline. Empty dock drags the window. Tabs are 8px-radius, Muted text, Raised on hover; the active tab takes the violet wash, Text white and a Lilac icon. A small amber dot badges a tab that needs you.
 
 ### Request box
 Translucent ground fill, 12px radius, strong hairline, borderless textarea (max 120px). Focus-within turns the border violet and shows the focus ring.

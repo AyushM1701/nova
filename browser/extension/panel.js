@@ -4,7 +4,7 @@ const port = chrome.runtime.connect({ name: "panel" });
 const log = document.getElementById("log");
 const STATES = { idle: ["Ready", "live"], listening: ["Listening", "busy"], thinking: ["Thinking", "busy"],
                  speaking: ["Talking", "busy"], approval: ["Needs your OK", "ask"], paused: ["Paused", ""] };
-let asks = [];
+let asks = [], connected = false;
 
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 function add(node) { log.querySelector(".empty")?.remove(); log.append(node); log.scrollTop = log.scrollHeight; return node; }
@@ -16,7 +16,12 @@ function setState(name) {
 function empty() { if (!log.children.length) log.append(el("p", "empty", "Ask Nova anything, or tell it what to do in this browser: “open my GitHub notifications”, “summarise this page”.")); }
 
 port.onMessage.addListener(msg => {
-  if (msg.type === "status") { if (!msg.connected) { document.getElementById("state").textContent = "Nova isn't running"; } return; }
+  if (msg.type === "status") {
+    const was = connected; connected = msg.connected;
+    if (!connected) { document.getElementById("state").textContent = "Nova isn't running"; document.getElementById("dot").className = "dot"; }
+    else if (!was) port.postMessage({ op: "history" });  // Nova just started: catch up (history asks for the state too)
+    return;
+  }
   if (msg.type === "history") {
     log.replaceChildren();
     for (const e of msg.items.slice().reverse()) { add(el("div", "msg user", e.request)); add(el("div", "msg nova", e.reply)); }
@@ -39,7 +44,7 @@ port.onMessage.addListener(msg => {
   else if (ev.event === "asking") askCard(ev);
   else if (ev.event === "approval") {
     const box = asks.shift();
-    if (box) box.querySelector(".btns").replaceChildren(el("span", "note", ev.allowed ? "Allowed" : "Denied"));
+    if (box) box.done(ev.allowed ? "Allowed" : ev.timed_out ? "No answer, so Nova said no" : "Denied");
   }
 });
 
@@ -47,20 +52,29 @@ function askCard(ev) {
   const box = add(el("div", "ask"));
   const cmd = el("details");  // plain words first, the exact command a click away (open when there are none)
   cmd.open = !ev.plain; cmd.append(el("summary", null, "Show command"), el("pre", null, ev.summary));
-  box.append(el("b", null, `${ev.who} needs your OK`), el("div", null, ev.plain || `It wants to run something that ${ev.reason}.`), cmd);
+  const SRC = { chat: "Your request", routine: "Routine", job: "Background job" };  // whose request it is (nova.py SOURCES)
+  box.append(el("b", null, `${ev.who} needs your OK`), ...(SRC[ev.source] ? [el("div", "src", SRC[ev.source])] : []),
+    el("div", null, ev.plain || `It wants to run something that ${ev.reason}.`), ...(ev.plain ? [el("div", "why", `Nova asks because it ${ev.reason}.`)] : []), cmd);
+  const track = el("div", "bar"), bar = el("i"), started = Date.now(); track.append(bar);  // the time left: no answer means no
   const btns = el("div", "btns"), allow = el("button", "primary", "Allow"), deny = el("button", null, "Deny");
   allow.onclick = () => port.postMessage({ op: "approve", ok: true, id: ev.id });
   deny.onclick = () => port.postMessage({ op: "approve", ok: false, id: ev.id });
-  btns.append(allow, deny); box.append(btns); box.askId = ev.id; asks.push(box);
+  btns.append(allow, deny); box.append(track, btns); box.askId = ev.id; asks.push(box);
+  let live = true;
+  const tick = () => { if (!live || !box.isConnected) return; bar.style.transform = `scaleX(${Math.max(0, 1 - (Date.now() - started) / (ev.timeout * 1000))})`; requestAnimationFrame(tick); };
+  tick();
+  box.done = text => { live = false; track.remove(); box.classList.add("resolved"); btns.replaceChildren(el("span", "note", text)); };
 }
 
 const input = document.getElementById("input");
 function send() {
   const text = input.value.trim(); if (!text) return;
+  if (!connected) return add(el("p", "note", "Nova isn't running. Start it, then send again."));  // the text stays typed
   port.postMessage({ op: "ask", text });
   input.value = "";
 }
 document.getElementById("send").onclick = send;
-document.getElementById("mic").onclick = () => port.postMessage({ op: "listen" });
+document.getElementById("mic").onclick = () => connected ? port.postMessage({ op: "listen" })
+  : add(el("p", "note", "Nova isn't running. Start it, then try again."));
 input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
 empty();

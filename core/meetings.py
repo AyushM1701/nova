@@ -307,13 +307,23 @@ class Recorder:
             self.error = f"The microphone stopped and couldn't be opened again ({e}). Check it, then record again."
 
     def _computer(self):
-        try:
-            for block in loopback.blocks(lambda: self.running):
-                if block is not None:
-                    with self.lock:
-                        self.computer.append(block)
-        except Exception as e:  # no loopback device, or the Mac said no: the microphone still records
-            self.error = str(e)
+        """The computer's audio for the whole meeting. blocks() ends when the default speakers change (a headset
+        plugged in): open the new ones, or the rest of the call records only the user."""
+        delay = 1  # a speaker change: reopen soon; failures back off from there
+        while self.running:
+            try:
+                for block in loopback.blocks(lambda: self.running):
+                    if block is not None:
+                        with self.lock:
+                            self.computer.append(block)
+                        delay = 1
+            except Exception as e:  # no loopback device, or the Mac said no: the microphone still records
+                self.error = str(e)
+                delay = max(delay, loopback.RETRY_S)
+            until = time.monotonic() + delay  # before every reopen, so a capture that ends at once can't spin
+            while self.running and time.monotonic() < until:
+                time.sleep(0.2)
+            delay = min(delay * 2, loopback.MAX_RETRY_S)
 
     def _take_computer(self, n):
         """The next n samples of computer audio (zeros when nothing played). A backlog over a second is dropped,
@@ -383,7 +393,9 @@ def decode(path):
 
 def read_wav(path):
     with wave.open(str(path), "rb") as w:
-        return np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").astype(np.float32) / 32768
+        audio = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").astype(np.float32)
+    audio /= 32768  # in place: a third copy of a long meeting is hundreds of MB
+    return audio
 
 
 def process(mid, audio, stt, language, vocabulary, clean, on_progress=lambda text: None):

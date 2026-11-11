@@ -8,10 +8,12 @@ message and lasts 5 hours), and "peak" is the busiest block in the scanned histo
 to this computer, so the percentage is "of your own busiest 5 hours", not of a plan limit."""
 import datetime
 import json
+import re
 import subprocess
 import threading
 import time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 HOME = Path.home() / ".claude" / "projects"
 SCAN_DAYS = 35
@@ -19,7 +21,45 @@ BLOCK_S = 5 * 3600
 _lock = threading.Lock()
 _files = {}   # path -> [size, offset] already read
 _events = {}  # message key -> [time, fresh tokens]
+_limit = {}   # the newest "You've hit your … limit" Claude Code wrote: {"at", "kind", "resets"}
 _state = {"summary": None, "scanned": 0.0, "running": False, "auth": None, "auth_at": 0.0, "at": 0.0, "error": ""}
+
+
+LIMIT_LINE = re.compile(r"hit your (?:(.+?) )?limit\W*(?:resets (?:(\w{3}) (\d{1,2}), )?(\d{1,2})(?::(\d\d))?\s*([ap]m)"
+                        r"(?: \(([^)]+)\))?)?", re.I)
+
+
+def _text(m):
+    content = m.get("content")
+    if isinstance(content, str):
+        return content
+    return " ".join(c.get("text", "") for c in content or [] if isinstance(c, dict))
+
+
+def limit_of(text, at):
+    """{"at", "kind", "resets"} from Claude Code's limit message; resets is None when it gives no time."""
+    found = LIMIT_LINE.search(text or "")
+    if not found:
+        return None
+    kind, mon, day, hour, minute, ampm, zone = found.groups()
+    resets = None
+    if hour:
+        try:
+            tz = ZoneInfo(zone) if zone else None
+        except Exception:  # no time zone database (Windows without tzdata): this computer's own zone
+            tz = None
+        base = datetime.datetime.fromtimestamp(at, tz)
+        h = int(hour) % 12 + (12 if ampm.lower() == "pm" else 0)
+        when = base.replace(hour=h, minute=int(minute or 0), second=0, microsecond=0)
+        if mon:
+            try:
+                when = when.replace(month=datetime.datetime.strptime(mon, "%b").month, day=int(day))
+            except ValueError:
+                pass
+        if when.timestamp() <= at:  # "resets 2:30am" said at 11 pm means tomorrow (a date that passed: next year)
+            when = when.replace(year=when.year + 1) if mon else when + datetime.timedelta(days=1)
+        resets = when.timestamp()
+    return {"at": at, "kind": (kind or "usage").lower(), "resets": resets}
 
 
 def _num(v):
@@ -46,6 +86,11 @@ def _read(path, entry):
             u, m = e["message"]["usage"], e["message"]
             t = datetime.datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00")).timestamp()
         except (ValueError, KeyError, TypeError, AttributeError):
+            continue
+        if e.get("error") == "rate_limit":  # "You've hit your session limit · resets 10:40pm (Asia/Kolkata)"
+            found = limit_of(_text(m), t)
+            if found and (not _limit or t >= _limit["at"]):
+                _limit.clear(), _limit.update(found)
             continue
         if not isinstance(u, dict):
             continue
@@ -81,8 +126,19 @@ def blocks(events):
     return out
 
 
-def summarise(events, now):
+def active_limit(limit, events, now):
+    """The limit Claude is at now: until its reset time, or, with none given, until Claude answers again (5 hours at most)."""
+    if not limit:
+        return None
+    if limit["resets"]:
+        return limit if now < limit["resets"] else None
+    later = any(t > limit["at"] and k for t, k in events)
+    return None if later or now - limit["at"] > BLOCK_S else limit
+
+
+def summarise(events, now, limit=None):
     events = list(events)
+    limit = active_limit(limit, events, now)
     bl = blocks(events)
     current = bl[-1] if bl and now < bl[-1]["end"] else None
     peak = max((b["tokens"] for b in bl), default=0)
@@ -94,7 +150,8 @@ def summarise(events, now):
         days.append({"date": d.isoformat(), "tokens": sum(k for t, k in events if lo <= t < hi), "messages": sum(lo <= t < hi for t, _ in events)})
     return {"block": {"tokens": current["tokens"], "resets": current["end"]} if current else None, "peak": peak,
             "percent": round(100 * current["tokens"] / peak) if current and peak else 0, "today": days[-1], "days": days,
-            "week": sum(d["tokens"] for d in days), "scanned_days": SCAN_DAYS}
+            "week": sum(d["tokens"] for d in days), "scanned_days": SCAN_DAYS,
+            "limit": {"kind": limit["kind"], "resets": limit["resets"]} if limit else None}
 
 
 def auth():
@@ -117,11 +174,13 @@ def _refresh():
         now = time.time()
         with _lock:
             scan(now)
-            _state["summary"] = summarise(_events.values(), now)
+            _state["summary"] = summarise(_events.values(), now, dict(_limit))
             _state["at"], _state["error"] = now, ""
-        if now - _state["auth_at"] > 300:
+        # signed out (or unknown): asked again every 15 s, so signing back in shows within moments; signed in: each minute
+        signed_in = (_state["auth"] or {}).get("logged_in")
+        if now - _state["auth_at"] > (60 if signed_in else 15):
             _state["auth_at"] = now
-            _state["auth"] = auth()
+            _state["auth"] = auth() or _state["auth"]  # a status check that timed out keeps the last answer
     except Exception as e:  # keep the numbers from the last good read, and let the window say it could not refresh
         _state["error"] = type(e).__name__
     finally:

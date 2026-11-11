@@ -11,3 +11,4 @@ docs/video/** export-ignore
 prototypes/** export-ignore
 agentic-os-blueprint.md export-ignore
 docs/audits/** export-ignore
+docs/launch.md export-ignore

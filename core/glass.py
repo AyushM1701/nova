@@ -49,6 +49,27 @@ def mask(w, h, radius):
     return big.reduce(3)
 
 
+def fit(img, w, h, corner):
+    """`img` at w x h with its corners kept as drawn and only the straight parts stretched (nine slices). The bar's
+    glass is built once at the size it is growing to and fitted to every size on the way: building it afresh for each
+    frame of the spring cost more than a frame."""
+    W, H = img.size
+    if (W, H) == (w, h):
+        return img
+    c = min(corner, (min(W, w) - 1) // 2, (min(H, h) - 1) // 2)
+    if c < corner - 2:  # smaller than its own corners (the glow it grows out of): no slices to keep
+        return img.resize((max(1, w), max(1, h)), Image.BILINEAR)
+    out = Image.new(img.mode, (w, h))
+    spans = lambda S, s: ((0, c, 0, c), (c, S - c, c, s - c), (S - c, S, s - c, s))  # noqa: E731  source, then where it goes
+    for sx0, sx1, dx0, dx1 in spans(W, w):
+        for sy0, sy1, dy0, dy1 in spans(H, h):
+            if dx1 > dx0 and dy1 > dy0:
+                part = img.crop((sx0, sy0, sx1, sy1))
+                size = (dx1 - dx0, dy1 - dy0)
+                out.paste(part if part.size == size else part.resize(size, Image.BILINEAR), (dx0, dy0))
+    return out
+
+
 def _vgrad(w, h, top, bottom):
     """An L image going from `top` to `bottom` down its height."""
     column = Image.linear_gradient("L").resize((1, h), Image.BILINEAR)  # 0 at the top, 255 at the bottom

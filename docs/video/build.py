@@ -21,6 +21,9 @@ ROOT = Path(__file__).resolve().parents[2]
 WORK = ROOT / "docs" / "video" / ".build"  # scratch: audio, the HyperFrames projects, raw renders (git-ignored)
 MEDIA = ROOT / "docs" / "media"
 VOICE = "af_nova"
+# DC removed (it thumped at each clip's start), 48 kHz (single-pass loudnorm otherwise leaves 96 kHz), and a limiter
+# under the ceiling because loudnorm's one pass doesn't hold true peak (the clips clipped at +0.7 dBTP)
+AUDIO_CHAIN = "highpass=f=20,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,alimiter=limit=0.79:level=disabled"
 
 # ---------- what the narrator says, scene by scene ----------
 LINES = {
@@ -572,7 +575,7 @@ def render(folder, out):
 def encode(src, dst, width=None, crf=23, audio="96k"):
     vf = ["-vf", f"scale={width}:-2"] if width else []
     run(["ffmpeg", "-v", "error", "-y", "-i", src, *vf, "-c:v", "libx264", "-preset", "slow", "-crf", crf, "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-         "-c:a", "aac", "-b:a", audio, "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", dst])
+         "-c:a", "aac", "-b:a", audio, "-af", AUDIO_CHAIN, "-ar", "48000", dst])
 
 
 def hero():

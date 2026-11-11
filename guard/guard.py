@@ -63,9 +63,14 @@ BLOCK = [
     (r"\bnet\s+(user|localgroup)\b|(new|set|remove|disable|enable)-localuser|add-localgroupmember"
      r"|\bcmdkey\b|\bvaultcmd\b", "changes user accounts or reads saved credentials"),
     (SECRETS, "reads browser or SSH secrets"),
-    (r"(iwr|irm|invoke-webrequest|invoke-restmethod|curl|wget|downloadstring|downloadfile)[^\n]*\|\s*"
-     r"(iex|invoke-expression|sh|bash|zsh|python3?|py|pwsh|powershell|cmd)\b"
-     r"|\b(iex|invoke-expression)[\s(][^\n]*(iwr|irm|invoke-|downloadstring|net\.webclient)",
+    # the shell may be named by path or through env ("| /bin/bash", "| env bash")
+    (r"(iwr|irm|invoke-webrequest|invoke-restmethod|curl|wget|downloadstring|downloadfile)[^\n]*\|\s*(?:env\s+)?"
+     r"(?:\S*[\\/])?(iex|invoke-expression|sh|bash|zsh|python3?|py|pwsh|powershell|cmd)\b"
+     r"|\b(iex|invoke-expression)[\s(][^\n]*(iwr|irm|invoke-|downloadstring|net\.webclient)"
+     # ...or handed a download as its script: sh -c "$(curl ...)", bash <(curl ...); a bare "echo $(curl ...)" only prints
+     r"|(?:^|[;&|\n(]\s*)(?:env\s+)?(?:\S*[\\/])?(?:(?:ba|z)?sh|eval|source|python3?|pwsh|powershell)\b"
+     r"[^;&|\n]*(?:\$\(|<\()\s*"
+     r"(?:curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod)\b",
      "runs code downloaded from the internet"),
     (r"reg(\.exe)?\s+delete\s+hk(lm|ey_local_machine)|remove-item" + UNTIL_END + r"hklm:",
      "deletes machine-wide registry keys"),
@@ -114,7 +119,7 @@ CONFIRM = [
      "makes a link that can lead to a protected place"),
     # bash's backslash inside a command name ("r\m -rf ~") hides it from every rule above; a Windows path or an
     # argument ("$env:LOCALAPPDATA\Programs") never starts a segment like this
-    (r"(^|[;&|\n(]\s*)[a-z]+\\[a-z]+\s", "hides a command name behind an escape"),
+    (r"(^|[;&|\n(]\s*)[a-z]+\\[a-z]+(\s|$)", "hides a command name behind an escape"),
     # curl sends a file with @name, whatever flag carries it
     (r"\bcurl\b" + UNTIL_END + r"(\s-h\s*@|\s--(json|url-query)\b|\s@\S)", "sends a file over the network"),
     (r"&\s*[\$\"']|(^|[;|&\s])\.\s+\$|\binvoke-expression\b|\biex\b|\binvoke-command\b|\bicm\b|\beval\b"
@@ -224,33 +229,67 @@ def with_mode(tier, why, mode, unfamiliar=None):
     return tier, why
 
 
+def unquote(cmd):
+    """`cmd` as the shell runs it once quotes and escapes are gone: "gi''t", "r^d", "Re`move-Item" spell git, rd and
+    Remove-Item. Rules are tested on both spellings, so taking quotes out can only make a verdict stricter."""
+    return re.sub(r"[\"'`^]", "", cmd)
+
+
 def classify_command(cmd, home=None, mode="accept_edits", cwd=None):
     """`cwd`: the folder the command runs in, as the CLI reports it (a Set-Location into a project sticks)."""
     tier, why = _command(cmd, home, cwd)
-    if mode == "plan" and tier == "allow" and re.search(CHANGES, cmd.lower()):
+    low = cmd.lower()
+    has = lambda pattern: re.search(pattern, low) or re.search(pattern, unquote(low))
+    if mode == "plan" and tier == "allow" and has(CHANGES):
         return "block", PLAN
-    if mode == "manual" and tier == "allow" and re.search(EDITS, cmd.lower()):
+    if mode == "manual" and tier == "allow" and has(EDITS):
         return "confirm", "changes something (Manual mode asks before every change)"
-    if mode == "auto" and re.search(INLINE_CODE, cmd.lower()):
+    if mode == "auto" and has(INLINE_CODE):
         return with_mode(tier, why, mode, unfamiliar=False)
     # also "known safe" runners (npm run, pytest) of code the AI could have just written: package.json, conftest.py
     fresh = (mode == "auto" and tier == "confirm" or mode in ("auto", "accept_edits") and tier == "allow") \
-        and _fresh_script(cmd, cwd)
+        and (_fresh_script(cmd, cwd) or _fresh_script(unquote(cmd), cwd))
     if fresh:
         return "confirm", f"runs code from {fresh}, which was written or changed in the last few minutes"
     # Auto lets an unfamiliar command through, but not one naming Nova's guard or config ("Set-Content guard\x.py")
-    if mode == "auto" and tier == "confirm" and why.startswith(UNFAMILIAR) and \
-            any(_safety_file(w, home, cwd) for w in re.findall(r"[^\s\"'`;|&<>(),=]+", cmd)):
+    if mode == "auto" and tier == "confirm" and why.startswith(UNFAMILIAR) and _names_safety_file(cmd, home, cwd):
         return "confirm", why
     return with_mode(tier, why, mode)
 
 
+CD = (r"(?:^|[;&|\n(]\s*)(?:(?:cd|chdir)(?:\s+|(?=[.\\/]))|(?:set-location|sl|pushd|push-location)\s+)"  # cmd's "cd.."
+      r"(?:-(?:literal)?path\s+)?([^\s;|&()]+)")
+
+
+def _folders(cmd, cwd):
+    """Every folder `cmd` runs in: where it starts, then each "cd .." / "Set-Location ..\\guard" in turn, also inside
+    bash -c "..." or powershell -c "...")."""
+    folders = [cwd]
+    for target in re.findall(CD, re.sub(SHELL_WRAPPER, ";", unquote(cmd), flags=re.I), re.I):
+        try:
+            folders.append(_real(folders[-1], target))
+        except (OSError, ValueError):
+            pass
+    return folders
+
+
+def _names_safety_file(cmd, home, cwd, words=None):
+    """True if any word of `cmd` (or just `words`) is a path to Nova's guard or config.json from a folder it runs in."""
+    plain_cmd = unquote(cmd)
+    words = re.findall(r"[^\s;|&<>(),=]+", plain_cmd) if words is None else words
+    return any(_safety_file(w, home, folder) for folder in _folders(cmd, cwd or home) for w in words)
+
+
 def _safety_file(word, home, cwd):
-    """True if `word` names Nova's guard (the folder or a file in it) or its config.json, which holds the safety settings."""
-    if not home or not re.search(r"guard|config\.json", word, re.I):
+    """True if `word` names Nova's guard (the folder or a file in it) or its config.json, which holds the safety settings.
+    Judged by where the path leads, not by its name: from inside guard\\, "json.py" is one of the guard's files."""
+    if not home:
         return False
     # "..\config.json" on a Mac: PowerShell there takes backslashes too, so they count as folder separators
-    full = _real(cwd or home, word.replace("\\", "/") if os.sep == "/" else word)
+    try:
+        full = _real(cwd or home, word.replace("\\", "/") if os.sep == "/" else word)
+    except (OSError, ValueError):  # not a path at all
+        return False
     return _under(full, os.path.join(home, "guard")) or _under(full, os.path.join(home, "config.json"))
 
 
@@ -272,15 +311,16 @@ def _command(cmd, home=None, cwd=None):
     c = re.sub(r"\b(findstr)((?:\s+/[\w:]+)*)\s+" + word, r"\1\2 x", c)  # findstr's switches start with /
     c = re.sub(r"\b(select-string|sls)\s+('[^']*'|\"[^\"$`]*\")", r"\1 x", c)  # its first, unnamed argument
     c = re.sub(r"(\s-{1,2}(?:\w*pattern\w*|grep))(?:=|\s+)" + word, r"\1 x", c)  # -Pattern, --testPathPattern
-    if home and re.search(re.escape(home.lower().replace("\\", "/").rstrip("/")) + r"/data\b", c.replace("\\", "/")):
+    # what the shell runs once quotes and escapes are gone: "gi''t push", "cat ~/.s''sh/id_r''sa", bash's "r\m",
+    # PowerShell's "Re`move-Item" and cmd's "r^d" are git, ~/.ssh/id_rsa, rm, Remove-Item and rd. Built after the commit
+    # message and search patterns above are set aside, so their text can't trip a rule.
+    spelled = re.sub(r"(^|[;&|\n(]\s*)([a-z]+)\\([a-z]+)(?=\s|$)", r"\1\2\3", unquote(c))
+    if home and any(re.search(re.escape(home.lower().replace("\\", "/").rstrip("/")) + r"/data\b", s.replace("\\", "/"))
+                    for s in (c, spelled)):
         return "block", NOVA_DATA
     # shortcut: "..\data" is Nova's data folder only from Nova's workspace (where the AI runs), so ask, don't block
-    if re.search(r"(^|[\s\"'=(])\.\.[\\/]data\b", c):
+    if re.search(r"(^|[\s\"'=(])\.\.[\\/]data\b", c) or re.search(r"(^|[\s=(])\.\.[\\/]data\b", spelled):
         return "confirm", "may read Nova's own keys, which are in ..\\data from Nova's workspace"
-    # a command name hidden behind bash's backslash ("r\m") or PowerShell's backtick ("Re`move-Item") is the command it
-    # spells: judged by the block rules as spelled out too
-    spelled = re.sub(r"(^|[;&|\n(]\s*)([a-z]+)\\([a-z]+)(?=\s)", r"\1\2\3", c)
-    spelled = re.sub(r"(?<=[a-z])[`^](?=[a-z])", "", spelled)
     for pattern, why in BLOCK:
         if re.search(pattern, c) or re.search(pattern, spelled):
             return "block", why
@@ -309,11 +349,13 @@ def _command(cmd, home=None, cwd=None):
     if re.search(r"[*?][^\s\\/\"'*?]*[\\/]", re.sub(r"https?://\S+|\?(?=\s*\{)", "", c).replace("\\$", "$")):
         return "confirm", "uses a wildcard in a folder name, which could reach secret files"
     for pattern, why in CONFIRM:
-        if re.search(pattern, c):
+        if re.search(pattern, c) or re.search(pattern, spelled):
             return "confirm", why
     if ">" in re.sub(r"\d?>\s*&\s*\d|\d?>\s*(\$null|/dev/null|nul)\b", "", c):
-        if any(_safety_file(t, home, cwd) for t in re.findall(r">\s*[\"']?([^\s\"';|&<>()]+)", cmd)):
-            return "block", NOVA_SAFETY  # the same rule the Edit tool gets: "echo x > guard/guard.py"
+        # the same rule the Edit tool gets: "echo x > guard/guard.py", also after a "cd .." and with quotes or
+        # $env:NOVA_HOME in the path
+        if _names_safety_file(cmd, home, cwd, re.findall(r">\s*([^\s;|&<>()]+)", unquote(cmd))):
+            return "block", NOVA_SAFETY
         return "confirm", "writes a file through a redirect"
     if cwd and _local_program(cmd, cwd):  # "start build" runs build.bat from this folder
         return "confirm", "starts a program that lives in this folder"
@@ -322,7 +364,8 @@ def _command(cmd, home=None, cwd=None):
     urls = re.sub(r"(['\"])https?://[^'\"\s`$]*\1", " url ", c.replace("\\|", " "))
     # quoted text that is only data: a pure helper's argument ([uri]::EscapeDataString('a b'))
     urls = re.sub(r"(\]::\w+\s*)\(\s*(?:'[^']*'|\"[^\"$`]*\")\s*\)", r"\1()", urls)
-    flat = re.sub(r"[\"']", " ", re.sub(SHELL_WRAPPER, ";", urls))
+    # a quote inside a word is spliced out by the shell ("gi''t" is git), so it's taken out, not turned into a space
+    flat = re.sub(r"[\"']", " ", re.sub(r"(?<=\w)[\"']+(?=\w)", "", re.sub(SHELL_WRAPPER, ";", urls)))
     for seg in re.split(SEPARATORS, flat):
         seg = re.sub(r"^\\?\$[\w:]+\s*=\s*", "", seg.strip())  # "\$x=" is $x= escaped for bash
         if not any(re.match(p, seg) for p in ALLOW) and not (helper and re.match(helper, seg.replace("\\", "/"))):
@@ -398,6 +441,7 @@ def _plain_path(path):
 
 def _real(cwd, path):
     """The real location of a path a tool names: variables, ~, long-path and admin-share spellings, links resolved."""
+    path = re.sub(r"\$\{?env:(\w+)\}?", r"${\1}", path, flags=re.I)  # PowerShell's $env:NOVA_HOME
     return os.path.realpath(os.path.join(cwd, _plain_path(os.path.expandvars(os.path.expanduser(path)))))
 
 
@@ -650,11 +694,29 @@ def plain(tool, inp, cwd):
     return "; then ".join(lines)
 
 
-def ask_nova(tool, summary, reason, plain_text=""):
+def diff_of(inp, limit=2400):
+    """What a Write / Edit / MultiEdit takes out ("- " lines) and puts in ("+ " lines), for the approval card to show.
+    Only what the card says: no decision reads it. Cut at `limit` characters, so a huge file can't flood the card."""
+    edits = inp.get("edits") if isinstance(inp.get("edits"), list) else [inp]
+    lines = []
+    for e in edits:
+        if not isinstance(e, dict):
+            continue
+        old, new = e.get("old_string"), e.get("new_string", e.get("content", e.get("new_source")))
+        if old is None and new is None:
+            continue
+        if lines:
+            lines.append("")
+        lines += [f"- {line}" for line in str(old or "").splitlines()] + [f"+ {line}" for line in str(new or "").splitlines()]
+    text = "\n".join(lines)
+    return text if len(text) <= limit else text[:limit] + "\n…"
+
+
+def ask_nova(tool, summary, reason, plain_text="", diff=""):
     try:
         # a named pipe on Windows, a Unix socket on macOS: Client works out which from the address
         with Client(os.environ["NOVA_PIPE"], authkey=bytes.fromhex(os.environ["NOVA_KEY"])) as conn:
-            conn.send({"tool": tool, "summary": summary, "reason": reason, "plain": plain_text,
+            conn.send({"tool": tool, "summary": summary, "reason": reason, "plain": plain_text, "diff": diff,
                        "job": os.environ.get("NOVA_JOB", "")})  # set for a background job: the card names it
             return conn.poll(float(os.environ.get("NOVA_TIMEOUT", "30")) + 5) and conn.recv() is True
     except Exception:  # Nova not running, bad key, broken pipe: deny
@@ -671,8 +733,19 @@ def main():
     tool, inp = data.get("tool_name", ""), data.get("tool_input") or {}
     env = os.environ.get
     roots = [r for r in env("NOVA_ROOTS", "").split(os.pathsep) if r]
-    tier, reason = classify(tool, inp, data.get("cwd") or os.getcwd(), roots, env("NOVA_HOME"), env("NOVA_NOTES"),
+    cwd = data.get("cwd") or os.getcwd()
+    tier, reason = classify(tool, inp, cwd, roots, env("NOVA_HOME"), env("NOVA_NOTES"),
                             mode_now(env("NOVA_MODE") or "accept_edits", env("NOVA_TAINT")))
+    # a background job has no taint file to tighten it, so a web page it read could plant a standing instruction in
+    # the long-term memory every later request is given: its writes there ask
+    memory = env("NOVA_NOTES") and os.path.join(env("NOVA_NOTES"), "memory.md")
+    path = inp.get("file_path") or inp.get("path") or ""
+    touched = [path] if path else []
+    command = inp.get("command")
+    touched += re.findall(r"^\*\*\* (?:Add|Update|Delete) File: (.+?)\s*$", str(inp.get("patch") or command or ""), re.M)
+    touched += [] if isinstance(command, list) else re.findall(r">\s*([^\s;|&<>()\"']+)", unquote(str(command or "")))
+    if tier == "allow" and env("NOVA_JOB") and memory and any(_under(_real(cwd, p), memory) for p in touched):
+        tier, reason = "confirm", "changes your long-term memory from a background job"
     summary = str(inp.get("command") or inp.get("file_path") or inp.get("notebook_path") or inp)[:400]
     if new_text(inp):  # a file write: the card shows what goes in, not only where
         summary = f"{summary[:200]}\n{new_text(inp)[:400]}"
@@ -682,12 +755,24 @@ def main():
             plain_text = plain(tool, inp, data.get("cwd") or os.getcwd())
         except Exception:  # only the card's wording: the rule's reason still shows
             plain_text = ""
-        decision = "allow" if ask_nova(tool, summary, reason, plain_text) else "deny"
+        try:
+            diff = diff_of(inp)
+        except Exception:  # the same: the card just has no "Show changes"
+            diff = ""
+        decision = "allow" if ask_nova(tool, summary, reason, plain_text, diff) else "deny"
         reason = f"{reason}: user {'approved' if decision == 'allow' else 'declined or did not answer'}"
     elif tier == "block" and reason == PLAN:
         decision = "deny"
     elif tier == "block":
         decision, reason = "deny", f"blocked by Nova's safety rules: {reason}. Do not try another way; tell the user."
+    # a web page read with the CLI's own tools can carry instructions too: the rest of this request asks before changing
+    # anything, as after Nova's browser reads one (NOVA_TAINT is empty when the user turned that off)
+    if tool in ("WebFetch", "WebSearch", "web_search") and decision == "allow" and env("NOVA_TAINT"):
+        try:
+            with open(env("NOVA_TAINT"), "w", encoding="utf-8") as f:
+                f.write("1")
+        except OSError:
+            pass
     if env("NOVA_HOOK_MARK"):  # lets Nova verify the CLI really ran this hook
         with open(env("NOVA_HOOK_MARK"), "a", encoding="utf-8") as f:
             f.write(tool + "\n")
