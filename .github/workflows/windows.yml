@@ -1,0 +1,56 @@
+# Nova on Windows with no one at it: installs its libraries the way setup.ps1 does, then runs the self-checks, which
+# are what setup runs before it lets an install finish. The Win32 calls, the layered windows, the guard's PowerShell
+# rules and the Credential Manager store only run here. Setup's own steps (winget, model downloads, autostart, the
+# browser extension) change the machine and need a person, so they are not run.
+name: Windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:  # the Release workflow runs these first: a tag on a failing commit publishes nothing
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]  # Windows Server builds of Windows 10 and 11
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # setup.ps1 accepts Python 3.11-3.13 and prefers 3.13
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Nova's libraries (as setup does)
+        run: |
+          python -c "import tkinter"
+          python -m venv .venv
+          .venv\Scripts\python.exe -m pip install --quiet --disable-pip-version-check --prefer-binary -r requirements.txt
+
+      - name: setup.ps1 parses
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD\setup.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }
+
+      # the "Hey Nova" checks need the detector and its feature models; without them they'd only print a note
+      - name: Wake-word models
+        run: |
+          .venv\Scripts\python.exe -m core.models download kws
+          .venv\Scripts\python.exe -m core.models download wake-mel
+          .venv\Scripts\python.exe -m core.models download wake-embedding
+
+      - name: Self-checks
+        run: .venv\Scripts\python.exe tests.py

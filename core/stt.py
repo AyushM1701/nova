@@ -249,7 +249,10 @@ class STT:
         if server:
             return drop_outro(server.transcribe(audio, lang, prompt))
         first = self.translator() if task == "translate" else self.fast
-        if lang is None and task == "transcribe" and self.likely:
+        if lang is None and task == "transcribe" and len(self.likely) == 1:  # one language: no second encoder pass
+            lang, sure = self.likely[0], 1.0
+            self.heard = (lang, sure)
+        elif lang is None and task == "transcribe" and self.likely:
             lang, sure = self.pick(first, audio)
             self.heard = (lang, round(sure, 2))
         if hindi is not None and task == "transcribe" and lang == "hi":  # failing, it raises: Nova falls back to Whisper

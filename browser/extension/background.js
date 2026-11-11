@@ -22,6 +22,7 @@ async function connect() {
     ws.send(JSON.stringify({ type: "hello", token: cfg.token, browser: cfg.browser,
                              version: chrome.runtime.getManifest().version }));
     badge("idle");
+    state.live = true; status(true);  // an open panel stops saying "Nova isn't running"
   };
   ws.onmessage = e => {
     state.wait = 1000;  // Nova answered, so the hello was accepted
@@ -30,6 +31,7 @@ async function connect() {
   ws.onclose = () => {
     if (state.ws !== ws) return;
     state.ws = null; state.cfg = null;  // re-read nova.json: Nova may have reinstalled us with a new token
+    if (state.live) { state.live = false; status(false); }
     badge("off");
     // Nova restarted or isn't running yet: try again soon, backing off to every 5 s
     state.retry = setTimeout(connect, state.wait); state.wait = Math.min(state.wait * 2, 5000);
@@ -37,6 +39,7 @@ async function connect() {
   ws.onerror = () => {};
 }
 
+function status(connected) { for (const p of state.ports) p.postMessage({ type: "status", connected }); }
 function send(msg) { if (state.ws && state.ws.readyState === 1) state.ws.send(JSON.stringify(msg)); }
 
 // keep the worker alive: traffic on an open socket every 20 s keeps an MV3 worker running, and while Nova is
@@ -88,7 +91,7 @@ chrome.runtime.onConnect.addListener(port => {
   state.ports.add(port);
   port.onDisconnect.addListener(() => state.ports.delete(port));
   port.onMessage.addListener(m => send({ type: "panel", ...m }));  // ask, approve, listen, history
-  port.postMessage({ type: "status", connected: !!(state.ws && state.ws.readyState === 1) });
+  port.postMessage({ type: "status", connected: !!state.live });
   send({ type: "panel", op: "history" });
 });
 

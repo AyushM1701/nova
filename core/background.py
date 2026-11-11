@@ -108,6 +108,7 @@ class BackgroundMixin:
         step = lambda text: self.outbox.put({"event": "step", "text": f"Background job: {text}"})  # noqa: E731
         try:
             prompt = JOB_PROMPT.format(folder=folder, notes=NOTES, task=task)
+            brain.stop = job["cancel"]  # stopped before its CLI started: it's stopped once it does
             shown, spoken, ask = brain.run(prompt, projects, self.cfg["projects"]["aliases"], step)
             shown = strip_sketch(shown)
             if ask:  # nobody can answer a job: the question goes in the reply

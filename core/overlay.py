@@ -6,7 +6,6 @@ the answer in crisp white, the question above it. Needs your OK: Allow / Deny. S
 "Cancelled") are one line, the height of the pill. It never takes focus; click it to open the Nova window, where the
 full reply and the history are.
 """
-import math
 import re
 import time
 
@@ -16,7 +15,7 @@ from core import system, theme
 from PIL import ImageFilter
 
 from core.bar import (AMBER, BLUR, CAPSULE, MARK_W, VERY_SLOW, Bar, dpi_scale, in_out, keycap, mark, mic, mono_font,
-                      shimmer, stop_square, ui_font, wave)
+                      shimmer, stop_square, ui_font, voice, wave)
 
 SS = 2  # drawn 2x, then downscaled: smooth corners and text
 WIDTH, PX, PY = 440, 18, 14  # logical px: the card's width, and its padding across and down
@@ -75,6 +74,7 @@ class Card:
     quiet = False
     bar, visible, kind, telemetry, base, _body, _said, shown_at, _reveal_at, _reveal_end, _rows = None, False, "info", "", None, None, None, 0.0, 0.0, 0.0, ()
     size, buttons, chips, stop_box, _live = (WIDTH, CAPSULE), (), (), None, ()
+    ask = None  # the approval on the card: (where it came from, when its time is up on time.monotonic, how long it had)
 
     def __init__(self, root, on_allow, on_deny, on_open=None, hotkey="", position="bottom", on_ask=None):
         self.root = root
@@ -279,7 +279,8 @@ class Card:
         dlines = wrap(detail, self.f_mono, inner - 20 * self.scale * SS, 3 if buttons else 1)[0] if detail else []
         more, lh, mh = cut and not buttons, 20, 17
         rule = bool(lines or dlines or buttons)
-        height = (PY + 20 + (20 if rule else 0) + len(lines) * lh
+        timed = bool(buttons and approval and self.ask)
+        height = (PY + 20 + (20 if rule else 0) + len(lines) * lh + (11 if timed else 0)
                   + (((10 if lines else 0) + len(dlines) * mh + (12 if buttons else 0)) if dlines else 0)
                   + (18 if more else 0) + (46 if buttons else 0) + PY)
         img, d, s = self._canvas(WIDTH, height)
@@ -296,8 +297,13 @@ class Card:
         if hint:
             d.text((right, cy), hint, font=self.f_small, fill=(255, 255, 255, W50), anchor="rm")
             room -= self.f_small.getlength(hint) + 12 * s
-        d.text((x, cy), fit(title, self.f_title, room), font=self.f_title,
-               fill=AMBER + (255,) if approval else (255, 255, 255, W95), anchor="lm")
+        tag = self.ask[0].upper() if approval and self.ask else ""  # "BACKGROUND JOB": whose request this is
+        if tag and self.f_title.getlength(title) + self.f_mono.getlength(tag) + 10 * s > room:
+            tag = ""
+        shown = fit(title, self.f_title, room)
+        d.text((x, cy), shown, font=self.f_title, fill=AMBER + (255,) if approval else (255, 255, 255, W95), anchor="lm")
+        if tag:
+            d.text((x + self.f_title.getlength(shown) + 10 * s, cy), tag, font=self.f_mono, fill=(255, 255, 255, W50), anchor="lm")
         y += 20 * s
         if rule:
             y += 10 * s
@@ -322,6 +328,10 @@ class Card:
             d.text((PX * s, y + 9 * s), "Click to see the full reply in Nova", font=self.f_small,
                    fill=theme.T["light"] + (255,), anchor="lm")
             y += 18 * s
+        if timed:  # the time left to answer, drawn each frame (frame)
+            y += 8 * s
+            self._live.append(("count", PX * s / SS, y / SS, right / SS))
+            y += 3 * s
         if buttons:
             y += 14 * s
             bx = PX * s
@@ -359,8 +369,15 @@ class Card:
                 mark(img, item[1], item[2], k, item[3], item[4], state, t, self.shown_at)
             elif item[0] == "shimmer":
                 shimmer(img, item[1], item[2], item[3], self.f_step, SS, t, still)
+            elif item[0] == "count":  # a thin amber line running out: no answer in time means no
+                _, x0, y, x1 = item
+                left = max(0.0, min(1.0, (self.ask[1] - t) / self.ask[2])) if self.ask else 0.0
+                d, tall = ImageDraw.Draw(img), max(2, round(3 * k))
+                d.rounded_rectangle((x0, y, x1, y + tall), tall / 2, fill=(255, 255, 255, 26))
+                if left > 0:
+                    d.rounded_rectangle((x0, y, x0 + max(tall, (x1 - x0) * left), y + tall), tall / 2, fill=AMBER + (255,))
             else:  # the voice, as four bars
-                heights = [(0.5 if still else 0.3 + 0.7 * abs(math.sin(t * 5 + i * 0.9))) * 12 * k for i in range(4)]
+                heights = [(0.5 if still else voice(t, i, getattr(self.bar, "said", None))) * 12 * k for i in range(4)]
                 wave(img, item[1], item[2], heights, 2.5 * k, 3 * k, theme.T["accent"])
         return img
 

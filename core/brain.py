@@ -21,6 +21,11 @@ from pathlib import Path
 from core.config import NOTES, log, memory_text
 from core import procs
 from core.fallback import LIMIT_RE
+
+# what Claude Code says when its login is gone or expired
+SIGNED_OUT_RE = re.compile(r"not logged in|please run /login|invalid api key|oauth token (?:has )?expired|"
+                           r"authentication_error", re.I)
+SIGNED_OUT = "Claude Code is signed out. Press Sign in on Nova's Home page (or Settings → AI), then ask again."
 from core.sketch import strip as strip_sketch
 from core.system import IS_MAC, NO_WINDOW
 
@@ -273,6 +278,7 @@ class Brain:
     def __init__(self, exe, cfg, workspace, env):
         self.exe, self.cfg, self.workspace, self.env = exe, cfg, workspace, env
         self.session_id, self.last, self.proc = None, 0.0, None
+        self.stop = None  # the caller's cancel event: set before the CLI started, it's stopped as soon as it starts
         self.browser_name = "their browser"  # Nova sets the browser for each request
         self.apps = []  # the user's connected apps (MCP servers), named in the prompt
         self.browser = True  # False for a background job: the browser is shared with what the user is doing
@@ -326,6 +332,8 @@ class Brain:
                                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                             encoding="utf-8", errors="replace", creationflags=NO_WINDOW,
                                             start_new_session=IS_MAC)
+        if self.stop is not None and self.stop.is_set():  # cancelled while Nova was still getting ready
+            self.cancel()
         # not tied to a job object: what the AI starts for the user (a dev server, a long build) outlives Nova's restart
         def feed():  # off this thread: a big prompt must not wait for output nobody is reading yet
             try:
@@ -481,12 +489,16 @@ class Claude(Brain):
         result = state["result"]
         if result is None:
             self.limited = bool(LIMIT_RE.search(other))
+            if SIGNED_OUT_RE.search(other):
+                return SIGNED_OUT, "Claude Code is signed out. Sign in from Nova's Home page.", None, 0
             return f"Claude Code gave no answer. {other}", "Sorry, Claude Code didn't answer.", None, 0
         if result.get("session_id"):
             self.session_id, self.last = result["session_id"], time.time()
         text = result.get("result") or ""
         if result.get("is_error"):
             self.limited = bool(LIMIT_RE.search(f"{text} {other}"))
+            if SIGNED_OUT_RE.search(f"{text} {other}"):
+                return (f"{SIGNED_OUT} ({text.strip()[:120]})", "Claude Code is signed out. Sign in from Nova's Home page.", None, 0)
         if result.get("is_error") and not text:
             text = f"Claude Code error: {result.get('subtype', 'unknown')}"
         return (*split_say(text), state["commands"])

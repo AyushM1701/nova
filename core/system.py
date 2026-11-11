@@ -1024,15 +1024,42 @@ def keep_awake(on):
         ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | (0x00000001 if on else 0))  # ES_CONTINUOUS|SYSTEM
 
 
+if not IS_MAC:
+    class MONITORINFO(ctypes.Structure):
+        _fields_ = [("cbSize", ctypes.wintypes.DWORD), ("rcMonitor", ctypes.wintypes.RECT),
+                    ("rcWork", ctypes.wintypes.RECT), ("dwFlags", ctypes.wintypes.DWORD)]
+    user32.MonitorFromPoint.restype = ctypes.c_void_p  # a handle: the default int would cut it on 64-bit Windows
+    user32.MonitorFromPoint.argtypes = [ctypes.wintypes.POINT, ctypes.wintypes.DWORD]
+    user32.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.POINTER(MONITORINFO)]
+
+
+def _monitor():
+    """(whole monitor, its work area) as RECTs for the monitor the mouse is on (Windows), or None."""
+    point = ctypes.wintypes.POINT()
+    if not user32.GetCursorPos(ctypes.byref(point)):  # a locked desktop
+        return None
+    info = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
+    if not user32.GetMonitorInfoW(user32.MonitorFromPoint(point, 2), ctypes.byref(info)):  # 2: MONITOR_DEFAULTTONEAREST
+        return None
+    return info.rcMonitor, info.rcWork
+
+
 def work_area():
-    """(left, top, right, bottom) of the screen minus taskbar/Dock, in Tk coordinates."""
+    """(left, top, right, bottom) of the screen minus taskbar/Dock, in Tk coordinates. On Windows, the monitor the
+    mouse is on, so the bar and its cards show where the user is working.
+    shortcut: a Mac always uses the main display (the notch island is drawn for it); follow the mouse there too if
+    people with two Mac displays miss the bar."""
     if IS_MAC:
         screen = NSScreen.screens()[0]
         full, vis = screen.frame(), screen.visibleFrame()
         top = full.size.height - (vis.origin.y + vis.size.height)
         return (vis.origin.x, top, vis.origin.x + vis.size.width, full.size.height - vis.origin.y)
-    rect = ctypes.wintypes.RECT()
-    user32.SystemParametersInfoW(0x30, 0, ctypes.byref(rect), 0)  # SPI_GETWORKAREA
+    monitor = _monitor()
+    if monitor:
+        rect = monitor[1]
+    else:
+        rect = ctypes.wintypes.RECT()
+        user32.SystemParametersInfoW(0x30, 0, ctypes.byref(rect), 0)  # SPI_GETWORKAREA: the main monitor
     return rect.left, rect.top, rect.right, rect.bottom
 
 
@@ -1074,7 +1101,8 @@ def screen_span():
     if IS_MAC:
         frame = NSScreen.screens()[0].frame()
         return frame.origin.x, frame.origin.x + frame.size.width
-    return 0, user32.GetSystemMetrics(0)
+    monitor = _monitor()
+    return (monitor[0].left, monitor[0].right) if monitor else (0, user32.GetSystemMetrics(0))
 
 
 def no_activate(tk_window, layered=False):

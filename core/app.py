@@ -15,6 +15,7 @@ import sys
 import tempfile
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from multiprocessing.connection import Client
 from pathlib import Path
 
@@ -26,8 +27,9 @@ from core import (calendar_ics, claude_skills, obsidian, claude_usage, clipboard
 from core.brain import MCP_JOBS, find_cli, too_broad
 from core.local_llm import LocalLLM
 from core.config import (CONFIG, DATA, DEFAULT_NOTES, LOGS, NOTES, NOTES_PROBLEM, ROOT, copy_notes, defaults, load_config, log,
-                         notes_dir, notes_folder_problem, read_history, save_config,
-                         update_config)
+                         notes_dir, notes_folder_problem, read_history,
+                         update_config, write_atomic)
+from core.config import _saving
 
 HTML = Path(__file__).with_name("app.html")
 CLAUDE_SETTINGS = Path.home() / ".claude" / "settings.json"
@@ -176,7 +178,8 @@ class Api:
         # browsers stay: the extension is still installed in them, so forgetting them would strand it
         keep = {"onboarded": cfg.get("onboarded", False), "brain": {"engine": cfg["brain"]["engine"]},
                 "browser": cfg["browser"]}
-        CONFIG.write_text(json.dumps(keep, indent=2), encoding="utf-8")
+        with _saving():  # whole or not at all, and not on top of another save
+            write_atomic(CONFIG, json.dumps(keep, indent=2))
         return load_config()[0]
 
     def check_hotkey(self, combo):
@@ -464,18 +467,15 @@ class Api:
         """Set Nova up in a browser (copy the extension, add the launch flag) or remove it."""
         token = (DATA / "browser-token").read_text(encoding="utf-8").strip()
         report = web.install(bid, token) if on else web.uninstall(bid)
-        cfg, _ = load_config()
-        b = cfg["browser"]
-        b["enabled"] = [x for x in b["enabled"] if x != bid] + ([bid] if on else [])
-        if b["default"] not in b["enabled"] and b["enabled"]:
-            b["default"] = b["enabled"][0]
-        save_config(cfg)
-        return {**report, "running": web.running(bid), "default": b["default"], "enabled": b["enabled"]}
+        b = load_config()[0]["browser"]
+        enabled = [x for x in b["enabled"] if x != bid] + ([bid] if on else [])
+        default = enabled[0] if b["default"] not in enabled and enabled else b["default"]
+        # only these two settings: a config.json with a typo is refused, not replaced by the defaults
+        update_config({"browser.enabled": enabled, "browser.default": default})
+        return {**report, "running": web.running(bid), "default": default, "enabled": enabled}
 
     def browser_default(self, bid):
-        cfg, _ = load_config()
-        cfg["browser"]["default"] = bid
-        save_config(cfg)
+        update_config({"browser.default": bid})
         return bid
 
     def browser_restart(self, bid):
@@ -524,7 +524,8 @@ class Api:
         path = NOTES / "memory.md"
         if lines is not None:
             NOTES.mkdir(parents=True, exist_ok=True)
-            path.write_text("".join(f"{line.strip()}\n" for line in lines if line.strip()), encoding="utf-8")
+            # whole or not at all: a crash mid-write must not leave the user's memory empty
+            write_atomic(path, "".join(f"{line.strip()}\n" for line in lines if line.strip()))
         try:
             return [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
         except OSError:
@@ -770,8 +771,8 @@ class Api:
     def engines(self):
         """Which CLIs are installed and signed in, and whether Node.js is there to install one."""
         system.refresh_path()
-        out = {}
-        for name in ("claude", "codex"):
+
+        def check(name):
             exe, signed_in = find_cli(name), False
             if exe:
                 try:
@@ -779,7 +780,10 @@ class Api:
                                                cwd=tempfile.gettempdir(), creationflags=system.NO_WINDOW).returncode == 0
                 except (OSError, subprocess.TimeoutExpired):
                     pass
-            out[name] = {"installed": bool(exe), "signed_in": signed_in}
+            return {"installed": bool(exe), "signed_in": signed_in}
+
+        with ThreadPoolExecutor(2) as pool:  # both at once: each starts Node, and one can take seconds
+            out = dict(zip(("claude", "codex"), pool.map(check, ("claude", "codex"))))
         out["npm"] = bool(shutil.which("npm"))
         return out
 
@@ -844,6 +848,10 @@ class Api:
         system.open_path(path.parent)
         system.open_url(f"https://github.com/{update.REPO}/issues/new")
         return path.name
+
+    def waitlist(self):
+        """Open the poll on which paid extras would be worth building (Home → Library → Nova Pro)."""
+        system.open_url(f"https://github.com/{update.REPO}/discussions/categories/polls")
 
     # ---------- files ----------
     def open(self, what):

@@ -14,12 +14,15 @@ import re
 
 from PIL import Image, ImageDraw
 
-from core.bar import Layered, _font, dpi_scale
+from core.bar import Layered, _font, dpi_scale, in_out, smooth_out
 
 SS = 3  # drawn 3x, then downscaled: smooth edges
 MAX_SHAPES = 12
 HOLD_S = 12  # how long a drawing stays
-FRAMES, FRAME_MS, LEAD_MS = 6, 35, 170  # a shape is drawn in this many frames, this far apart (half as many when there are many shapes)
+# a shape is drawn in this many frames, this far apart (half as many when there are many shapes, or it is big). 14 is
+# asked of a timer that fires every 15.6 ms on Windows: each frame takes one tick
+FRAMES, FRAME_MS, LEAD_MS = 12, 14, 170
+FADE = (200, 140, 80, 30)  # the window's alpha, a frame apart, as a drawing leaves
 VIOLET, BG, TEXT = (123, 109, 255), (13, 15, 26, 236), (240, 242, 250)
 COLORS = {"blue": (74, 144, 255), "red": (255, 84, 84), "green": (52, 199, 120), "orange": (255, 159, 64),
           "purple": (176, 104, 255), "pink": (255, 112, 190), "yellow": (255, 214, 64), "gray": (170, 175, 190)}
@@ -222,7 +225,7 @@ def render(sh, g, u, font, t=1.0, ss=SS):
     d = ImageDraw.Draw(img)
     at = lambda pts: [(x - left, y - top) for x, y in pts]  # noqa: E731
     done, tip = t >= 1.0, None
-    inked = min(1.0, t / 0.75)  # the strokes take the first three quarters of the time, one after another
+    inked = 1.0 if t >= 0.75 else in_out(t / 0.75)  # the strokes take the first three quarters of the time, one after another: the pen starts and stops gently
     if done or inked >= 1.0:
         for poly in fills:
             d.polygon(at(poly), fill=color + ((255,) if len(poly) == 3 else (60,)))
@@ -243,14 +246,22 @@ def render(sh, g, u, font, t=1.0, ss=SS):
         if f < 1:
             tip = part[-1]
     if done or t >= 0.2:
-        for x, y, r in discs:
+        grown = 1.0 if done else smooth_out((t - 0.2) / 0.4)  # a dot or a number grows into place
+        for x, y, r0 in discs:
+            r = r0 * (0.4 + 0.6 * grown)
             d.ellipse((x - left - r, y - top - r, x - left + r, y - top + r), fill=color, outline=(255, 255, 255), width=round(lw / 2))
-            if sh["kind"] == "num":
+            if sh["kind"] == "num" and grown > 0.7:
                 d.text((x - left, y - top), sh["label"], font=font, fill=(255, 255, 255), anchor="mm")
-    if pill and (done or t >= 0.88):
+    if pill and (done or t > 0.7):
         x0, y0, x1, y1 = pill[1]
-        d.rounded_rectangle((x0 - left, y0 - top, x1 - left, y1 - top), radius=12 * u, fill=BG, outline=color, width=round(u))
-        d.text(((x0 + x1) / 2 - left, (y0 + y1) / 2 - top), pill[0], font=font, fill=TEXT, anchor="mm")
+        tag = Image.new("RGBA", img.size)  # the label fades in over the last frames
+        td = ImageDraw.Draw(tag)
+        td.rounded_rectangle((x0 - left, y0 - top, x1 - left, y1 - top), radius=12 * u, fill=BG, outline=color, width=round(u))
+        td.text(((x0 + x1) / 2 - left, (y0 + y1) / 2 - top), pill[0], font=font, fill=TEXT, anchor="mm")
+        if not done:
+            shown = in_out((t - 0.7) / 0.3)
+            tag.putalpha(tag.getchannel("A").point(lambda v: round(v * shown)))
+        img.alpha_composite(tag)
     img = img.resize((img.width // ss, img.height // ss), Image.LANCZOS) if ss > 1 else img
     return img, left // ss, top // ss, tip
 
@@ -285,16 +296,16 @@ class Canvas(Layered):
         plainly (they're on screen for a moment); the finished shape is smooth, less so when it is huge (a box round a
         whole window), and a huge one has no in-between frames at all, so preparing stays quick and small.
         {"steps": [(image, x, y, pen tip in screen pixels or None, last frame of its shape, where the pen starts)], ...}"""
-        n = FRAMES if len(shapes) <= 6 else FRAMES // 2
         made = []
         for sh in shapes:
             x0, y0, x1, y1 = bounds(sh, self.px, self.scale, self._fonts(1))
             area = (x1 - x0) * (y1 - y0)  # device pixels (what the plain frame costs), not screen points
             ss = SS if area < 400_000 else 2 if area < 2_500_000 else 1
+            n = 1 if area >= 2_500_000 else FRAMES if len(shapes) <= 6 and area < 400_000 else FRAMES // 2
             frames = []
-            for k in range(1, (1 if area >= 2_500_000 else n) + 1):
-                last = k == (1 if area >= 2_500_000 else n)
-                f = ss if last else 1
+            for k in range(1, n + 1):
+                last = k == n
+                f = ss if last else 2 if area < 400_000 else 1  # a small shape is smooth on the way too
                 img, x, y, tip = render(sh, self.px * f, self.scale * f, self._fonts(f), 1.0 if last else k / n, f)
                 frames.append((img, x, y, tip and (tip[0] / (self.px * f), tip[1] / (self.px * f))))
             start = next((tip for _, _, _, tip in frames if tip), None)  # where the pen first touches the screen
@@ -339,7 +350,13 @@ class Canvas(Layered):
             if i + 1 < len(steps):
                 self._jobs = [self.win.after(FRAME_MS, step, i + 1)]
             else:
-                self._jobs = [self.win.after(int(hold_s * 1000), self.hide)] if hold_s else []
+                self._jobs = [self.win.after(int(hold_s * 1000), leave, 0)] if hold_s else []
+
+        def leave(i):  # its time is up: it fades out
+            if i == len(FADE):
+                return self.hide()
+            self._present(page, left // px, top // px, FADE[i])
+            self._jobs = [self.win.after(FRAME_MS, leave, i + 1)]
         step(0)
 
     def hide(self):

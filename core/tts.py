@@ -164,7 +164,7 @@ def _your_voice(speed):
     return g
 
 
-def _speak_neural(text, engine, sid, speed, stop):
+def _speak_neural(text, engine, sid, speed, stop, on_level=None):
     import numpy as np
     model = load(engine)
     chunks, failed = queue.Queue(), []
@@ -188,7 +188,7 @@ def _speak_neural(text, engine, sid, speed, stop):
     with _speak_lock:  # one voice at a time; a model isn't meant to run twice at once
         worker = threading.Thread(target=generate, daemon=True)
         worker.start()
-        block = model.sample_rate // 10  # write 100 ms at a time so `stop` cuts in quickly
+        block = model.sample_rate // 20  # write 50 ms at a time: `stop` cuts in quickly, and the bars follow the voice
         try:
             with pa.stream("output", samplerate=model.sample_rate, channels=1, dtype="float32") as out:
                 while not stop.is_set():
@@ -201,6 +201,8 @@ def _speak_neural(text, engine, sid, speed, stop):
                     for i in range(0, len(chunk), block):
                         if stop.is_set():
                             break
+                        if on_level:  # as loud as this piece is, 0..1: the bar's and the orb's bars move with the voice
+                            on_level(min(1.0, float(np.sqrt(np.mean(np.square(chunk[i:i + block])))) * 5))
                         out.write(chunk[i:i + block])
                         played = True
         except Exception:
@@ -227,8 +229,9 @@ def _speak_system(text, voice, stop):
         time.sleep(0.1)
 
 
-def speak(text, v, stop):
-    """Say `text` with the voice settings `v` (config["voice"])."""
+def speak(text, v, stop, on_level=None):
+    """Say `text` with the voice settings `v` (config["voice"]). `on_level(0..1)` hears how loud each 50 ms is as it
+    plays (Nova's own voices; the system voice plays in another program, so it reports nothing)."""
     if not text.strip():
         return
     engine = pick(v)
@@ -236,7 +239,7 @@ def speak(text, v, stop):
         engine = next((e for e in ("kokoro", "piper", "kitten") if installed(e)), None)
     if engine:
         try:
-            return _speak_neural(text, engine, speaker(engine, v), float(v.get("tts_speed") or 1.0), stop)
+            return _speak_neural(text, engine, speaker(engine, v), float(v.get("tts_speed") or 1.0), stop, on_level)
         except Exception as e:  # no sherpa-onnx, broken model or no speakers: still answer out loud
             print(f"The {engine} voice failed, using the system voice: {e!r}", file=sys.stderr)
     _speak_system(text, v.get("tts_voice"), stop)

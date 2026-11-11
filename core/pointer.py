@@ -13,7 +13,7 @@ import time
 from PIL import Image, ImageDraw, ImageFilter
 
 from core import system, theme
-from core.bar import Layered, _font, dpi_scale
+from core.bar import Layered, _font, dpi_scale, in_out
 
 SS = 3  # drawn 3x, then downscaled: smooth edges
 BLUE, AMBER, GREY = (51, 128, 255), (255, 186, 60), (150, 155, 175)  # a chosen colour's old default, approval, paused
@@ -23,9 +23,11 @@ TILE = 26  # design px: the tile the bars sit on
 EDGE, BG, TEXT = (255, 255, 255), (13, 15, 26, 236), (240, 242, 250)
 OFFSET = (14, 16)  # design px: where the marker's tip sits from the mouse pointer's tip, so it never covers it
 MARGIN = 14  # design px of glow room around the marker
-FADE_AFTER_S, FADE_ALPHA = 6.0, 120  # a still mouse and nothing happening: it dims to this
-ANIM = {"listening": (12, 1.0), "thinking": (12, 1.2), "speaking": (10, 0.8)}  # frames, seconds per loop
-EASE, EASE_PEN, EASE_HOME = 0.4, 0.6, 0.22  # how much of the gap to its goal it closes each frame
+FADE_AFTER_S, FADE_ALPHA, FADE_S = 6.0, 120, 0.4  # a still mouse and nothing happening: it dims to this, over this long
+ANIM = {"listening": (30, 1.0), "thinking": (36, 1.2), "speaking": (24, 0.8)}  # frames, seconds per loop: 30 a second
+# how fast it closes the gap to its goal, per second (by the clock, not per frame: frames come 16 or 31 ms apart)
+FOLLOW, PEN, HOME = 32.0, 57.0, 15.5
+FRAME_S = 0.014  # asked of a timer that fires every 15.6 ms on Windows: 16 would skip every other one
 HOLD_S = 5  # how long it stays on the target
 DONE_RE = re.compile(r"^\W*DONE\W*$", re.I)  # a walkthrough's last step
 POINT_RE = re.compile(r"\s*\**POINT:\**\s*(\d+)\s*,\s*(\d+)\s*(.*)", re.I)
@@ -72,7 +74,8 @@ class Pointer(Layered):
         self.mouse, self.clock = mouse or system.mouse_pos, clock
         self.cursor_visible = cursor_visible or system.cursor_visible  # False: the system hid the pointer (a full-screen video)
         self.state, self.badge, self.mode = "idle", 0, "follow"  # mode: follow, fly, hold, pen, home, gone
-        self.pos, self.flight, self.label, self.hold_s, self.hold_until = None, [], "", HOLD_S, None
+        self.pos, self.flight, self.label, self.hold_s, self.hold_until = None, None, "", HOLD_S, None
+        self.ticked = None  # when the last frame was
         self.pen_goal, self.pen_at = None, 0.0
         self.last_mouse, self.moved_at, self.cache = None, clock(), {}
         self.shown_key, self.shown_at, self.visible, self._after = None, None, False, None
@@ -110,14 +113,10 @@ class Pointer(Layered):
         seconds (None: stay until hide(), for a walkthrough step)."""
         start = self.pos or self.mouse()
         distance = math.dist(start, (x, y))
-        steps = max(12, min(45, int(distance / 40)))  # ~0.2-0.75 s: short hops are quick
+        seconds = max(12, min(45, int(distance / 40))) * 0.016  # ~0.2-0.75 s: short hops are quick
         lift = min(distance * 0.2, 80 * self.logical)
         control = ((start[0] + x) / 2, (start[1] + y) / 2 - lift)  # above the midpoint: an arc, not a line
-        self.flight = []
-        for i in range(1, steps + 1):
-            t = 1 - (1 - i / steps) ** 3  # ease out: it slows as it lands
-            self.flight.append(((1 - t) ** 2 * start[0] + 2 * (1 - t) * t * control[0] + t * t * x,
-                                (1 - t) ** 2 * start[1] + 2 * (1 - t) * t * control[1] + t * t * y))
+        self.flight = (tuple(start), control, (x, y), self.clock(), seconds)  # where it is comes from the clock (tick)
         self.mode, self.label, self.hold_s = "fly", label, hold_s
         self.pos = self.pos or tuple(start)
 
@@ -129,7 +128,7 @@ class Pointer(Layered):
 
     def hide(self):
         """Done pointing (a walkthrough step ended): back to the mouse, or away if there is no companion."""
-        self.flight = []
+        self.flight = None
         self.mode = "home" if self.enabled and self.pos else "gone"
 
     # ---------- the loop ----------
@@ -158,13 +157,21 @@ class Pointer(Layered):
         if self.pos is None:
             self.pos = (gx, gy)
         px, py = self.pos
+        dt = min(0.05, now - self.ticked) if self.ticked else 0.016
+        self.ticked = now
+        close = lambda rate: 1 - math.exp(-dt * rate)  # noqa: E731  the same glide whatever the frame rate
         busy = True
         if self.mode == "follow":
-            px, py = px + (gx - px) * EASE, py + (gy - py) * EASE
+            px, py = px + (gx - px) * close(FOLLOW), py + (gy - py) * close(FOLLOW)
             busy = math.dist((px, py), (gx, gy)) > 0.5 or now - self.moved_at < 0.5
         elif self.mode == "fly":
             if self.flight:
-                px, py = self.flight.pop(0)
+                a, c, b, began, seconds = self.flight
+                f = min(1.0, (now - began) / seconds)
+                t = 1 - (1 - f) ** 3  # ease out: it slows as it lands
+                px, py = ((1 - t) ** 2 * a[i] + 2 * (1 - t) * t * c[i] + t * t * b[i] for i in (0, 1))
+                if f >= 1:
+                    self.flight = None
             if not self.flight:
                 self.mode = "hold"
                 self.hold_until = None if self.hold_s is None else now + self.hold_s
@@ -172,24 +179,28 @@ class Pointer(Layered):
             if self.hold_until is not None and now >= self.hold_until:
                 self.mode, self.label = ("home" if self.enabled else "gone"), ""
         elif self.mode == "pen":
-            px, py = px + (self.pen_goal[0] - px) * EASE_PEN, py + (self.pen_goal[1] - py) * EASE_PEN
+            px, py = px + (self.pen_goal[0] - px) * close(PEN), py + (self.pen_goal[1] - py) * close(PEN)
             if now - self.pen_at > 0.5:  # nobody has moved the pen for a moment: the drawing is done
                 self.mode = "home" if self.enabled else "gone"
         elif self.mode == "home":
-            px, py = px + (gx - px) * EASE_HOME, py + (gy - py) * EASE_HOME
+            px, py = px + (gx - px) * close(HOME), py + (gy - py) * close(HOME)
             if math.dist((px, py), (gx, gy)) < 3:
                 self.mode = "follow"
         self.pos = (px, py)
         self._draw(now)
-        animated = self.state in ANIM or self.mode != "follow"
-        return self._next(0.016 if busy or animated else 0.12)
+        dimming = FADE_ALPHA < self.shown_key[4] < 255
+        animated = self.state in ANIM or self.mode != "follow" or dimming
+        return self._next(FRAME_S if busy or animated else 0.12)
 
     def _next(self, seconds):
         self._after = self.win.after(max(1, int(seconds * 1000)), self.tick)
 
     def _alpha(self, now):
         quiet = self.mode == "follow" and self.state in ("idle", "paused") and not self.badge
-        return FADE_ALPHA if quiet and now - self.moved_at > FADE_AFTER_S else 255
+        if not quiet:
+            return 255  # waking is at once: it is wanted now
+        dim = round(in_out((now - self.moved_at - FADE_AFTER_S) / FADE_S) * 8) / 8  # eight steps down, not a cut
+        return round(255 - (255 - FADE_ALPHA) * dim)
 
     def _draw(self, now):
         n, period = ANIM.get(self.state, (1, 1.0))
@@ -200,7 +211,7 @@ class Pointer(Layered):
         x, y = round(self.pos[0]) - anchor, round(self.pos[1]) - anchor
         if key != self.shown_key:
             if key not in self.cache:
-                if len(self.cache) > 60:
+                if len(self.cache) > 240:  # three states of 24 to 36 frames, with and without a badge
                     self.cache.clear()
                 self.cache[key] = self.glyph(self.state, frame, label, self.badge)
             if not self.visible:

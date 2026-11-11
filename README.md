@@ -134,7 +134,7 @@ The 90-second video above covers every feature and the install. The first time N
 
 ## FAQ
 
-**Is it really free?** Yes. Nova is MIT-licensed, with no paid tier, no account and no server. The assistant runs on Claude Code or Codex, so it uses the Claude or ChatGPT plan you already have. Dictation, meeting transcription, "Hey Nova" and the instant commands (volume, timers, opening apps) need no AI subscription.
+**Is it really free?** Yes. Nova is MIT-licensed, with no paid tier, no account and no server. The assistant runs on Claude Code or Codex, so it uses the Claude or ChatGPT plan you already have. Dictation, meeting transcription, "Hey Nova" and the instant commands (volume, timers, opening apps) need no AI subscription. Everything here stays free. We're asking which paid extras would be worth building on top: [vote in the poll](https://github.com/AyushM1701/nova/discussions/categories/polls).
 
 **Does my voice leave my computer?** No, not by default. Speech recognition and the wake word run on your machine. Only the text of a request goes to the AI you chose. Details are in [What stays on your computer](#what-stays-on-your-computer).
 

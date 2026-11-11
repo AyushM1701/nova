@@ -76,7 +76,9 @@ const Orb = (() => {
     raf = 0;
     if (!cv) return;
     raf = requestAnimationFrame(frame);
-    if (CALM[state] && ts - last < CALM[state]) return;  // a slow, steady orb doesn't need 60 pictures a second
+    // a slow, steady orb doesn't need 60 pictures a second; while you're in the window its turning gets 30, not 20
+    const looking = state === "idle" && typeof document !== "undefined" && document.hasFocus && document.hasFocus();
+    if (CALM[state] && ts - last < (looking ? 32 : CALM[state])) return;
     frames++;
     size();
     const dt = Math.min(.12, (ts - last) / 1000 || 0); last = ts; t += dt;
@@ -129,7 +131,7 @@ const Orb = (() => {
     if (state === "speaking" && !reduced) { // the audio strip, under the orb
       ctx.fillStyle = `hsla(${hue},80%,72%,.85)`;
       for (let i = 0; i < 24; i++) {
-        const hgt = 2 + env * 16 * Math.abs(Math.sin(t * 9 + i * 1.7) * .7 + Math.sin(t * 5 + i * .6) * .3);
+        const hgt = 2 + env * 16 * (.5 + .35 * Math.sin(t * 9 + i * 1.7) + .15 * Math.sin(t * 5 + i * .6));  // no |sin|: its bars bounced off the floor
         ctx.fillRect(cx - 24 * 3.5 + i * 7, H - 20 - hgt / 2, 4, hgt);
       }
     }

@@ -15,6 +15,7 @@ import functools
 import ctypes
 import io
 import math
+import threading
 import time
 import tkinter as tk
 import types
@@ -50,6 +51,8 @@ UNIT = 15 / 26  # logical px per logo unit at size 1: its tall bars are 15 px
 MARK_W = (34.7 + 5 - 8.3) * UNIT  # the mark's width at size 1
 # motion, from transitions.dev's tokens: how long, and which curve
 QUICK, FAST, MEDIUM, SLOW, VERY_SLOW = 0.15, 0.25, 0.35, 0.4, 0.5  # seconds
+FRAME_MS = 1000 / 60  # a frame, while anything moves
+GRAB = (616, 444)  # logical px of screen grabbed behind the glass: the widest notice and the tallest card, plus a tenth
 BLUR = 2  # logical px: the cross-blur of a swap, an entrance, an exit
 
 
@@ -105,9 +108,9 @@ class Reveal:
         return self.stage
 
 
-def spring(x, v, target, dt, k=420.0, damping=0.8):
+def spring(x, v, target, dt, k=420.0, damping=1.0):
     """One step of a damped spring toward `target`, so motion depends on real elapsed time and not on the frame rate
-    (damping 1 settles without overshoot; 0.8 gives a slight Dynamic-Island bounce). Steps of at most 1/120 s."""
+    (damping 1, critical: it settles as fast as it can without going past; 0.8 would bounce). Steps of at most 1/120 s."""
     c, steps = 2 * damping * math.sqrt(k), max(1, math.ceil(dt * 120))
     h = dt / steps
     for _ in range(steps):
@@ -236,7 +239,7 @@ def shimmer(img, x, cy, text, font, ss, t, still=False):
         row = [204] * w
     else:
         c = (t / 2.2 % 1.0) * 3 * w - w  # the band comes in from a width before the text and leaves a width after
-        row = [round(255 * (0.4 + 0.55 * max(0.0, 1 - abs(i - c) / (0.5 * w)))) for i in range(w)]
+        row = [round(255 * (0.4 + 0.55 * in_out(1 - abs(i - c) / (0.5 * w)))) for i in range(w)]  # eased: no hard peak
     band = Image.new("L", (w, 1))
     band.putdata(row)
     layer = Image.new("RGBA", (w, h), (255, 255, 255, 0))
@@ -274,6 +277,24 @@ def _halo(W, H, m, gw, gh, r, accent):
     out = out.resize((W, H), Image.BILINEAR)
     out.putalpha(out.getchannel("A").point(lambda a: a if a >= 10 else 0))  # the faintest edge lets clicks through
     return out
+
+
+@functools.lru_cache(maxsize=4)
+def _edge_glow(W, H, s, accent):
+    """The glow along the screen's top edge while the pointer rests there: a line of the accent in its own soft light."""
+    line = 32 * s
+    soft = Image.new("RGBA", (W, H), accent + (0,))
+    ImageDraw.Draw(soft).rounded_rectangle((W / 2 - line - 4 * s, -6 * s, W / 2 + line + 4 * s, 7 * s), radius=6 * s, fill=accent + (150,))
+    img = soft.filter(ImageFilter.GaussianBlur(5 * s))
+    ImageDraw.Draw(img).rounded_rectangle((W / 2 - line, 0, W / 2 + line, 3 * s), radius=1.5 * s, fill=accent + (255,))
+    return img
+
+
+def voice(t, i, level=None):
+    """How tall bar `i` of Nova's voice is at time `t`, 0.2..1: as loud as the voice is now (`level`, 0..1, when the
+    voice reports it), each bar a little different; without a level, a smooth swing (|sin| bounced off the bottom)."""
+    swing = 0.5 - 0.5 * math.cos(t * 10 + i * 1.8)
+    return 0.3 + 0.7 * swing if level is None else 0.2 + 0.8 * min(1.0, level * 1.4) * (0.55 + 0.45 * swing)
 
 
 if not system.IS_MAC:
@@ -471,11 +492,15 @@ class Layered:
 
 class Bar(Layered):
     # class defaults so a Bar built without __init__ (the tests do) behaves as before: always on screen
-    reveal, stage, card, suppressed, _vis, _thru = "always", "hidden", None, False, None, False
+    reveal, stage, card, suppressed, _vis, _thru, _dt = "always", "hidden", None, False, None, False, 1 / 60
     vw, vh, _last = 0.0, 0.0, None  # the glass's size velocities, and when it was last stepped
     _born, _leave, _swap, _key, _last_img, _shake, _hover_at, _gated = None, None, None, None, None, None, 0.0, True  # motion
-    back, _pane, _at, _glass, _grab_h = None, None, None, None, 0  # the blurred screen behind (image, x, y); the last
-    # pane; where the content and the glass were drawn in the window; how tall a glass the grab covers
+    badge, recording, _sec = "", None, 0  # beside "Listening" ("Dictation · Gmail"); when a meeting recording began; the second last drawn
+    timer = None  # when the next voice timer rings (time.time()): the resting pill counts it down
+    said, _heard_at = None, 0.0  # how loud Nova's voice is now, eased (None: no level is coming, the bars swing by themselves)
+    frames = collections.deque(maxlen=600)  # (seconds since the last frame, seconds it took to draw): for tuning the motion
+    back, _pane, _at, _glass = None, None, None, None  # the blurred screen behind (image, x, y); the glass at the size
+    # it is growing to (its key, the image); where the content and the glass were drawn in the window
 
     def __init__(self, root, on_click, on_menu=None, position="bottom", reveal="always"):
         self.scale = dpi_scale(root)
@@ -523,10 +548,7 @@ class Bar(Layered):
 
     def attach(self, card):
         """A card (core/overlay.py) to grow into, or None to shrink back to the pill."""
-        bigger = card is not None and (self.card is None or card.size[1] > self._grab_h)
         self.card, self.dirty = card, True
-        if bigger and self._vis:
-            self._grab()  # the glass is about to cover more of the screen than was grabbed behind it
         self._apply()
         self._wake()
 
@@ -588,6 +610,8 @@ class Bar(Layered):
         blocked = self.suppressed or system.mouse_down() or not system.cursor_visible()
         stage = self.reveals.update(pos, self._zone(), self._keep(), blocked)
         if stage != self.stage:
+            if (self.stage, stage) == ("peek", "open") and self.card is None:  # the glow condenses into the pill
+                self.w, self.h, self.vw, self.vh, self._key = 64.0, 4.0, 0.0, 0.0, None
             self.stage, self.dirty = stage, True
             self._apply()
             self._wake()
@@ -620,16 +644,20 @@ class Bar(Layered):
         self._wake()
 
     def _grab(self):
-        """The screen behind where the glass is going, blurred, for its glass (Nova's own windows are left out of it).
-        A tenth larger than the glass: the spring overshoots a little on its way."""
+        """The screen behind the glass, blurred, for its glass (Nova's own windows are left out of it). Everywhere the
+        glass can reach, the tallest card included, so growing into a card never has to stop and look again."""
         if system.IS_MAC:
             self.back = None
             return
-        tw, th = self._target()
-        half, tall = (max(tw, 300) * 1.1 / 2 + 4) * self.scale, (th * 1.1 + 4) * self.scale
+        half, tall = (GRAB[0] / 2 + 4) * self.scale, (GRAB[1] + 4) * self.scale
         x0, y0 = int(self.cx - half), int(self.anchor if self.top else self.anchor - tall)
         img = glass.backdrop((x0, y0, int(self.cx + half), int(y0 + tall)))
-        self.back, self._grab_h = ((img, x0, y0) if img is not None else None), th
+        self.back, self.dirty = ((img, x0, y0) if img is not None else None), True
+
+    def _regrab(self):
+        """The same while the bar is on screen and about to move, off the UI thread: the grab takes longer than a frame,
+        and the first frame of a change is the one the eye catches. The glass takes the new backdrop when it's ready."""
+        threading.Thread(target=self._grab, daemon=True).start()
 
     def _text_w(self, text):
         return self.f_label.getlength(text) / SS / self.scale
@@ -642,15 +670,30 @@ class Bar(Layered):
         tw = lambda text: self.f_label.getlength(text) / SS / self.scale
         state = self.state
         w = 14 + MARK_W + 10 + tw(self.LABELS.get(state, "Nova"))
-        if state in ("idle", "paused"):  # | ✦ Ask   or   | Paused
-            return max(168, w + 12 + 1 + 8 + (14 + 6 + tw("Ask") if state == "idle" else tw("Paused")) + 14)
+        if state in ("idle", "paused"):  # [● 12:34] | ✦ Ask   or   | Paused
+            rec = (12 + 7 + 6 + tw(self._clock()) if self.recording else 0) + (12 + 9 + 6 + tw(self._left()) if self.timer else 0)
+            return max(168, w + rec + 12 + 1 + 8 + (14 + 6 + tw("Ask") if state == "idle" else tw("Paused")) + 14)
         if state == "listening":
-            return w + 16 + 48 + 12 + 24 + 9
+            note = self._f_badge().getlength(self.badge.upper()) / SS / self.scale + 12 if self.badge else 0
+            return w + 16 + 48 + note + 12 + 24 + 9
         if state == "thinking":
             return w + 12 + 24 + 9
         if state == "speaking":
             return w + 14 + 19 + 8 + 24 + 9
         return w + 14
+
+    def _f_badge(self):
+        return mono_font(int(10.5 * self.scale * SS))
+
+    def _clock(self):
+        """How long the meeting has been recording: 4:07, or 1:04:07."""
+        m, s = divmod(max(0, int(time.time() - self.recording)), 60)
+        return f"{m // 60}:{m % 60:02}:{s:02}" if m >= 60 else f"{m}:{s:02}"
+
+    def _left(self):
+        """How long until the timer rings: 4:07."""
+        m, s = divmod(max(0, math.ceil(self.timer - time.time())), 60)
+        return f"{m // 60}:{m % 60:02}:{s:02}" if m >= 60 else f"{m}:{s:02}"
 
     def _target(self):
         return self.card.size if self.card is not None else (self._pill_width(), CAPSULE)
@@ -658,11 +701,11 @@ class Bar(Layered):
     def set(self, state):
         if state == "listening" and self.state != "listening":
             self.levels.extend([0.0] * self.levels.maxlen)
-        changed = state != self.state
+        changed, shown = state != self.state, self._vis
         self.state, self.dirty = state, True
-        self._apply()  # a working state shows a hidden bar; going idle hides it again
-        if changed and self._vis:
-            self._grab()  # the screen may have changed since the glass was made
+        self._apply()  # a working state shows a hidden bar (with a fresh backdrop); going idle hides it again
+        if changed and shown and self._vis:
+            self._regrab()  # the screen may have changed since the glass was made
         self._wake()
 
     def _clicked(self, event):
@@ -687,17 +730,25 @@ class Bar(Layered):
 
     def level(self, value):
         self.levels.append(value)
+        self._heard_at = time.monotonic()
 
     def _tick(self):
         tw, th = self._target()
         now = time.monotonic()
-        dt = min(0.05, now - self._last) if self._last else 1 / 60  # a stale first step after a long rest stays small
+        gap = now - self._last if self._last else 1 / 60
+        dt = self._dt = min(0.05, gap)  # a stale first step after a long rest stays small
         self._last = now
         if system.reduced_motion():
             self.w, self.h, self.vw, self.vh = tw, th, 0.0, 0.0
         else:
             self.w, self.vw = spring(self.w, self.vw, tw, dt)
             self.h, self.vh = spring(self.h, self.vh, th, dt)
+        if self.state == "speaking" and now - self._heard_at < 0.3:  # Nova's voice is reporting how loud it is: follow it
+            self.said = (self.said or 0.0) + (self.levels[-1] - (self.said or 0.0)) * (1 - math.exp(-dt * 22))
+        else:
+            self.said = None
+        if (self.recording or self.timer) and int(time.time()) != self._sec:  # the recording's clock and the timer tick, at rest too
+            self._sec, self.dirty = int(time.time()), True
         moving = abs(tw - self.w) > 0.2 or abs(th - self.h) > 0.2 or abs(self.vw) > 0.5 or abs(self.vh) > 0.5
         moving = moving or self._in_motion(now)
         active = self.dirty or moving or self.state not in ("idle", "paused") or bool(self.card and self.card.live)
@@ -709,8 +760,14 @@ class Bar(Layered):
         if active:
             self._draw()
             self.dirty = False
-        # a bar at rest looks again 4 times a second, not 30: it is on screen all day; moving, it follows the display
-        self._job = self.win.after(16 if moving and active else 33 if active else 250, self._tick)
+            self.frames.append((gap, time.monotonic() - now))
+        # a bar at rest looks again 4 times a second: it is on screen all day. Alive, it draws 60 times a second: the
+        # wait is what is left of a frame after drawing (Windows' timer fires every 15.6 ms, so asking for 33 gave 47)
+        spent = (time.monotonic() - now) * 1000
+        # shortcut: a Mac encodes a PNG per frame (see _present), so there only a moving glass gets 60; a layer-backed
+        # view fed raw pixels would lift that
+        frame = FRAME_MS if moving or not system.IS_MAC else 33
+        self._job = self.win.after(max(1, int(frame - spent) - 1) if active else 250, self._tick)
 
     def _in_motion(self, now):
         """An entrance, an exit, a swap, a shake or a hover still playing."""
@@ -753,15 +810,8 @@ class Bar(Layered):
         self._glass = None  # set again by _draw_glass; the peek glow takes any click
         s = self.scale * SS
         W, H = self.W * SS, self.H * SS
-        img = Image.new("RGBA", (W, H))
-        d = ImageDraw.Draw(img)
         if self.peeking:  # just a glow along the screen's top edge, so the pill isn't there until you dwell
-            line = 32 * s
-            for i, spread in enumerate((6, 4, 2)):
-                g = spread * s
-                d.rounded_rectangle((W / 2 - line - g, -g, W / 2 + line + g, 3 * s + g), radius=(3 * s + 2 * g) / 2,
-                                    fill=theme.T["accent"] + (30 + 25 * i,))
-            d.rounded_rectangle((W / 2 - line, 0, W / 2 + line, 3 * s), radius=1.5 * s, fill=theme.T["accent"] + (255,))
+            img = _edge_glow(W, H, s, theme.T["accent"])
             glow, x, y, alpha = self._motion(img.resize((self.W * self.px, self.H * self.px), Image.LANCZOS), self.x, self.y,
                                              time.monotonic())
             self._present(glow, x, y, alpha)
@@ -778,23 +828,30 @@ class Bar(Layered):
         w, h = max(8.0, self.w), max(8.0, self.h)
         gw, gh, m = round(w * k), round(h * k), round(MARGIN * k)
         W, H = gw + 2 * m, gh + 2 * m
-        r = round(min(gh / 2, 21 * k))
         accent = AMBER if state == "approval" and card is None else T["accent"]
         paused = state == "paused" and card is None
-        out = _halo(W, H, m, gw, gh, r, accent).copy()
         x = round(self.cx - W / self.px / 2)
         y = round(self.anchor - m / self.px) if self.top else round(self.anchor - (gh + m) / self.px)
-        back = None
-        if self.back:  # the part of the grabbed screen this glass covers (Windows, where px is 1)
-            img, bx, by = self.back
-            sx, sy = x + m - bx, y + m - by
-            if sx >= 0 and sy >= 0 and sx + gw <= img.width and sy + gh <= img.height:
-                back = img.crop((sx, sy, sx + gw, sy + gh))
-        # the pane changes only with its size, colour or backdrop: not with each frame of a waveform
-        key = (gw, gh, r, T["tint"], accent, paused, id(self.back) if back else None)
+        # the glass is made once, at the size it is growing (or shrinking) to, and fitted to each size on the way: its
+        # corners stay as drawn, its straight parts stretch. A glass smaller than its own corners (coming out of the
+        # glow at the screen's edge) is made as it is
+        small = gh < round(min(th, 2 * 21) * k) - 2
+        sw, sh = (gw, gh) if small else (round(tw * k), round(th * k))
+        r = round(min(sh / 2, 21 * k))
+        key = (sw, sh, r, T["tint"], accent, paused, id(self.back))
         if not self._pane or self._pane[0] != key:
-            self._pane = key, glass.pane(gw, gh, r, T["tint"], accent, back, 150 if paused else glass.OPACITY)
-        out.alpha_composite(self._pane[1], (m, m))
+            back = None
+            if self.back:  # the part of the grabbed screen this glass covers (Windows, where px is 1)
+                img, bx, by = self.back
+                sx = round(self.cx - sw / self.px / 2) - bx
+                sy = round(self.anchor if self.top else self.anchor - sh / self.px) - by
+                if sx >= 0 and sy >= 0 and sx + sw <= img.width and sy + sh <= img.height:
+                    back = img.crop((sx, sy, sx + sw, sy + sh))
+            shell = _halo(sw + 2 * m, sh + 2 * m, m, sw, sh, r, accent).copy()
+            shell.alpha_composite(glass.pane(sw, sh, r, T["tint"], accent, back, 150 if paused else glass.OPACITY), (m, m))
+            self._pane = key, shell
+        out = glass.fit(self._pane[1], W, H, m + r)
+        out = out.copy() if out is self._pane[1] else out
         self._glass = (m, m, m + gw, m + gh)
         # how close the glass is to its size, growing or shrinking: the new content comes in near the end
         near = min(min(w, tw) / max(w, tw), min(h, th) / max(h, th)) if tw and th else 1.0
@@ -830,7 +887,7 @@ class Bar(Layered):
                 shown.putalpha(shown.getchannel("A").point(lambda v: round(v * alpha)))
             self._paste(layer, shown, ox, oy + round(4 * k * (1 - alpha)))
             self._at = (m + ox, m + oy)
-        layer.putalpha(ImageChops.multiply(layer.getchannel("A"), glass.mask(gw, gh, r)))  # inside the glass
+        layer.putalpha(ImageChops.multiply(layer.getchannel("A"), glass.fit(glass.mask(sw, sh, r), gw, gh, r)))  # inside the glass
         out.alpha_composite(layer, (m, m))
         out, x, y, a = self._motion(out, x, y, t)
         self._present(out, x, y, a)
@@ -850,7 +907,7 @@ class Bar(Layered):
         colors = [AMBER] * 5 if state == "approval" else [GREY] * 5 if state == "paused" else None
         for i, lv in enumerate(list(self.levels)[-8:]):  # the microphone, eased so it doesn't jitter
             aim = min(1.0, lv * 1.5)
-            self.shown[i] += (aim - self.shown[i]) * (0.6 if aim > self.shown[i] else 0.22)
+            self.shown[i] += (aim - self.shown[i]) * (1 - math.exp(-self._dt * (40 if aim > self.shown[i] else 9)))  # up fast, down slow
         bands = [max(self.shown[j], self.shown[j + 1]) for j in (0, 2, 3, 5, 6)]
         x += mark(img, x, cy, s, 1, colors, state, t, self._born, bands) + 10 * s
         label = self.LABELS.get(state, "Nova")
@@ -863,6 +920,15 @@ class Bar(Layered):
             alpha = 255 if state == "approval" else 204 if state in ("listening", "speaking") else round(128 + 76 * lit)
             d.text((x, cy), label, font=self.f_label, fill=(AMBER if state == "approval" else WHITE) + (alpha,), anchor="lm")
         x += self.f_label.getlength(label)
+        if state in ("idle", "paused") and self.recording:  # a meeting is being recorded: a red dot and how long
+            d.ellipse((x + 12 * s, cy - 3.5 * s, x + 19 * s, cy + 3.5 * s), fill=(229, 72, 77, 255))
+            d.text((x + 25 * s, cy), self._clock(), font=self.f_label, fill=WHITE + (204,), anchor="lm")
+            x += (7 + 6 + 12) * s + self.f_label.getlength(self._clock())
+        if state in ("idle", "paused") and self.timer:  # a timer is running: a small dial and what is left
+            ring = (x + 12 * s, cy - 4.5 * s, x + 21 * s, cy + 4.5 * s)
+            d.ellipse(ring, outline=T["light"] + (255,), width=max(1, round(1.4 * s)))
+            d.line((x + 16.5 * s, cy, x + 16.5 * s, cy - 3 * s), fill=T["light"] + (255,), width=max(1, round(1.4 * s)))
+            d.text((x + 27 * s, cy), self._left(), font=self.f_label, fill=WHITE + (204,), anchor="lm")
         if state in ("idle", "paused"):  # a hairline, then ✦ Ask (or Paused) at the right
             word = "Ask" if state == "idle" else "Paused"
             group = self.f_label.getlength(word) + ((14 + 6) * s if state == "idle" else 0)
@@ -876,8 +942,10 @@ class Bar(Layered):
             floor = (0.35, 0.6, 0.45, 0.7, 0.4, 0.6, 0.5, 0.3)  # a resting shape, so silence still reads as listening
             heights = [(4 + 16 * max(f * 0.35, v)) * s for f, v in zip(floor, self.shown[:8])]
             wave(img, x + 16 * s, cy, heights, 2.5 * s, 4 * s, T["accent"])
+            if self.badge:  # which mode is listening, and whose tone: quiet mono caps
+                d.text((x + (16 + 48 + 12) * s, cy), self.badge.upper(), font=self._f_badge(), fill=WHITE + (128,), anchor="lm")
         elif state == "speaking":  # four bars, like a voice
-            heights = [(0.5 if still else 0.3 + 0.7 * abs(math.sin(t * 5 + i * 0.9))) * 12 * s for i in range(4)]
+            heights = [(0.5 if still else voice(t, i, self.said)) * 12 * s for i in range(4)]
             wave(img, x + 14 * s, cy, heights, 2.5 * s, 3 * s, T["accent"])
         if state in ("listening", "thinking", "speaking"):  # stop, with no frame around it
             stop_square(d, right - 21 * s, cy, s, 5 * s)

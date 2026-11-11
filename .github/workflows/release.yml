@@ -11,7 +11,14 @@ permissions:
   contents: write
 
 jobs:
+  # the same checks as every push: a tag on a commit that fails them publishes nothing to the Update button
+  windows:
+    uses: ./.github/workflows/windows.yml
+  mac:
+    uses: ./.github/workflows/macos.yml
+
   release:
+    needs: [windows, mac]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

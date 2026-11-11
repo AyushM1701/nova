@@ -9,7 +9,7 @@ import math
 import threading
 import time
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 from core import system
 from core.bar import Layered
@@ -140,13 +140,22 @@ class Ink(Layered):
         if len(pts) < 2:
             return
         s = self.px
-        pad = 8
+        pad = 14
         left, top = min(x for x, _ in pts) - pad, min(y for _, y in pts) - pad
         right, bottom = max(x for x, _ in pts) + pad, max(y for _, y in pts) + pad
-        img = Image.new("RGBA", (int((right - left) * s), int((bottom - top) * s)))
-        d = ImageDraw.Draw(img)
+        mask = Image.new("L", (int((right - left) * s), int((bottom - top) * s)))
+        d = ImageDraw.Draw(mask)
         line = [((x - left) * s, (y - top) * s) for x, y in pts]
-        d.line(line, fill=TRAIL + (230,), width=max(3, round(4 * s)), joint="curve")
+        for i, (a, b) in enumerate(zip(line, line[1:]), 1):  # a ribbon of ink: thin and faint where it began, full at the pointer
+            f = i / (len(line) - 1)
+            wide, tone = max(1, round((1.5 + 3.5 * f) * s)), round(255 * (0.3 + 0.7 * f))
+            r = wide / 2  # the joint exactly as wide as the line, or the ribbon's edge is beaded
+            d.line((a, b), fill=tone, width=wide)
+            d.ellipse((b[0] - r, b[1] - r, b[0] + r, b[1] + r), fill=tone)  # a round joint
+        soft = mask.filter(ImageFilter.GaussianBlur(0.7 * s))  # Pillow's lines have hard edges
+        glow = mask.reduce(4).filter(ImageFilter.GaussianBlur(1.5 * s)).resize(mask.size, Image.BILINEAR).point(lambda v: v * 2 // 5)
+        img = Image.new("RGBA", mask.size, TRAIL + (0,))
+        img.putalpha(ImageChops.lighter(soft, glow))
         self._show()
         self._present(img, int(left), int(top))
 

@@ -300,13 +300,15 @@ def sounds_like(words, at_least):
     return end if best >= at_least else None
 
 
-def listen(transcribe, on_wake, enabled, running=lambda: True, sensitivity=lambda: "high", played=None, refresh=None):
+def listen(transcribe, on_wake, enabled, running=lambda: True, sensitivity=lambda: "high", played=None, refresh=None,
+           on_fail=None):
     """Run until `running()` is False (own thread). on_wake(None) = start listening, on_wake(audio) = this
     audio is the request. `enabled()` is False while Nova is busy, so its own voice can't wake it.
     Returning closes the microphone, so turning the wake word off really stops listening.
     Needs the keyword model (models.download("kws")); Nova fetches it before calling this. `played`: what the
     computer is playing (loopback.Tail), so a voice from its own speakers can't wake Nova. `refresh()` is called, with
-    the microphone closed, when the device in use looks out of date (see Detector.stale, or a stream that stalled)."""
+    the microphone closed, when the device in use looks out of date (see Detector.stale, or a stream that stalled).
+    `on_fail(error)`: called once when the microphone can't be opened, and again only after it worked in between."""
     failed = False
     while running():
         try:
@@ -318,6 +320,8 @@ def listen(transcribe, on_wake, enabled, running=lambda: True, sensitivity=lambd
             # a Mac may need Nova restarted for a microphone first plugged in after it started
             if not failed:
                 log("error", error=f"\"Hey Nova\" microphone unavailable, retrying: {e!r}")
+                if on_fail:
+                    on_fail(e)
             failed = True
             time.sleep(RETRY_S)
 

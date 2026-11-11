@@ -9,10 +9,10 @@ import math
 import random
 import zlib
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 from core import system
-from core.bar import Layered, _font, dpi_scale
+from core.bar import Layered, _font, dpi_scale, in_out
 from core.draw import _cut, _length, _rounded_box
 
 SS = 2  # drawn 2x, then downscaled: smooth edges
@@ -21,9 +21,10 @@ PAPER, EDGE, BAR_BG = (249, 247, 240), (200, 196, 184), (233, 231, 223)
 INK, GREY, BLUE, MARK, PEN = (32, 34, 44), (118, 120, 132), (74, 144, 255), (255, 228, 110), (30, 52, 120)
 HAND = ("Inkfree.ttf", "segoepr.ttf", "/System/Library/Fonts/Noteworthy.ttc",
         "/System/Library/Fonts/Supplemental/Bradley Hand Bold.ttf", "segoeui.ttf", "/System/Library/Fonts/Helvetica.ttc")
-FRAME_MS = 45
-TOTAL_FRAMES = 28 if system.IS_MAC else 56  # about 3 s on this PC in all (frame time plus the time to show each one)
-MAX_FRAMES = 10  # per line
+FRAME_MS = 28  # two ticks of Windows' 15.6 ms timer: about 32 frames a second
+TOTAL_FRAMES = 48 if system.IS_MAC else 96  # about 3 s on this PC in all (frame time plus the time to show each one)
+MAX_FRAMES = 18  # per line
+FADE = (60, 130, 200)  # the window's alpha, a tick apart, as the note arrives; the other way as it leaves
 HOLD_S = 25  # how long it stays once Nova has finished speaking
 _fonts = {}
 
@@ -75,7 +76,7 @@ class _Ctx:
             return 1.0
         if self.t >= 1.0:
             return 1.0
-        return min(1.0, max(0.0, (self.t - self.starts[i]) / self.lens[i]))
+        return in_out((self.t - self.starts[i]) / self.lens[i])  # each stroke starts and ends gently, as a hand does
 
     # pen operations
     def tip(self, x, y):
@@ -129,8 +130,13 @@ class _Ctx:
     def _wipe(self, draw, x0, x1, f, tip_y):
         tmp = Image.new("RGBA", self.img.size)
         draw(ImageDraw.Draw(tmp))
-        cut = int(x0 + (x1 - x0) * f)
-        self.img.alpha_composite(tmp.crop((0, 0, max(1, cut), tmp.height)), (0, 0))
+        soft = round(10 * self.u)  # the ink comes up over this much behind the pen, not at a hard edge
+        cut = int(x0 + (x1 - x0 + soft) * f)
+        ramp = Image.new("L", (tmp.width, 1))
+        ramp.putdata([max(0, min(255, (cut - x) * 255 // soft)) for x in range(tmp.width)])
+        tmp.putalpha(ImageChops.multiply(tmp.getchannel("A"), ramp.resize(tmp.size)))
+        self.img.alpha_composite(tmp)
+        cut = min(cut, int(x1))
         if tip_y is not None:
             self.tip(cut, tip_y)
 
@@ -415,6 +421,12 @@ def build(sketch, scale, total_frames=TOTAL_FRAMES):
     d = ImageDraw.Draw(base)
     top = m + PILL * scale
     d.rounded_rectangle((m, top, W - m, H - m), 10 * scale, fill=PAPER, outline=EDGE, width=max(1, round(scale)))
+    tooth = Image.new("L", (W, H))  # the paper's tooth: fine dark specks, on the sheet only
+    ImageDraw.Draw(tooth).rounded_rectangle((m + 1, top + 1, W - m - 1, H - m - 1), 10 * scale, fill=255)
+    tooth = ImageChops.multiply(tooth, Image.effect_noise((W, H), 40).point(lambda v: max(0, 128 - v) // 5))
+    speck = Image.new("RGBA", (W, H), (90, 80, 60, 0))
+    speck.putalpha(tooth)
+    base.alpha_composite(speck)
     d.rounded_rectangle((m, top, W - m, top + HEADER * scale), 10 * scale, fill=BAR_BG, outline=EDGE, width=max(1, round(scale)),
                         corners=(True, True, False, False))
     small = _font(int(13 * scale), HAND[-2:-1] + HAND[-1:])
@@ -477,9 +489,16 @@ class SketchPad(Layered):
         y = note_top(top, bottom, base.height / self.px, self.below())
         page = base.copy()
         self._show()
-        self._present(page, x, y)
+        self._page = (page, x, y)
+        self._present(page, x, y, FADE[0])
         steps = [(frame, el["x"], el["y"], k == len(el["frames"]) - 1) for el in built["elements"]
                  for k, frame in enumerate(el["frames"])]
+
+        def arrive(i):  # the paper fades in, then the pen starts
+            if i == len(FADE):
+                return step(0)
+            self._present(page, x, y, FADE[i])
+            self._jobs = [self.win.after(14, arrive, i + 1)]
 
         def step(i):
             frame, fx, fy, last = steps[i]
@@ -492,7 +511,7 @@ class SketchPad(Layered):
                 self._jobs = []
                 if self.held and self.held[0] is built["sketch"]:  # Nova finished speaking before the drawing did
                     self.hold(built["sketch"], self.held[1])
-        step(0)
+        arrive(1)
 
     def hold(self, sketch, seconds=HOLD_S):
         """Clear the note for `sketch` `seconds` after its drawing is done (or now, if it is), unless something newer has
@@ -500,7 +519,16 @@ class SketchPad(Layered):
         self.held = (sketch, seconds)
         built = self.current
         if built and built["sketch"] is sketch and not self._jobs and self._hide_job is None:
-            self._hide_job = self.win.after(int(seconds * 1000), lambda: self.hide() if self.current is built else None)
+            self._hide_job = self.win.after(int(seconds * 1000), lambda: self._leave(built, len(FADE)))
+
+    def _leave(self, built, i):
+        """Its time is up: the note fades out (unless something newer has replaced it)."""
+        if self.current is not built:
+            return
+        if i == 0:
+            return self.hide()
+        self._present(*self._page, FADE[i - 1])
+        self._hide_job = self.win.after(14, self._leave, built, i - 1)
 
     def hide(self):
         for job in self._jobs + ([self._hide_job] if self._hide_job else []):
