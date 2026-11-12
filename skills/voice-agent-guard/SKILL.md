@@ -32,6 +32,10 @@ A voice command has no one reading the terminal. A misheard word ("delete" for "
 - Rewriting or publishing git history: `git push`, `reset --hard`, `clean`, `rebase`, `commit --amend`, `branch -D`, `stash drop`.
 - Deploying or publishing: `vercel`, `netlify`, `npm publish`, `docker push`, `kubectl`, `terraform apply`, `gh pr/issue/release create|merge|close|comment`.
 - Installing or removing software: `pip/npm/brew/winget/cargo ... install|uninstall|upgrade`, `msiexec`.
+- Downloading and running a package in one go: `npx <pkg>`, `npm exec`, `pnpm dlx`, `yarn dlx`, `bunx`, `uvx`, `pipx run` (test runners like `npx jest` stay allowed).
+- Text piped into a shell or interpreter: `... | sh`, `... | bash -s`, `... | python` (`echo cHM= | base64 -d | sh` hides code this way).
+- Changing git settings: `git config core.hooksPath` or a `!` alias makes the next allowed `git commit` run any program. `git config --get` is fine.
+- Redirects (`>`, `>>`) into startup or system files: `$PROFILE`, `~/.bashrc`, `~/.zshrc`, AppData, LaunchAgents. Check redirect targets against the same protected list as file edits.
 - Closing programs: `taskkill`, `Stop-Process`, `kill`, `pkill`. Shutting down or restarting.
 - Admin rights: `sudo`, `-Verb RunAs`.
 - System configuration: registry writes, `schtasks`, services, `Set-ExecutionPolicy`, `launchctl`, `chmod`/`chown`, `defaults write`.

@@ -115,6 +115,14 @@ CONFIRM = [
     (r"\s-enc(odedcommand)?\b|frombase64string|\b(powershell|pwsh)(\.exe)?\b" + UNTIL_END + r"\s-e[a-z]*\s",
      "runs an encoded command"),
     (r"\bgit\s+-c\b", "runs git with a setting that can start a program"),
+    # core.hooksPath or a "!" alias makes the next (allowed) git commit run any program; reading a setting is fine
+    (r"\bgit\s+config\b(?!\s+(--get\S*|--list|-l)(\s|$))", "changes a git setting that can start a program"),
+    # fetch a package from the internet and run it in one go, the same as installing it (test runners stay allowed)
+    (r"\bnpx\s+(?!(jest|vitest|tsc|playwright\s+test)(\s|$))|\b(bunx|uvx)\b|\bpipx\s+run\b|\buv\s+tool\s+run\b"
+     r"|\b(npm|pnpm)\s+(exec|x|dlx)\b|\byarn\s+dlx\b", "downloads and runs a package"),
+    # text piped into a shell or interpreter is code ("echo cHM= | base64 -d | sh"); "| python x.py" runs a file
+    (r"\|\s*(sh|bash|zsh|dash|ksh|fish|pwsh|powershell|cmd|python3?|py|node|ruby|perl|php)(\.exe)?(\s+-\S*)*\s*($|[;&|)\n])",
+     "runs code piped into a shell"),
     (r"\bmklink\b|-itemtype\s+(?:junction|symboliclink|hardlink)\b|\bln\s+-\w*s",
      "makes a link that can lead to a protected place"),
     # bash's backslash inside a command name ("r\m -rf ~") hides it from every rule above; a Windows path or an
@@ -354,8 +362,14 @@ def _command(cmd, home=None, cwd=None):
     if ">" in re.sub(r"\d?>\s*&\s*\d|\d?>\s*(\$null|/dev/null|nul)\b", "", c):
         # the same rule the Edit tool gets: "echo x > guard/guard.py", also after a "cd .." and with quotes or
         # $env:NOVA_HOME in the path
-        if _names_safety_file(cmd, home, cwd, re.findall(r">\s*([^\s;|&<>()]+)", unquote(cmd))):
+        targets = re.findall(r">\s*([^\s;|&<>()]+)", unquote(cmd))
+        if _names_safety_file(cmd, home, cwd, targets):
             return "block", NOVA_SAFETY
+        # the same protected places the Edit tool asks about in Auto: shell startup files, PowerShell's $PROFILE...
+        for t in targets:
+            spots = [t.lower().replace("~", "/~")] + ([_real(cwd, t).lower()] if cwd else [])
+            if "$profile" in spots[0] or any(re.search(PROTECTED, s) for s in spots):
+                return "confirm", "writes a startup or system file through a redirect"
         return "confirm", "writes a file through a redirect"
     if cwd and _local_program(cmd, cwd):  # "start build" runs build.bat from this folder
         return "confirm", "starts a program that lives in this folder"
