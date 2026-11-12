@@ -1,6 +1,7 @@
 ---
 name: voice-replies
 description: Write replies that sound natural when read aloud by text-to-speech. Use when building or acting as a voice assistant on top of Claude Code, Codex or any agent, when output goes to a TTS engine, or when the user says the answer will be spoken.
+tags: [voice, text-to-speech, tts, voice-assistant, claude-code, codex]
 ---
 
 # Replies for the ear

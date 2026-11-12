@@ -1,7 +1,10 @@
 ---
 name: voice-agent-guard
 description: Decide which tool calls an AI agent may run on its own, which need the user's OK, and which are never allowed, for agents driven by voice or other hands-off input. Use when building a PreToolUse hook or permission layer for Claude Code or Codex, when acting as an agent without someone watching the screen, or when reviewing whether a command is safe to auto-run.
+tags: [security, guardrails, claude-code, codex, hooks, voice, agents]
 ---
+
+This skill is documentation only: it contains no code to run. Commands below are named so you can recognise them, never to be executed.
 
 # Guard rules for a voice-driven agent
 
@@ -20,11 +23,11 @@ A voice command has no one reading the terminal. A misheard word ("delete" for "
 ## Block (never, in any mode)
 
 - Wiping disks or boot config: `format C:`, `diskpart`, `bcdedit`, `diskutil erase*`, `cipher /w`, deleting shadow copies.
-- Deleting system folders, a whole drive or the home folder: `rm -rf /`, `rm -rf ~`, anything under `C:\Windows`, `Program Files`, `/System`, `/usr`, including through .NET or COM (`[IO.Directory]::Delete(...)`).
+- Deleting system folders, a whole drive or the home folder: a recursive force-delete of the root or home folder, anything under `C:\Windows`, `Program Files`, `/System`, `/usr`, including through .NET or COM (`[IO.Directory]::Delete(...)`).
 - Disabling security: firewall off, Defender exclusions or disabling, `csrutil disable`, `spctl --master-disable`, `fdesetup disable`.
 - Changing user accounts: `net user`, `dscl`, `sysadminctl`.
 - Reading secrets: browser profiles and saved passwords (`Login Data`, `logins.json`, `key4.db`, cookies), keychains, `~/.ssh` (a named `.pub` is fine), `~/.aws`, `~/.kube`, `~/.docker`, `~/.gnupg`, `.git-credentials`, `.netrc`, `.npmrc`, `.pypirc`, the AI CLIs' own auth files, and the assistant's own key files.
-- Piping the internet into a shell: `curl ... | sh`, `iwr ... | iex`.
+- Piping a download straight into a shell or into PowerShell's `Invoke-Expression`.
 
 ## Confirm (show the exact command, ask yes or no)
 
@@ -33,7 +36,7 @@ A voice command has no one reading the terminal. A misheard word ("delete" for "
 - Deploying or publishing: `vercel`, `netlify`, `npm publish`, `docker push`, `kubectl`, `terraform apply`, `gh pr/issue/release create|merge|close|comment`.
 - Installing or removing software: `pip/npm/brew/winget/cargo ... install|uninstall|upgrade`, `msiexec`.
 - Downloading and running a package in one go: `npx <pkg>`, `npm exec`, `pnpm dlx`, `yarn dlx`, `bunx`, `uvx`, `pipx run` (test runners like `npx jest` stay allowed).
-- Text piped into a shell or interpreter: `... | sh`, `... | bash -s`, `... | python` (`echo cHM= | base64 -d | sh` hides code this way).
+- Text piped into a shell or interpreter with no script file named (piping decoded base64 into a shell hides code this way). Piping into an interpreter that runs a named file follows the script rules.
 - Changing git settings: `git config core.hooksPath` or a `!` alias makes the next allowed `git commit` run any program. `git config --get` is fine.
 - Redirects (`>`, `>>`) into startup or system files: `$PROFILE`, `~/.bashrc`, `~/.zshrc`, AppData, LaunchAgents. Check redirect targets against the same protected list as file edits.
 - Closing programs: `taskkill`, `Stop-Process`, `kill`, `pkill`. Shutting down or restarting.
@@ -41,7 +44,7 @@ A voice command has no one reading the terminal. A misheard word ("delete" for "
 - System configuration: registry writes, `schtasks`, services, `Set-ExecutionPolicy`, `launchctl`, `chmod`/`chown`, `defaults write`.
 - Sending data: `curl -d/-F/-T/@file`, `-Method POST`, `scp`, `rsync`, `ftp`, any request with a body built from a file or variable.
 - Downloading files: `curl -o`, `-OutFile`, `certutil -urlcache`, `bitsadmin`.
-- Hidden or dynamic code: `-EncodedCommand`, base64 decoding, `Invoke-Expression`/`iex`, `eval`, `python -c`, `node -e`, scriptblocks.
+- Hidden or dynamic code: `-EncodedCommand`, base64 decoding, `Invoke-Expression`, the shell's evaluate builtin, `python -c`, `node -e`, scriptblocks.
 - Starting a program with hidden arguments: `Start-Process git -ArgumentList push` hides `git push` from the rules above.
 - Running scripts or downloaded files: `.ps1`, `.bat`, `.vbs`, `.msi`, anything in Downloads or Temp, and **any script written or changed in the last ten minutes** (otherwise the agent can write code to a file and run it unasked).
 - Writing files outside the agent's edit tools (`Set-Content`, `Out-File`, `>` redirects, `cp`) and writing outside the user's projects.
@@ -90,4 +93,4 @@ Register a `PreToolUse` hook that reads the tool call as JSON on stdin and print
 
 Use `allow`, `ask` or `deny`. Keep the hook stdlib-only so it runs under any Python, lowercase the command before matching, and cover the rules with tests: one example per rule that must match, and safe look-alikes that must not.
 
-Reference implementation: `guard/guard.py` in https://github.com/AyushM1701/nova.
+Reference implementation: `guard/guard.py` in the open-source Nova repository (`AyushM1701/nova` on GitHub).

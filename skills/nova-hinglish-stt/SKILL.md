@@ -1,6 +1,7 @@
 ---
 name: nova-hinglish-stt
 description: Set up offline speech-to-text that understands English, Hindi and Hinglish and writes Hindi in Roman letters ("kal meeting cancel kar do", not Devanagari), using the Nova Whisper Hinglish model with faster-whisper. Use when the user wants voice input, dictation or transcription for Hindi, Hinglish or Indian English.
+tags: [speech-to-text, whisper, hinglish, hindi, voice, transcription]
 ---
 
 # Nova Whisper Hinglish speech-to-text
@@ -35,15 +36,7 @@ GPU on Windows or Linux also needs the CUDA 12 libraries:
 pip install nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"
 ```
 
-On Windows, faster-whisper does not find those DLLs by itself. Add each `site-packages/nvidia/*/bin` folder before importing it:
-
-```python
-import glob, os, sys
-if os.name == "nt":
-    for d in glob.glob(os.path.join(sys.prefix, "Lib", "site-packages", "nvidia", "*", "bin")):
-        os.add_dll_directory(d)
-        os.environ["PATH"] = d + os.pathsep + os.environ["PATH"]
-```
+On Windows, faster-whisper does not find those DLLs by itself. Before running the transcribe script, put every `bin` folder under `.venv\Lib\site-packages\nvidia\` at the front of `PATH` in the terminal that runs it (there is one each for cublas and cudnn). Linux finds them without this step.
 
 ## 3. Transcribe
 
@@ -91,11 +84,13 @@ Record or find a short clip, run step 3, and show the user the text. A Hinglish 
 
 ## Troubleshooting
 
-- `Could not load library cudnn...` or `cublas64_12.dll not found`: the CUDA packages are missing or the DLL folders were not added (step 2). Or fall back to CPU.
+- `Could not load library cudnn...` or `cublas64_12.dll not found`: the CUDA packages are missing or the `nvidia\...\bin` folders are not on `PATH` (step 2). Or fall back to CPU.
 - `open() got an unexpected keyword argument 'metadata_errors'`: run `pip install "av<16"`.
 - `pip` times out on the large CUDA packages: retry with `pip install --timeout 120 ...`.
 - Out of GPU memory: use `compute_type="int8_float16"`.
 - Download stalls: set `HF_HUB_ENABLE_HF_TRANSFER=0` and retry; behind a proxy, set `HTTPS_PROXY`.
 - Microphone input: record 16 kHz mono with `sounddevice` and pass the float32 numpy array straight to `transcribe()`.
 
-Source and training pipeline: https://github.com/AyushM1701/nova (folder `helpers/hinglish_train`).
+## Network access
+
+Only two downloads, both on first use: the Python packages from PyPI (step 2) and the model from Hugging Face (step 3). After that everything runs offline. Training code: the Nova repository on GitHub (`AyushM1701/nova`, folder `helpers/hinglish_train`).
